@@ -5,3 +5,4 @@ pub mod plotting;
 pub mod particles;
 pub mod model;
 pub mod physics;
+pub mod eos;

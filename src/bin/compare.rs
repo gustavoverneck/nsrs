@@ -31,7 +31,7 @@ fn main() {
     let engines: Vec<PhysicsEngine> = b_fields.iter().map(|&bg| {
         PhysicsEngine::new(model_params, bg)
             .with_limits(0.01, 2.5)
-            .with_points(1200)
+            .with_points(2200)
     }).collect();
 
     // 2. Executa o cálculo paralelo

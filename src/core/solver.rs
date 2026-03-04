@@ -13,27 +13,51 @@ impl Solver {
         Solver { engine }
     }
 
-    /// Resolve uma única EoS sequencialmente (necessário por causa do last_x)
+    /// Resolve a EoS sequencialmente
     pub fn solve(&mut self) -> Vec<[f64; 13]> {
         let n = self.engine.n_points;
         let dmub = (self.engine.mun_sup - self.engine.mun_inf) / (n - 1) as f64;
-        let mut results = Vec::with_capacity(n);
+        let mut results: Vec<[f64; 13]> = Vec::with_capacity(n);
         
-        // Chute inicial ideal para o vácuo (densidade inicial próxima de zero)
-        let mut last_x = [0.0, 0.0, 0.0, 0.0]; 
+        let mut last_x = [0.0, 0.0, 0.0, 0.0];
 
         for i in 0..n {
-            // Agora vamos do MENOR para o MAIOR (Crescente)
             let mun = self.engine.mun_inf + i as f64 * dmub;
             
             if let Some((x, point_result)) = self.engine.solve_point(mun, &last_x) {
-                results.push(point_result);
-                last_x = x; // A solução atual guia suavemente a próxima
+                
+                // --- VERIFICAÇÃO DE ESTABILIDADE (dp/de) ---
+                if !results.is_empty() {
+                    let prev = results.last().unwrap();
+                    let de = point_result[1] - prev[1]; // Variação da Densidade de Energia
+                    let dp = point_result[2] - prev[2]; // Variação da Pressão
+
+                    if de > 0.0 {
+                        let cs2 = dp / de; // Velocidade do som ao quadrado c_s^2
+                        
+                        // Se dp/de for quase zero ou negativo, a estrela é instável.
+                        // Abortamos para evitar que o TOV gere resultados errôneos.
+                        if cs2 < 1e-4 {
+                            println!(
+                                "Abortando: EoS instável (dp/de = {:.2e}) | mun = {:.4} | B = {:.2e} G",
+                                cs2, mun, self.engine.bg
+                            );
+                            break;
+                        }
+
+                        // Verificação opcional de causalidade (cs2 <= 1)
+                        if cs2 > 1.1 {
+                            println!("Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}", cs2, mun);
+                        }
+                    }
+                }
+
+                results.push(point_result); 
+                last_x = x;
             } else {
                 println!(
-                    "Finalizado: mun = {:.4} |  B = {:.2e} G",
-                    mun, 
-                    self.engine.bg
+                    "Abortando: mun = {:.4} | Modelo (gs) = {:.2} | B = {:.2e} G",
+                    mun, self.engine.model.gs, self.engine.bg
                 );
                 break;
             }

@@ -42,11 +42,17 @@ fn main() {
     let mut eos_artist = Artist::new(
         &format!("results/compare_eos_{}.svg", model_name),
         &format!("Equation of State - {}", model_name),
-    );
+    )
+    .with_x_label("Energy Density \u{3B5} [MeV/fm\u{00B3}]"); // ε [MeV/fm³]
+
+
     let mut mr_artist = Artist::new(
         &format!("results/compare_mr_{}.svg", model_name),
         &format!("Mass-Radius Relation - {}", model_name),
-    ).with_x_range(8.0, 14.0);
+    )
+    .with_x_label("Radius [km]")
+    .with_y_label("Mass [M\u{2299}]") // Símbolo solar ⊙
+    .with_x_range(8.0, 14.0); // Fixa o range para estrelas de nêutrons
 
     // 3. Processamento e Exportação Organizada
     for (i, results) in all_results.iter().enumerate() {

@@ -75,7 +75,6 @@ pub fn plot_mr_curve(
 }
 
 
-/// Estrutura para armazenar os dados individuais de cada curva
 #[derive(Clone)]
 pub struct CurveData {
     pub x: Vec<f64>,
@@ -83,7 +82,6 @@ pub struct CurveData {
     pub label: String,
 }
 
-/// O gerenciador de gráficos (Plotter)
 pub struct Artist {
     output_path: String,
     title: String,
@@ -91,11 +89,12 @@ pub struct Artist {
     y_label: String,
     x_min: Option<f64>,
     x_max: Option<f64>,
+    y_min: Option<f64>,
+    y_max: Option<f64>,
     curves: Vec<CurveData>,
 }
 
 impl Artist {
-    /// Inicializa um novo Plotter vazio
     pub fn new(output_path: &str, title: &str) -> Self {
         Self {
             output_path: output_path.to_string(),
@@ -104,30 +103,37 @@ impl Artist {
             y_label: "Mass [M\u{2299}]".to_string(),
             x_min: None,
             x_max: None,
+            y_min: None,
+            y_max: None,
             curves: Vec::new(),
         }
     }
 
-    /// Permite customizar o rótulo do eixo X
     pub fn with_x_label(mut self, label: &str) -> Self {
         self.x_label = label.to_string();
         self
     }
 
-    /// Define manualmente o intervalo do eixo X (ex.: fixar raio 8-14 km)
+    pub fn with_y_label(mut self, label: &str) -> Self {
+        self.y_label = label.to_string();
+        self
+    }
+
+    /// Ativa o ajuste automático (Limpa limites manuais)
+    pub fn autoscale(mut self) -> Self {
+        self.x_min = None;
+        self.x_max = None;
+        self.y_min = None;
+        self.y_max = None;
+        self
+    }
+
     pub fn with_x_range(mut self, min: f64, max: f64) -> Self {
         self.x_min = Some(min);
         self.x_max = Some(max);
         self
     }
 
-    /// Permite customizar o rótulo do eixo Y
-    pub fn with_y_label(mut self, label: &str) -> Self {
-        self.y_label = label.to_string();
-        self
-    }
-
-    /// Adiciona uma nova curva ao gráfico. Usa o padrão Builder.
     pub fn add_curve(mut self, x: &[f64], y: &[f64], label: &str) -> Self {
         self.curves.push(CurveData {
             x: x.to_vec(),
@@ -137,97 +143,72 @@ impl Artist {
         self
     }
 
-    /// Executa a renderização do gráfico com todas as curvas adicionadas
     pub fn plot(&self) -> Result<(), Box<dyn Error>> {
-        if self.curves.is_empty() {
-            return Err("Nenhuma curva foi adicionada ao Plotter.".into());
-        }
+        if self.curves.is_empty() { return Err("Sem curvas.".into()); }
 
         let path = Path::new(&self.output_path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
 
-        // --- Configuração High DPI ---
-        let scale = 1; 
-        let width = 800 * scale;
-        let height = 600 * scale;
-
-        let root = SVGBackend::new(&self.output_path, (width, height)).into_drawing_area();
-        root.fill(&WHITE)?;
-
-        // Encontrar os limites globais dinâmicos para os eixos baseados em todas as curvas
-        let mut x_min = self.x_min.unwrap_or(f64::MAX);
-        let mut x_max = self.x_max.unwrap_or(f64::MIN);
-        let mut y_max = f64::MIN;
+        // --- LÓGICA DE ESCALA INTELIGENTE ---
+        let mut d_x_min = f64::MAX;
+        let mut d_x_max = f64::MIN;
+        let mut d_y_min = f64::MAX;
+        let mut d_y_max = f64::MIN;
 
         for curve in &self.curves {
-            let local_x_min = curve.x.iter().fold(f64::MAX, |a, &b| a.min(b));
-            let local_x_max = curve.x.iter().fold(f64::MIN, |a, &b| a.max(b));
-            let local_y_max = curve.y.iter().fold(f64::MIN, |a, &b| a.max(b));
-
-            if self.x_min.is_none() && local_x_min < x_min { x_min = local_x_min; }
-            if self.x_max.is_none() && local_x_max > x_max { x_max = local_x_max; }
-            if local_y_max > y_max { y_max = local_y_max; }
+            for (&xi, &yi) in curve.x.iter().zip(curve.y.iter()) {
+                if xi.is_finite() && yi.is_finite() {
+                    // FILTRO DE OUTLIERS: Ignora raios > 50km no MR para não distorcer o plot
+                    if self.x_label.contains("Radius") && xi > 50.0 { continue; }
+                    
+                    if xi < d_x_min { d_x_min = xi; }
+                    if xi > d_x_max { d_x_max = xi; }
+                    if yi < d_y_min { d_y_min = yi; }
+                    if yi > d_y_max { d_y_max = yi; }
+                }
+            }
         }
 
-        // Adiciona margens de respiração (5% acima e abaixo) somente quando o eixo é dinâmico
-        if self.x_min.is_none() { x_min *= 0.95; }
-        if self.x_max.is_none() { x_max *= 1.05; }
-        y_max *= 1.05;
+        // Se os dados estiverem vazios ou inválidos
+        if d_x_min == f64::MAX { d_x_min = 0.0; d_x_max = 1.0; d_y_max = 1.0; }
 
-        // Se o x_min for muito pequeno, forçamos um limite para focar na estrela (ex: 8.0km)
-        if self.x_min.is_none() && x_min < 8.0 && self.x_label.contains("Radius") {
-            x_min = 8.0; 
-        }
+        // Definição final dos limites (Prioridade para manual, senão automático com folga)
+        let x_start = self.x_min.unwrap_or(if self.x_label.contains("Radius") { d_x_min.max(8.0) } else { d_x_min });
+        let x_end = self.x_max.unwrap_or(d_x_max * 1.02);
+        let y_start = self.y_min.unwrap_or(0.0); // Massa e Pressão geralmente começam em 0
+        let y_end = self.y_max.unwrap_or(d_y_max * 1.05);
+
+        // --- RENDERIZAÇÃO ---
+        let root = SVGBackend::new(&self.output_path, (800, 600)).into_drawing_area();
+        root.fill(&WHITE)?;
 
         let mut chart = ChartBuilder::on(&root)
-            .caption(&self.title, ("sans-serif", 24 * scale).into_font())
-            .margin(15 * scale)
-            .x_label_area_size(40 * scale)
-            .y_label_area_size(50 * scale)
-            .build_cartesian_2d(x_min..x_max, 0.0f64..y_max)?;
+            .caption(&self.title, ("sans-serif", 20))
+            .margin(20)
+            .x_label_area_size(40)
+            .y_label_area_size(50)
+            .build_cartesian_2d(x_start..x_end, y_start..y_end)?;
 
-        chart
-            .configure_mesh()
-            .x_desc(&self.x_label)
-            .y_desc(&self.y_label)
-            .axis_desc_style(("sans-serif", 16 * scale))
+        chart.configure_mesh()
+            .x_desc(&self.x_label).y_desc(&self.y_label)
+            .light_line_style(&WHITE.mix(0.1)) // Deixa o grid mais suave
             .draw()?;
 
-        // Paleta de cores para diferenciar as curvas
-        let colors = [
-            &BLUE, &RED, &GREEN, &MAGENTA, &CYAN, &BLACK, &YELLOW
-        ];
-
-        // Desenha cada curva registrada
+        let colors = [&BLUE, &RED, &GREEN, &MAGENTA, &CYAN, &BLACK];
         for (i, curve) in self.curves.iter().enumerate() {
             let color = colors[i % colors.len()];
-            let data_iter = curve.x.iter().copied().zip(curve.y.iter().copied());
+            // Downsampling para performance
+            let step = (curve.x.len() / 2000).max(1);
+            let data = curve.x.iter().zip(curve.y.iter()).enumerate()
+                .filter(|(idx, (x, y))| idx % step == 0 && x.is_finite() && y.is_finite())
+                .map(|(_, (&x, &y))| (x, y));
 
-            chart
-                .draw_series(LineSeries::new(
-                    data_iter,
-                    color.stroke_width(2 * scale),
-                ))?
+            chart.draw_series(LineSeries::new(data, color.stroke_width(2)))?
                 .label(&curve.label)
-                .legend({
-                    let c = *color; // Copy color for the closure
-                    move |(x, y)| PathElement::new(
-                        vec![(x, y), (x + (20 * scale) as i32, y)], 
-                        c.stroke_width(2 * scale)
-                    )
-                });
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], color.stroke_width(2)));
         }
 
-        chart
-            .configure_series_labels()
-            .position(SeriesLabelPosition::UpperRight)
-            .background_style(&WHITE.mix(0.8))
-            .border_style(&BLACK)
-            .label_font(("sans-serif", 12 * scale))
-            .draw()?;
-
+        chart.configure_series_labels().position(SeriesLabelPosition::UpperRight).draw()?;
         root.present()?;
         Ok(())
     }

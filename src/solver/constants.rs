@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub const PI: f64 = std::f64::consts::PI;
 pub const PI2: f64 = std::f64::consts::PI * std::f64::consts::PI;
 
@@ -12,7 +14,6 @@ pub const QE: f64 = 0.302822120868846; // (4.0 * PI / 137.0).sqrt()
 pub const MN: f64 = 939.565; // Massa do nêutron (MeV)
 pub const MP: f64 = 938.272; // Massa do próton (MeV)
 pub const ME: f64 = 0.510998; // Massa do elétron (MeV)
-
 
 pub const MEV_FM3_TO_MSUN_KM3: f64 = 8.9653e-7;
 pub const G_C2: f64 = 1.4766; // km / M_sol
@@ -39,8 +40,17 @@ pub const MS: f64 = 400.0 / M_NUCLEON; // Scalar meson (sigma)
 pub const MV: f64 = 783.0 / M_NUCLEON; // Vector meson (Omega)
 pub const MR: f64 = 770.0 / M_NUCLEON; // Isovector meson (Rho)
 
-pub const BCE: f64 = ML[1] * ML[1] / QE;
+pub const BCE: f64 = ML[0] * ML[0] / QE;
 
-pub const RNCM: f64 = QE / 2.0; // nuclear magneton
-pub const AMMP: f64 = RNCM * (5.5857 / 2.0 - 1.0);
-pub const AMMN: f64 = -RNCM * 3.8261 / 2.0;
+// Ative o magneton nuclear removendo o * 0.0
+pub const RNCM: f64 = QE / 2.0; 
+
+// Valores baseados no Particle Data Group (PDG) para kappa = mu - q
+pub const AMMN: f64  = RNCM * -1.913; // Neutrão
+pub const AMMP: f64  = RNCM * 1.793; // Protão
+pub const AMML0: f64 = RNCM * -0.613; // Lambda0
+pub const AMMSM: f64 = RNCM * -0.160; // Sigma- (-1.16 - (-1))
+pub const AMMS0: f64 = RNCM * 0.649; // Sigma0 (Teórico)
+pub const AMMSP: f64 = RNCM * 1.458; // Sigma+ (2.458 - 1)
+pub const AMMXM: f64 = RNCM * 0.349; // Xi-    (-0.65 - (-1))
+pub const AMMX0: f64 = RNCM * -1.250; // Xi0

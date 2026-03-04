@@ -24,7 +24,8 @@ pub fn plot_mr_curve(
     root.fill(&WHITE)?;
 
     let r_min = 8.0; 
-    let r_max = radii_km.iter().fold(0./0., |a: f64, b| a.max(*b)) * 1.05;
+    let r_max = 14.0;
+     // let r_max = radii_km.iter().fold(0./0., |a: f64, b| a.max(*b)) * 1.05;
     let m_max = masses_msun.iter().fold(0./0., |a: f64, b| a.max(*b)) * 1.05;
 
     // Multiply all font sizes and margins by the 'scale' variable

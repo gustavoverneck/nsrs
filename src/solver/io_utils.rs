@@ -2,8 +2,6 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-pub const HBAR_C: f64 = 197.3269804; // MeV * fm
-
 pub fn read_eos_file<P: AsRef<Path>>(path: P) -> Result<(Vec<f64>, Vec<f64>), Box<dyn Error>> {
     let content = fs::read_to_string(path)?;
     
@@ -22,13 +20,9 @@ pub fn read_eos_file<P: AsRef<Path>>(path: P) -> Result<(Vec<f64>, Vec<f64>), Bo
         // Agora esperamos pelo menos 3 colunas: n_B (0), eps (1), P (2)
         if columns.len() >= 3 {
             // Lemos direto das colunas 1 e 2. A coluna 0 (n_B) é ignorada.
-            let eps_fm4: f64 = columns[1].parse().map_err(|_| format!("Erro ao ler: {}", columns[1]))?;
-            let p_fm4: f64 = columns[2].parse().map_err(|_| format!("Erro ao ler: {}", columns[2]))?;
+            let eps: f64 = columns[1].parse().map_err(|_| format!("Erro ao ler: {}", columns[1]))?;
+            let p: f64 = columns[2].parse().map_err(|_| format!("Erro ao ler: {}", columns[2]))?;
             
-            // Conversão de unidades [fm^-4] -> [MeV/fm^3]
-            let eps = eps_fm4 * HBAR_C;
-            let p = p_fm4 * HBAR_C;
-
             // Filtro básico de sanidade
             if eps > 0.0 && p >= 0.0 {
                 eps_data.push(eps);

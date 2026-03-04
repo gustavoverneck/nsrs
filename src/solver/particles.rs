@@ -1,279 +1,204 @@
-// solver/particles.rs
+// src/solver/particles.rs
 
 use crate::solver::physics::PhysicsEngine;
 use crate::solver::constants::PI2;
 
-// Fator de degenerescência para níveis de Landau (g=1 para n=0, g=2 para n>0)
-pub fn dg(nu: usize) -> f64 {
-    if nu == 0 { 1.0 } else { 2.0 }
-}
-
 pub fn calculate_all_densities(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) {
-    let (rhosn, densn) = density_neutron(engine, vomega, vrho);
-    let (rhosp, densp) = density_proton(engine, vomega, vrho);
-    let (rhosl0, densl0) = density_lambda0(engine, vomega);
-    let (rhossm, denssm) = density_sigma_minus(engine, vomega, vrho);
-    let (rhoss0, denss0) = density_sigma0(engine, vomega);
-    let (rhossp, denssp) = density_sigma_plus(engine, vomega, vrho);
-    let (rhosxm, densxm) = density_xi_minus(engine, vomega, vrho);
-    let (rhosx0, densx0) = density_xi0(engine, vomega, vrho);
-    let (rhose, dense) = density_electron(engine);
-    let (rhosmu, densmu) = density_muon(engine);
+    for i in 0..8 {
+        let (rs, rb) = if engine.charges_b[i] == 0.0 {
+            density_baryon_neutral(engine, i, vomega, vrho)
+        } else {
+            density_baryon_charged(engine, i, vomega, vrho)
+        };
+        engine.rhos_b[i] = rs;
+        engine.nb[i] = rb;
+    }
 
-    // total escalar dos híperons
-    let rhosh = rhosl0 + rhossm + rhoss0 + rhossp + rhosxm + rhosx0;
-    let cahs = engine.xs * rhosh;
-    engine.rhosb = rhosn + rhosp + cahs;
+    for i in 0..2 {
+        let (rl, nl) = density_lepton(engine, i);
+        engine.rhos_l[i] = rl;
+        engine.nl[i] = nl;
+    }
 
-    engine.nb = [densn, densp, densl0, denssm, denss0, denssp, densxm, densx0];
-    engine.nl = [dense, densmu];
+    let rhos_n_p = engine.rhos_b[0] + engine.rhos_b[1];
+    let rhos_h = engine.rhos_b[2..8].iter().sum::<f64>();
+    
+    // CORREÇÃO: O / PI2 foi removido. As densidades já vieram divididas das funções abaixo!
+    engine.rhosb = (rhos_n_p + engine.xs * rhos_h); 
     engine.nbt = engine.nb.iter().sum();
 }
 
-// ---------- Nêutron ----------
-fn density_neutron(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) -> (f64, f64) {
-    let efn = engine.mun - vomega + vrho / 2.0;
-    engine.efn = efn;
-    let kf2 = efn.powi(2) - engine.mns.powi(2);
-    if kf2 <= 0.0 {
-        return (0.0, 0.0);
+pub fn density_baryon_neutral(
+    engine: &mut PhysicsEngine, 
+    idx: usize, 
+    vomega: f64, 
+    vrho: f64
+) -> (f64, f64) {
+    let ef = engine.mu_b[idx] 
+           - (engine.xv_v[idx] * vomega) 
+           - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]);
+    
+    engine.ef_b[idx] = ef;
+    
+    // BLINDAGEM 1: Se a energia de Fermi efetiva é negativa, não existe matéria!
+    if ef <= 0.0 { return (0.0, 0.0); }
+
+    let m_star = engine.m_eff[idx];    
+    let amm = engine.amm_b[idx];      
+    let b = engine.b;                 
+
+    let m_up = m_star - amm * b;
+    let m_down = m_star + amm * b;
+
+    let mut rhos_total = 0.0;
+    let mut dens_total = 0.0;
+
+    for &m_spin in &[m_up, m_down] {
+        let kf2 = ef.powi(2) - m_spin.powi(2);
+        if kf2 > 0.0 {
+            let kf = kf2.sqrt();
+            // BLINDAGEM 2: Previne divisão por zero ou logaritmo infinito se a massa colapsar
+            let m_safe = m_spin.abs().max(1e-15); 
+            
+            rhos_total += (m_spin / (4.0 * PI2)) * (
+                ef * kf - m_spin.powi(2) * ((kf + ef) / m_safe).ln()
+            );
+            
+            dens_total += kf.powi(3) / (6.0 * PI2);
+            
+            if m_spin == m_up { engine.kf_b_up[idx][0] = kf; } 
+            else { engine.kf_b_down[idx][0] = kf; }
+        }
     }
-    let kf = kf2.sqrt();
-    let rhos = (engine.mns / (2.0 * PI2)) * (efn * kf - engine.mns.powi(2) * ((kf + efn) / engine.mns).ln());
-    let dens = kf.powi(3) / (3.0 * PI2);
-    (rhos, dens)
+    (rhos_total, dens_total)
 }
 
-// ---------- Próton (carregado) ----------
-pub fn density_proton(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) -> (f64, f64) {
-    let ef = engine.mup - vomega - vrho / 2.0;
-    engine.efp = ef;
+fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, vrho: f64) -> (f64, f64) {
+    let q = engine.charges_b[idx].abs() * engine.qe;
     let b = engine.b;
-    let q = engine.qe;
-    let m = engine.mns;
-    let mut rhos = 0.0;
-    let mut dens = 0.0;
-    let mut npu = 0;
-    let mut npd = 0;
+    let m = engine.m_eff[idx]; // m*
+    let amm = engine.amm_b[idx];
+    
+    let ef = engine.mu_b[idx] 
+             - (engine.xv_v[idx] * vomega) 
+             - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]); // Correção do sinal do isospin (Item 6B)
+    
+    engine.ef_b[idx] = ef;
+    
+    if ef <= 0.0 { return (0.0, 0.0); }
 
-    // spin up (ν = 0,1,2,...)
-    for nu in 0..engine.fpu.len() {
-        let m_eff = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
-        let kf2 = ef.powi(2) - m_eff.powi(2);
-        if kf2 <= 0.0 { break; }
-        let kf = kf2.sqrt();
-        engine.fpu[nu] = kf;
-        
-        rhos += (q * b * m / (2.0 * PI2)) * ((kf + ef) / m_eff).ln();
-        dens += (q * b / (2.0 * PI2)) * kf;
-        npu += 1;
-    }
+    let nu_max_approx_up = ((ef + amm * b).powi(2) - m.powi(2)) / (2.0 * q * b);
+    let nu_max_approx_down = ((ef - amm * b).powi(2) - m.powi(2)) / (2.0 * q * b);
+    
+    let nu_max = if nu_max_approx_up > 0.0 || nu_max_approx_down > 0.0 { 
+        let max_nu = nu_max_approx_up.max(nu_max_approx_down);
+        (max_nu.floor() as usize + 1).min(engine.max_landau_limit) 
+    } else { 
+        0 
+    };
 
-    // spin down (ν = 1,2,...)
-    for nu in 1..engine.fpd.len() {
-        let m_eff = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
-        let kf2 = ef.powi(2) - m_eff.powi(2);
-        if kf2 <= 0.0 { break; }
-        let kf = kf2.sqrt();
-        engine.fpd[nu-1] = kf;
-        
-        rhos += (q * b * m / (2.0 * PI2)) * ((kf + ef) / m_eff).ln();
-        dens += (q * b / (2.0 * PI2)) * kf;
-        npd += 1;
-    }
-
-    engine.npu = npu;
-    engine.npd = npd;
-    (rhos, dens)
-}
-
-
-// ---------- Elétron ----------
-pub fn density_electron(engine: &mut PhysicsEngine) -> (f64, f64) {
-    let mue = engine.mue;
-    let b = engine.b;
-    let q = engine.qe;
-    let m = engine.ml[0];
-    let mut rhos = 0.0;
-    let mut dens = 0.0;
-    let mut ne = 0;
-
-    for nu in 0..engine.fe.len() {
-        let m_eff = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
-        let kf2 = mue.powi(2) - m_eff.powi(2);
-        if kf2 <= 0.0 { break; }
-        let kf = kf2.sqrt();
-        engine.fe[nu] = kf;
-        let g = dg(nu);
-        rhos += (g * q * b * m / (2.0 * PI2)) * ((kf + mue) / m_eff).ln();
-        dens += (g * q * b / (2.0 * PI2)) * kf;
-        ne += 1;
-    }
-    engine.ne = ne;
-    if ne > 0 {
-        engine.efe = (engine.ml[0].powi(2) + engine.fe[0].powi(2)).sqrt();
+    let q_sign = engine.charges_b[idx].signum();
+    let (nu_start_up, nu_start_down) = if q_sign > 0.0 {
+        (0, 1) // Cargas positivas: Spin UP tem nu=0
     } else {
-        engine.efe = 0.0;
-    }
-    (rhos, dens)
-}
+        (1, 0) // Cargas negativas: Spin DOWN tem nu=0
+    };
 
+    let (mut rhos, mut dens) = (0.0, 0.0);
+    let mut n_up = 0;
+    let mut n_down = 0;
 
-// ---------- Muon ----------
-pub fn density_muon(engine: &mut PhysicsEngine) -> (f64, f64) {
-    let mue = engine.mue;
-    let b = engine.b;
-    let q = engine.qe;
-    let m = engine.ml[1];
-    let mut rhos = 0.0;
-    let mut dens = 0.0;
-    let mut nu = 0;
-
-    for nu_idx in 0..engine.fmu.len() {
-        let m_eff = (m.powi(2) + 2.0 * q * b * nu_idx as f64).sqrt();
-        let kf2 = mue.powi(2) - m_eff.powi(2);
-        if kf2 <= 0.0 { break; }
+    // --- Spin UP ---
+    for nu in nu_start_up..nu_max {
+        let m_landau = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
+        let m_eff_spin = m_landau - amm * b;
+        
+        let kf2 = ef.powi(2) - m_eff_spin.powi(2);
+        if kf2 <= 0.0 { break; } 
+        
         let kf = kf2.sqrt();
-        engine.fmu[nu_idx] = kf;
-        let g = dg(nu_idx);
-        rhos += (g * q * b * m / (2.0 * PI2)) * ((kf + mue) / m_eff).ln();
-        dens += (g * q * b / (2.0 * PI2)) * kf;
-        nu += 1;
-    }
-    engine.nu = nu;
-    if nu > 0 {
-        engine.efmu = (engine.ml[1].powi(2) + engine.fmu[0].powi(2)).sqrt();
-    } else {
-        engine.efmu = 0.0;
-    }
-    (rhos, dens)
-}
-
-// ---------- Lambda0 (neutro) ----------
-pub fn density_lambda0(engine: &mut PhysicsEngine, vomega: f64) -> (f64, f64) {
-    let ef = engine.mul0 - engine.xv * vomega;
-    let kf2 = ef.powi(2) - engine.ml0s.powi(2);
-    if kf2 <= 0.0 {
-        engine.rkfl0 = 0.0;
-        engine.efl0 = 0.0;
-        return (0.0, 0.0);
-    }
-    let kf = kf2.sqrt();
-    engine.rkfl0 = kf;
-    engine.efl0 = (engine.ml0s.powi(2) + kf.powi(2)).sqrt();
-    let rhos = (engine.ml0s / (2.0 * PI2)) * (ef * kf - engine.ml0s.powi(2) * ((kf + ef) / engine.ml0s).ln());
-    let dens = kf.powi(3) / (3.0 * PI2);
-    (rhos, dens)
-}
-
-// ---------- Sigma0 (neutro) ----------
-pub fn density_sigma0(engine: &mut PhysicsEngine, vomega: f64) -> (f64, f64) {
-    let ef = engine.mus0 - engine.xv * vomega;
-    let kf2 = ef.powi(2) - engine.ms0s.powi(2);
-    if kf2 <= 0.0 {
-        engine.rkfs0 = 0.0;
-        engine.efs0 = 0.0;
-        return (0.0, 0.0);
-    }
-    let kf = kf2.sqrt();
-    engine.rkfs0 = kf;
-    engine.efs0 = (engine.ms0s.powi(2) + kf.powi(2)).sqrt();
-    let rhos = (engine.ms0s / (2.0 * PI2)) * (ef * kf - engine.ms0s.powi(2) * ((kf + ef) / engine.ms0s).ln());
-    let dens = kf.powi(3) / (3.0 * PI2);
-    (rhos, dens)
-}
-
-// ---------- Xi0 (neutro) ----------
-pub fn density_xi0(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) -> (f64, f64) {
-    let ef = engine.mux0 - engine.xv * vomega - engine.xv * vrho / 2.0;
-    let kf2 = ef.powi(2) - engine.mx0s.powi(2);
-    if kf2 <= 0.0 {
-        engine.rkfx0 = 0.0;
-        engine.efx0 = 0.0;
-        return (0.0, 0.0);
-    }
-    let kf = kf2.sqrt();
-    engine.rkfx0 = kf;
-    engine.efx0 = (engine.mx0s.powi(2) + kf.powi(2)).sqrt();
-    let rhos = (engine.mx0s / (2.0 * PI2)) * (ef * kf - engine.mx0s.powi(2) * ((kf + ef) / engine.mx0s).ln());
-    let dens = kf.powi(3) / (3.0 * PI2);
-    (rhos, dens)
-}
-
-// ---------- Sigma- (carregado) ----------
-pub fn density_sigma_minus(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) -> (f64, f64) {
-    let ef = engine.musm - engine.xv * vomega + engine.xv * vrho;
-    engine.efsm = ef;
-    let b = engine.b;
-    let q = engine.qe;
-    let m = engine.msms;
-    let mut rhos = 0.0;
-    let mut dens = 0.0;
-    let mut nsm = 0;
-
-    for nu in 0..engine.fsm.len() {
-        let m_eff = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
-        let kf2 = ef.powi(2) - m_eff.powi(2);
-        if kf2 <= 0.0 { break; }
-        let kf = kf2.sqrt();
-        engine.fsm[nu] = kf;
-        let g = dg(nu);
-        rhos += (g * q * b * m / (2.0 * PI2)) * ((kf + ef) / m_eff).ln();
+        // CORREÇÃO: Usa n_up como índice para gravar os dados sequencialmente
+        engine.kf_b_up[idx][n_up] = kf;
+        n_up += 1;
+        
+        let m_safe = m_eff_spin.abs().max(1e-15);
+        let m_landau_safe = m_landau.max(1e-15); 
+        
+        rhos += (q * b / (2.0 * PI2)) * m * (m_eff_spin / m_landau_safe) * ((kf + ef) / m_safe).ln();
         dens += (q * b / (2.0 * PI2)) * kf;
-        nsm += 1;
     }
-    engine.nsm = nsm;
-    (rhos, dens)
-}
 
-// ---------- Sigma+ (carregado) ----------
-pub fn density_sigma_plus(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) -> (f64, f64) {
-    let ef = engine.musp - engine.xv * vomega - engine.xv * vrho;
-    engine.efsp = ef;
-    let b = engine.b;
-    let q = engine.qe;
-    let m = engine.msps;
-    let mut rhos = 0.0;
-    let mut dens = 0.0;
-    let mut nsp = 0;
-
-    for nu in 0..engine.fsp.len() {
-        let m_eff = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
-        let kf2 = ef.powi(2) - m_eff.powi(2);
+    // --- Spin DOWN ---
+    for nu in nu_start_down..nu_max {
+        let m_landau = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
+        let m_eff_spin = m_landau + amm * b;
+        
+        let kf2 = ef.powi(2) - m_eff_spin.powi(2);
         if kf2 <= 0.0 { break; }
+        
         let kf = kf2.sqrt();
-        engine.fsp[nu] = kf;
-        let g = dg(nu);
-        rhos += (g * q * b * m / (2.0 * PI2)) * ((kf + ef) / m_eff).ln();
+        // CORREÇÃO: Usa n_down como índice. Isso evita o underflow de (nu - 1)
+        engine.kf_b_down[idx][n_down] = kf;
+        n_down += 1;
+        
+        let m_safe = m_eff_spin.abs().max(1e-15);
+        let m_landau_safe = m_landau.max(1e-15);
+        
+        rhos += (q * b / (2.0 * PI2)) * m * (m_eff_spin / m_landau_safe) * ((kf + ef) / m_safe).ln();
         dens += (q * b / (2.0 * PI2)) * kf;
-        nsp += 1;
     }
-    engine.nsp = nsp;
+
+    engine.n_b_up[idx] = n_up;
+    engine.n_b_down[idx] = n_down;
+
     (rhos, dens)
 }
 
-// ---------- Xi- (carregado) ----------
-pub fn density_xi_minus(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) -> (f64, f64) {
-    let ef = engine.muxm - engine.xv * vomega + engine.xv * vrho / 2.0;
-    engine.efxm = ef;
+pub fn density_lepton(engine: &mut PhysicsEngine, idx: usize) -> (f64, f64) {
+    let mue = engine.mue;      
+    
+    // BLINDAGEM: Lêptons com energia negativa não existem
+    if mue <= 0.0 { 
+        engine.n_l[idx] = 0;
+        engine.ef_l[idx] = 0.0;
+        return (0.0, 0.0); 
+    }
+
     let b = engine.b;
-    let q = engine.qe;
-    let m = engine.mxms;
+    let q = engine.qe; 
+    let m = engine.ml[idx];    
+
     let mut rhos = 0.0;
     let mut dens = 0.0;
-    let mut nxm = 0;
+    let mut n_occupied = 0; 
 
-    for nu in 0..engine.fxm.len() {
-        let m_eff = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
-        let kf2 = ef.powi(2) - m_eff.powi(2);
-        if kf2 <= 0.0 { break; }
+    let nu_max_approx = (mue.powi(2) - m.powi(2)) / (2.0 * q * b);
+    let nu_max = if nu_max_approx > 0.0 { 
+        (nu_max_approx.floor() as usize + 1).min(engine.max_landau_limit) 
+    } else { 0 };
+
+    for nu in 0..nu_max {
+        let m_landau_2 = m.powi(2) + 2.0 * q * b * nu as f64;
+        let kf2 = mue.powi(2) - m_landau_2;
+        
+        if kf2 <= 0.0 { break; } 
+        
         let kf = kf2.sqrt();
-        engine.fxm[nu] = kf;
-        let g = dg(nu);
-        rhos += (g * q * b * m / (2.0 * PI2)) * ((kf + ef) / m_eff).ln();
-        dens += (g * q * b / (2.0 * PI2)) * kf;
-        nxm += 1;
+        let g = if nu == 0 { 1.0 } else { 2.0 }; 
+
+        engine.f_l[idx][nu] = kf;
+
+        let factor = (g * q * b) / (2.0 * PI2);
+        let m_safe = m_landau_2.sqrt().max(1e-15);
+        
+        rhos += factor * m * ((kf + mue) / m_safe).ln();
+        dens += factor * kf;
+        
+        n_occupied += 1;
     }
-    engine.nxm = nxm;
+
+    engine.n_l[idx] = n_occupied; 
+    engine.ef_l[idx] = mue;   
+
     (rhos, dens)
 }

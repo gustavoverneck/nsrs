@@ -34,8 +34,8 @@ fn main() {
     };
 
     let engine = PhysicsEngine::new(model_params, bg)
-        .with_limits(0.92, 1.8)
-        .with_points(2001);
+        .with_limits(0.01, 2.5)
+        .with_points(20001);
 
     let mut solver = Solver::new(engine);
     let results = solver.solve();
@@ -53,7 +53,7 @@ fn main() {
             if masses.is_empty() || radii.is_empty() {
                 eprintln!("Curva M-R vazia; verifique a EOS gerada.");
             } else {
-                let mr_path = format!("results/mr_{}_B{}.svg", model_name, bg);
+                let mr_path = format!("results/mr_{}_B{:.3e}.svg", model_name, bg);
                 if let Err(e) = plot_mr_curve(&radii, &masses, &mr_path) {
                     eprintln!("Erro ao plotar M-R: {}", e);
                 } else {

@@ -2,10 +2,10 @@
 
 use crate::solver::physics::PhysicsEngine;
 use crate::solver::constants::PI2;
-use crate::solver::particles::dg;
 
 pub fn compute(engine: &PhysicsEngine, mue: f64, vsigma: f64, vomega: f64, vrho: f64) -> (f64, f64) {
-    // energia dos mésons
+    // 1. Energia dos mésons (Potenciais de campo)
+    // Inclui termos de massa e auto-interações (rb, rc para sigma e rxi para omega)
     let enerf = (vsigma / engine.model.gs).powi(2) / 2.0
         + (vomega / engine.model.gv).powi(2) / 2.0
         + (vrho / engine.model.gr).powi(2) / 2.0
@@ -15,108 +15,78 @@ pub fn compute(engine: &PhysicsEngine, mue: f64, vsigma: f64, vomega: f64, vrho:
 
     let mut enerbar = 0.0;
 
-    // ----- NÊUTRON -----
-    let kfn = (engine.efn.powi(2) - engine.mns.powi(2)).sqrt().max(0.0);
-    if kfn > 0.0 {
-        enerbar += (1.0 / (2.0 * PI2)) * (
-            engine.efn.powi(3) * kfn / 2.0
-            - (engine.mns / 4.0) * (engine.mns * kfn * engine.efn + engine.mns.powi(3) * ((kfn + engine.efn) / engine.mns).ln())
-        );
+    // --- LOOP DE BARIÕES (0:n, 1:p, 2:L0, 3:S-, 4:S0, 5:S+, 6:X-, 7:X0) ---
+    for i in 0..8 {
+        let ef = engine.ef_b[i];
+        if ef <= 0.0 { continue; }
+
+        if engine.charges_b[i] == 0.0 {
+            // --- Partículas Neutras (n, L0, S0, X0) ---
+            // O AMM desdobra a partícula em 2 estados de spin (Up e Down)
+            for &kf in &[engine.kf_b_up[i][0], engine.kf_b_down[i][0]] {
+                if kf > 0.0 {
+                    // Massa efetiva de spin derivada da cinemática: m_s^2 = Ef^2 - kf^2
+                    let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
+                    
+                    // Fórmula para um único estado de spin (g=1), fator 1/4pi^2
+                    enerbar += (1.0 / (4.0 * PI2)) * (
+                        ef.powi(3) * kf / 2.0
+                        - (m_spin / 4.0) * (m_spin * kf * ef + m_spin.powi(3) * ((kf + ef) / m_spin.abs()).ln())
+                    );
+                }
+            }
+        } else {
+            // --- Partículas Carregadas (p, S-, S+, X-) ---
+            // Soma sobre os níveis de Landau (nu) para ambos os spins
+            let qb = engine.charges_b[i].abs() * engine.qe * engine.b;
+            let factor = qb / (4.0 * PI2);
+
+            // Contribuição Spin Up
+            for nu in 0..engine.n_b_up[i] {
+                let kf = engine.kf_b_up[i][nu];
+                let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
+                enerbar += factor * (ef * kf + m_spin.powi(2) * ((kf + ef) / m_spin.abs()).ln());
+            }
+
+            // Contribuição Spin Down
+            for nu in 0..engine.n_b_down[i] {
+                let kf = engine.kf_b_down[i][nu];
+                let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
+                enerbar += factor * (ef * kf + m_spin.powi(2) * ((kf + ef) / m_spin.abs()).ln());
+            }
+        }
     }
 
-    // ----- PRÓTON -----
-    for nu in 0..engine.npu {
-        let kf = engine.fpu[nu];
-        let m_eff = (engine.mns.powi(2) + 2.0 * engine.qe * engine.b * nu as f64).sqrt();
-        enerbar += (engine.qe * engine.b / (4.0 * PI2)) *
-            (engine.efp * kf + m_eff.powi(2) * ((kf + engine.efp) / m_eff).ln());
-    }
-    for nu in 0..engine.npd {
-        let kf = engine.fpd[nu];
-        let m_eff = (engine.mns.powi(2) + 2.0 * engine.qe * engine.b * (nu+1) as f64).sqrt();
-        enerbar += (engine.qe * engine.b / (4.0 * PI2)) *
-            (engine.efp * kf + m_eff.powi(2) * ((kf + engine.efp) / m_eff).ln());
-    }
-
-    // ----- LAMBDA 0 -----
-    let kfl0 = engine.rkfl0;
-    if kfl0 > 0.0 {
-        enerbar += (1.0 / (2.0 * PI2)) * (
-            engine.efl0.powi(3) * kfl0 / 2.0
-            - (engine.ml0s / 4.0) * (engine.ml0s * kfl0 * engine.efl0 + engine.ml0s.powi(3) * ((kfl0 + engine.efl0) / engine.ml0s).ln())
-        );
-    }
-
-    // ----- SIGMA 0 -----
-    let kfs0 = engine.rkfs0;
-    if kfs0 > 0.0 {
-        enerbar += (1.0 / (2.0 * PI2)) * (
-            engine.efs0.powi(3) * kfs0 / 2.0
-            - (engine.ms0s / 4.0) * (engine.ms0s * kfs0 * engine.efs0 + engine.ms0s.powi(3) * ((kfs0 + engine.efs0) / engine.ms0s).ln())
-        );
-    }
-
-    // ----- XI 0 -----
-    let kfx0 = engine.rkfx0;
-    if kfx0 > 0.0 {
-        enerbar += (1.0 / (2.0 * PI2)) * (
-            engine.efx0.powi(3) * kfx0 / 2.0
-            - (engine.mx0s / 4.0) * (engine.mx0s * kfx0 * engine.efx0 + engine.mx0s.powi(3) * ((kfx0 + engine.efx0) / engine.mx0s).ln())
-        );
-    }
-
-    // ----- SIGMA- (carregado) -----
-    for nu in 0..engine.nsm {
-        let kf = engine.fsm[nu];
-        let m_eff = (engine.msms.powi(2) + 2.0 * engine.qe * engine.b * nu as f64).sqrt();
-        let g = dg(nu);
-        enerbar += (g * engine.qe * engine.b / (4.0 * PI2)) *
-            (engine.efsm * kf + m_eff.powi(2) * ((kf + engine.efsm) / m_eff).ln());
-    }
-
-    // ----- SIGMA+ (carregado) -----
-    for nu in 0..engine.nsp {
-        let kf = engine.fsp[nu];
-        let m_eff = (engine.msps.powi(2) + 2.0 * engine.qe * engine.b * nu as f64).sqrt();
-        let g = dg(nu);
-        enerbar += (g * engine.qe * engine.b / (4.0 * PI2)) *
-            (engine.efsp * kf + m_eff.powi(2) * ((kf + engine.efsp) / m_eff).ln());
-    }
-
-    // ----- XI- (carregado) -----
-    for nu in 0..engine.nxm {
-        let kf = engine.fxm[nu];
-        let m_eff = (engine.mxms.powi(2) + 2.0 * engine.qe * engine.b * nu as f64).sqrt();
-        let g = dg(nu);
-        enerbar += (g * engine.qe * engine.b / (4.0 * PI2)) *
-            (engine.efxm * kf + m_eff.powi(2) * ((kf + engine.efxm) / m_eff).ln());
-    }
-
-    // ----- LÉPTONS -----
+    // --- LOOP DE LÉPTONS (0:e-, 1:mu-) ---
     let mut enerlep = 0.0;
-    for nu in 0..engine.ne {
-        let kf = engine.fe[nu];
-        let m_eff = (engine.ml[0].powi(2) + 2.0 * engine.qe * engine.b * nu as f64).sqrt();
-        let g = dg(nu);
-        enerlep += (g * engine.qe * engine.b / (4.0 * PI2)) *
-            (engine.efe * kf + m_eff.powi(2) * ((kf + engine.efe) / m_eff).ln());
-    }
-    for nu in 0..engine.nu {
-        let kf = engine.fmu[nu];
-        let m_eff = (engine.ml[1].powi(2) + 2.0 * engine.qe * engine.b * nu as f64).sqrt();
-        let g = dg(nu);
-        enerlep += (g * engine.qe * engine.b / (4.0 * PI2)) *
-            (engine.efmu * kf + m_eff.powi(2) * ((kf + engine.efmu) / m_eff).ln());
+    for i in 0..2 {
+        let ef = engine.ef_l[i];
+        let qb = engine.qe * engine.b;
+        
+        for nu in 0..engine.n_l[i] {
+            let kf = engine.f_l[i][nu];
+            let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
+            let g = if nu == 0 { 1.0 } else { 2.0 }; // Degenerescência de Landau para Dirac
+            
+            enerlep += (g * qb / (4.0 * PI2)) * (
+                ef * kf + m_spin.powi(2) * ((kf + ef) / m_spin.abs()).ln()
+            );
+        }
     }
 
+    // Energia Total (Mésons + Bariões + Léptons)
     let ener = enerf + enerbar + enerlep;
 
-    // pressão (a sua fórmula estava matematicamente idêntica à do Fortran, então podemos mantê-la)
-    let press = engine.mun * (engine.nb[0] + engine.nb[2] + engine.nb[4] + engine.nb[7])
-        + (engine.mun - mue) * (engine.nb[1] + engine.nb[5])
-        + mue * (engine.nl[0] + engine.nl[1])
-        + (engine.mun + mue) * (engine.nb[3] + engine.nb[6])
-        - ener;
+    // Pressão via relação termodinâmica: P = sum(mu_i * n_i) - epsilon
+    let mut press_sum = 0.0;
+    for i in 0..8 {
+        press_sum += engine.mu_b[i] * engine.nb[i];
+    }
+    for i in 0..2 {
+        press_sum += mue * engine.nl[i]; // mu_e = mu_mu = mue
+    }
+    
+    let press = press_sum - ener;
 
     (ener, press)
 }

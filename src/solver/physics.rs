@@ -1,26 +1,26 @@
 // solver/physics.rs
 
 use crate::solver::constants::{
-    HBAR_C, M_NUCLEON, QE, ML, MB, AMMP, AMMN, BCE,
+    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, HBAR_C, M_NUCLEON, MB, ML, QE, N0
 };
 use crate::solver::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
 
+#[derive(Clone)]
 pub struct PhysicsEngine {
     // Parâmetros fixos
     pub model: ModelParams,
     pub bg: f64,
     pub b: f64,
     pub m_nuc: f64,
-    pub hc: f64,
     pub qe: f64,
     pub ml: [f64; 2],
     pub mb: [f64; 8],
+    pub m_eff: [f64; 8],
+    pub mu_b: [f64; 8],
+    pub charges_b: [f64; 8],
+    pub amm_b: [f64; 8],
     pub xs: f64,
-    pub xv: f64,
-    pub ammp: f64,
-    pub ammn: f64,
-    pub bce: f64,
 
     // Limites do loop (podem ser ajustados)
     pub mun_inf: f64,
@@ -33,63 +33,38 @@ pub struct PhysicsEngine {
     pub mue: f64,
     pub mup: f64,
 
-    // Massas efetivas
-    pub mns: f64,
-    pub ml0s: f64,
-    pub msms: f64,
-    pub ms0s: f64,
-    pub msps: f64,
-    pub mxms: f64,
-    pub mx0s: f64,
-
-    // Potenciais químicos dos híperons
-    pub mul0: f64,
-    pub musm: f64,
-    pub mus0: f64,
-    pub musp: f64,
-    pub muxm: f64,
-    pub mux0: f64,
-
     // Densidades
     pub nb: [f64; 8],
     pub nl: [f64; 2],
     pub nbt: f64,               // densidade bariônica total
 
-    // Densidade escalar total (para equação sigma)
+    // Densidades escalares
     pub rhosb: f64,
+    pub rhos_b: [f64; 8],
+    pub rhos_l: [f64; 2],
 
     // Energias de Fermi e momentos (para EOS)
-    pub efn: f64,
-    pub efp: f64,
-    pub efe: f64,
-    pub efmu: f64,
-    pub efsm: f64,
-    pub efsp: f64,
-    pub efxm: f64,
-    pub rkfl0: f64,
-    pub efl0: f64,
-    pub rkfs0: f64,
-    pub efs0: f64,
-    pub rkfx0: f64,
-    pub efx0: f64,
+    pub ef_b: [f64; 8],
+    pub ef_l: [f64; 2],      // Energias de Fermi: [0]=e, [1]=mu
 
-    // Arrays para níveis de Landau
-    pub fpu: Vec<f64>,
-    pub fpd: Vec<f64>,
-    pub fe: Vec<f64>,
-    pub fmu: Vec<f64>,
-    pub fsm: Vec<f64>,
-    pub fsp: Vec<f64>,
-    pub fxm: Vec<f64>,
 
-    // Contadores de níveis
-    pub npu: usize,
-    pub npd: usize,
-    pub ne: usize,
-    pub nu: usize,
-    pub nsm: usize,
-    pub nsp: usize,
-    pub nxm: usize,
+    // Acoplamentos (xv_v para omega, xv_r para rho)
+    pub xv_v: [f64; 8], // g_wB / g_wN
+    pub xv_r: [f64; 8], // g_rB / g_rN
+
+    // Momentos de Fermi por nível de Landau (Vetorizados)
+    pub kf_b_up: [Vec<f64>; 8],   // [Barião][Nível nu]
+    pub kf_b_down: [Vec<f64>; 8],
+    pub f_l: [Vec<f64>; 2],  // Momentos de Fermi: [0]=fe, [1]=fmu
+
+    // Contadores de níveis por spin
+    pub n_b_up: [usize; 8],
+    pub n_b_down: [usize; 8],
+    pub n_l: [usize; 2],     // Contadores: [0]=ne, [1]=nu
+
+    pub max_landau_limit: usize,
+
+    pub isospin_factor: [f64; 8],
 }
 
 impl PhysicsEngine {
@@ -100,88 +75,76 @@ impl PhysicsEngine {
         let ml = ML;
         let mb = MB;
         let xs = 0.7;
-        let xv = 0.783;
-        let ammp = AMMP;
-        let ammn = AMMN;
         let bce = BCE;
 
         let b0 = bg / 4.41e13;
         let b = b0 * bce;
 
-        let max_landau = 19999;
+        let m_eff = [0.0; 8];
+        let mu_b = [0.0; 8];
+        let charges_b = [0.0, 1.0, 0.0, -1.0, 0.0, 1.0, -1.0, 0.0];
+
+        let amm_b = [AMMN, AMMP, AMML0, AMMSM, AMMS0, AMMSP, AMMXM, AMMX0];
+
+        let xv_v = [1.0, 1.0, 0.783, 0.783, 0.783, 0.783, 0.783, 0.783];
+        let xv_r = [1.0, 1.0, 0.783, 0.783, 0.783, 0.783, 0.783, 0.783];
+        let max_landau_limit = 100_000;
+
+        let kf_b_up = std::array::from_fn(|_| vec![0.0; max_landau_limit]);
+        let kf_b_down = std::array::from_fn(|_| vec![0.0; max_landau_limit]);
+        let f_l = std::array::from_fn(|_| vec![0.0; max_landau_limit]);
+
+        let ef_l = [0.0; 2];
+        let n_l = [0; 2];
+
+        let isospin_factor = [-0.5, 0.5, 0.0, -1.0, 0.0, 1.0, -0.5, 0.5];
 
         PhysicsEngine {
             model,
             bg,
             b,
             m_nuc,
-            hc,
             qe,
             ml,
             mb,
+            m_eff,
+            mu_b,
+            charges_b,
+            amm_b,
             xs,
-            xv,
-            ammp,
-            ammn,
-            bce,
             mun_inf: 0.92,
             mun_sup: 1.80,
-            n_points: 1001,
+            n_points: 1201,
 
             mun: 0.0,
             mue: 0.0,
             mup: 0.0,
 
-            mns: 0.0,
-            ml0s: 0.0,
-            msms: 0.0,
-            ms0s: 0.0,
-            msps: 0.0,
-            mxms: 0.0,
-            mx0s: 0.0,
-
-            mul0: 0.0,
-            musm: 0.0,
-            mus0: 0.0,
-            musp: 0.0,
-            muxm: 0.0,
-            mux0: 0.0,
-
             nb: [0.0; 8],
             nl: [0.0; 2],
             nbt: 0.0,
-
+            
             rhosb: 0.0,
+            rhos_b: [0.0; 8],
+            rhos_l: [0.0; 2],
 
-            efn: 0.0,
-            efp: 0.0,
-            efe: 0.0,
-            efmu: 0.0,
-            efsm: 0.0,
-            efsp: 0.0,
-            efxm: 0.0,
-            rkfl0: 0.0,
-            efl0: 0.0,
-            rkfs0: 0.0,
-            efs0: 0.0,
-            rkfx0: 0.0,
-            efx0: 0.0,
+            ef_b: [0.0; 8],
+            ef_l,
 
-            fpu: vec![0.0; max_landau],
-            fpd: vec![0.0; max_landau],
-            fe: vec![0.0; max_landau],
-            fmu: vec![0.0; max_landau],
-            fsm: vec![0.0; max_landau],
-            fsp: vec![0.0; max_landau],
-            fxm: vec![0.0; max_landau],
+            xv_v,
+            xv_r,
 
-            npu: 0,
-            npd: 0,
-            ne: 0,
-            nu: 0,
-            nsm: 0,
-            nsp: 0,
-            nxm: 0,
+            kf_b_up,
+            kf_b_down,
+            f_l,
+
+            n_b_up: [0; 8],
+            n_b_down: [0; 8],
+            n_l,
+
+            max_landau_limit: max_landau_limit,
+
+            isospin_factor: isospin_factor,
         }
     }
 
@@ -200,7 +163,7 @@ impl PhysicsEngine {
     // Mapeamento das variáveis (vindo do solver)
     pub fn mapping(&self, x: &[f64]) -> (f64, f64, f64, f64) {
         let mue = x[0];
-        let vsigma = x[1].sin().powi(2);
+        let vsigma = x[1]; // Removido o .sin().powi(2) que destruía o Jacobiano
         let vomega = x[2];
         let vrho = x[3];
         (mue, vsigma, vomega, vrho)
@@ -209,30 +172,27 @@ impl PhysicsEngine {
     // Função de resíduo (chamada pelo solver numérico)
     pub fn funcv(&mut self, x: &[f64]) -> Vec<f64> {
         let (mue, vsigma, vomega, vrho) = self.mapping(x);
+        
+        let x_sigma = [1.0, 1.0, self.xs, self.xs, self.xs, self.xs, self.xs, self.xs];
+        
         self.mue = mue;
         self.mup = self.mun - mue;
+        
+        self.mu_b[0] = self.mun;
 
         // massas efetivas
-        self.mns = 1.0 - vsigma;
-        self.ml0s = (1116.0 / M_NUCLEON) - self.xs * vsigma;
-        self.msms = (1193.0 / M_NUCLEON) - self.xs * vsigma;
-        self.ms0s = (1193.0 / M_NUCLEON) - self.xs * vsigma;
-        self.msps = (1193.0 / M_NUCLEON) - self.xs * vsigma;
-        self.mxms = (1318.0 / M_NUCLEON) - self.xs * vsigma;
-        self.mx0s = (1318.0 / M_NUCLEON) - self.xs * vsigma;
+        for i in 0..8 {
+            self.m_eff[i] = self.mb[i] - x_sigma[i] * vsigma;
+        }
 
-        // potenciais químicos dos híperons
-        self.mul0 = self.mun;
-        self.musm = self.mun + mue;
-        self.mus0 = self.mun;
-        self.musp = self.mun - mue;
-        self.muxm = self.mun + mue;
-        self.mux0 = self.mun;
+        // potenciais químicos de todas as outras partículas
+        for i in 1..8 {
+            self.mu_b[i] = self.mu_b[0] - self.charges_b[i] * mue;
+        }
 
-        // calcular densidades (chama funções em particles.rs)
+        // calcular densidades
         crate::solver::particles::calculate_all_densities(self, vomega, vrho);
 
-        // equações de movimento
         let fsigma = self.equation_sigma(vsigma);
         let fomega = self.equation_omega(vomega);
         let frho = self.equation_rho(vrho);
@@ -246,21 +206,35 @@ impl PhysicsEngine {
         gs2 * (self.rhosb - self.model.rb * vsigma.powi(2) - self.model.rc * vsigma.powi(3)) - vsigma
     }
 
+    // Equações de Campo Vetorizadas para suportar as partículas com total precisão
     fn equation_omega(&self, vomega: f64) -> f64 {
-        let ddd = self.nb[0] + self.nb[1]
-            + self.xv * (self.nb[2] + self.nb[3] + self.nb[4] + self.nb[5] + self.nb[6] + self.nb[7]);
-        self.model.gv.powi(2) * ddd - vomega
+        let mut sum_baryon = 0.0;
+        for i in 0..8 {
+            sum_baryon += self.nb[i] * self.xv_v[i];
+        }
+        self.model.gv.powi(2) * sum_baryon - vomega
     }
 
     fn equation_rho(&self, vrho: f64) -> f64 {
-        let frhnuc = (self.nb[1] - self.nb[0]) / 2.0;
-        let fhh = -self.nb[3] + self.nb[5] - self.nb[6] / 2.0 + self.nb[7] / 2.0;
-        self.model.gr.powi(2) * (frhnuc + self.xv * fhh) - vrho
+        let mut sum_source = 0.0;
+        for i in 0..8 {
+            // A fonte para o rho é baseada no negativo do isospin
+            sum_source += self.isospin_factor[i] * self.nb[i] * self.xv_r[i];
+        }
+        self.model.gr.powi(2) * sum_source - vrho
     }
 
     fn charge_neutrality(&self) -> f64 {
-        let charge_had = self.nb[1] - self.nb[3] + self.nb[5] - self.nb[6];
-        charge_had - self.nl[0] - self.nl[1]
+        let charge_baryons: f64 = self.nb
+            .iter()
+            .zip(self.charges_b.iter())
+            .map(|(n, q)| n * q)
+            .sum();
+
+        // Leptons: e⁻ and μ⁻ have charge -1
+        let charge_leptons: f64 = self.nl.iter().map(|n| -n).sum();
+
+        charge_baryons + charge_leptons
     }
 
     // Resolve para um dado mun e chute inicial, retorna solução e resultado
@@ -351,8 +325,9 @@ impl PhysicsEngine {
         let nb_total = self.nb.iter().sum::<f64>();
         let nbtd = nb_total * (self.m_nuc / 197.32).powi(3);
         
-        let ener_conv = ener * self.m_nuc * (self.m_nuc / 197.32).powi(3) / self.hc;
-        let press_conv = press * self.m_nuc * (self.m_nuc / 197.32).powi(3) / self.hc;
+        let factor_mev_fm3 = self.m_nuc * (self.m_nuc / 197.32).powi(3);    // Fator direto para MeV/fm³
+        let ener_conv = ener * factor_mev_fm3;
+        let press_conv = press * factor_mev_fm3;
 
         // Adição da Pressão/Energia do Campo Magnético
         let bsurf = 1e11; 
@@ -360,9 +335,10 @@ impl PhysicsEngine {
         let betaa = 1e-2;
         let alphaa = 3.0;
 
-        let bdd = bsurf + btsl * (1.0 - (-betaa * (nbtd / 0.153).powf(alphaa)).exp());
-        let ebsi = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); 
-        let ebsd = ebsi / 3.161e34; 
+        // Conversão de Joules/m³ direta para MeV/fm³
+        let bdd = bsurf + btsl * (1.0 - (-betaa * (nbtd / N0).powf(alphaa)).exp());
+        let ebsi = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); // Joules/m³
+        let ebsd = ebsi / 1.602176634e32; // Divisor exato para J/m³ -> MeV/fm³
 
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + ebsd;
@@ -387,22 +363,6 @@ impl PhysicsEngine {
             Some((x_final, result))
         } else {
             None
-        }
-    }
-}
-
-impl Clone for PhysicsEngine {
-    fn clone(&self) -> Self {
-        // Clona os arrays
-        PhysicsEngine {
-            fpu: self.fpu.clone(),
-            fpd: self.fpd.clone(),
-            fe: self.fe.clone(),
-            fmu: self.fmu.clone(),
-            fsm: self.fsm.clone(),
-            fsp: self.fsp.clone(),
-            fxm: self.fxm.clone(),
-            ..*self
         }
     }
 }

@@ -1,9 +1,9 @@
 // solver/physics.rs
 
-use crate::solver::constants::{
-    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, HBAR_C, M_NUCLEON, MB, ML, QE, N0
+use crate::core::constants::{
+    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, M_NUCLEON, MB, ML, QE, N0
 };
-use crate::solver::model::ModelParams;
+use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
 
 #[derive(Clone)]
@@ -70,7 +70,6 @@ pub struct PhysicsEngine {
 impl PhysicsEngine {
     pub fn new(model: ModelParams, bg: f64) -> Self {
         let m_nuc = M_NUCLEON;
-        let hc = HBAR_C;
         let qe = QE;
         let ml = ML;
         let mb = MB;
@@ -191,7 +190,7 @@ impl PhysicsEngine {
         }
 
         // calcular densidades
-        crate::solver::particles::calculate_all_densities(self, vomega, vrho);
+        crate::core::particles::calculate_all_densities(self, vomega, vrho);
 
         let fsigma = self.equation_sigma(vsigma);
         let fomega = self.equation_omega(vomega);
@@ -320,7 +319,7 @@ impl PhysicsEngine {
 
         // Mapeamento e computação física usando o resultado convergido
         let (mue, vsigma, vomega, vrho) = self.mapping(&x_final);
-        let (ener, press) = crate::solver::eos::compute(self, mue, vsigma, vomega, vrho);
+        let (ener, press) = crate::core::eos::compute(self, mue, vsigma, vomega, vrho);
 
         let nb_total = self.nb.iter().sum::<f64>();
         let nbtd = nb_total * (self.m_nuc / 197.32).powi(3);

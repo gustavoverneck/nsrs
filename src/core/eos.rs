@@ -1,7 +1,7 @@
 // src/solver/eos.rs
 
-use crate::solver::physics::PhysicsEngine;
-use crate::solver::constants::PI2;
+use crate::core::physics::PhysicsEngine;
+use crate::core::constants::PI2;
 
 pub fn compute(engine: &PhysicsEngine, mue: f64, vsigma: f64, vomega: f64, vrho: f64) -> (f64, f64) {
     // 1. Energia dos mésons (Potenciais de campo)

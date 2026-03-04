@@ -1,7 +1,7 @@
 // src/solver/particles.rs
 
-use crate::solver::physics::PhysicsEngine;
-use crate::solver::constants::PI2;
+use crate::core::physics::PhysicsEngine;
+use crate::core::constants::PI2;
 
 pub fn calculate_all_densities(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) {
     for i in 0..8 {
@@ -24,7 +24,7 @@ pub fn calculate_all_densities(engine: &mut PhysicsEngine, vomega: f64, vrho: f6
     let rhos_h = engine.rhos_b[2..8].iter().sum::<f64>();
     
     // CORREÇÃO: O / PI2 foi removido. As densidades já vieram divididas das funções abaixo!
-    engine.rhosb = (rhos_n_p + engine.xs * rhos_h); 
+    engine.rhosb = rhos_n_p + engine.xs * rhos_h; 
     engine.nbt = engine.nb.iter().sum();
 }
 

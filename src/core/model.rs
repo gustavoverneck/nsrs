@@ -1,6 +1,6 @@
 // solver/model.rs
 
-use crate::solver::constants::{HBAR_C, M_NUCLEON};
+use crate::core::constants::{HBAR_C, M_NUCLEON};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ModelParams {

@@ -1,5 +1,5 @@
 /target
 /output
 /results
-.dat
-.png
+*.dat
+*.png

@@ -1,7 +1,6 @@
 // solver/solver.rs
 
-use crate::solver::physics::PhysicsEngine;
-use std::fs::File;
+use crate::core::physics::PhysicsEngine;
 use std::io::Write;
 
 pub struct Solver {

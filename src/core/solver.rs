@@ -1,6 +1,7 @@
-// solver/solver.rs
+// src/solver/solver.rs
 
 use crate::core::physics::PhysicsEngine;
+use rayon::prelude::*;
 use std::io::Write;
 
 pub struct Solver {
@@ -12,6 +13,7 @@ impl Solver {
         Solver { engine }
     }
 
+    /// Resolve uma única EoS sequencialmente (necessário por causa do last_x)
     pub fn solve(&mut self) -> Vec<[f64; 13]> {
         let n = self.engine.n_points;
         let dmub = (self.engine.mun_sup - self.engine.mun_inf) / (n - 1) as f64;
@@ -22,22 +24,37 @@ impl Solver {
 
         for i in 0..n {
             // Agora vamos do MENOR para o MAIOR (Crescente)
-            let mun = self.engine.mun_inf + i as f64 * dmub; 
+            let mun = self.engine.mun_inf + i as f64 * dmub;
             
             if let Some((x, point_result)) = self.engine.solve_point(mun, &last_x) {
                 results.push(point_result);
                 last_x = x; // A solução atual guia suavemente a próxima
             } else {
-                println!("Solver parou de convergir no núcleo em mun = {:.4}.", mun);
+                println!(
+                    "Finalizado: mun = {:.4} |  B = {:.2e} G",
+                    mun, 
+                    self.engine.bg
+                );
                 break;
             }
         }
         results
     }
 
-    pub fn write_eos(&self, results: &[[f64; 13]], filename: &str) -> std::io::Result<()> {
+    /// Resolve múltiplas EoS de forma paralela usando Rayon.
+    pub fn solve_batch(engines: Vec<PhysicsEngine>) -> Vec<Vec<[f64; 13]>> {
+        engines
+            .into_par_iter()
+            .map(|engine| {
+                let mut solver = Solver::new(engine);
+                solver.solve()
+            })
+            .collect()
+    }
+
+    /// Escreve os resultados em um arquivo.
+    pub fn write_eos(results: &[[f64; 13]], filename: &str) -> std::io::Result<()> {
         let mut file = std::fs::File::create(filename)?;
-        // Removemos o .rev() para manter a ordem natural gravada no ficheiro
         for data in results.iter() {
             writeln!(
                 file,

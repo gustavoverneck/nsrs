@@ -6,8 +6,8 @@ use nsrs::core::plotting::plot_mr_curve;
 use nsrs::core::tov_solver::generate_mr_curve;
 use std::env;
 
-// usage:  cargo run --release --bin ns -- <B> <model>
-// example: cargo run --release --bin ns -- 1e15 GM1
+// usage:  cargo run --release --bin simple_ns -- <B> <model>
+// example: cargo run --release --bin simple_ns -- 1e15 GM1
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -32,7 +32,7 @@ fn main() {
     let results = solver.solve();
 
     let eos_path = "eos.dat";
-    if let Err(e) = solver.write_eos(&results, eos_path) {
+    if let Err(e) = Solver::write_eos(&results, eos_path) {
         eprintln!("Erro ao escrever arquivo: {}", e);
         return;
     }

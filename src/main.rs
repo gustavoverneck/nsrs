@@ -35,7 +35,7 @@ fn main() {
 
     let engine = PhysicsEngine::new(model_params, bg)
         .with_limits(0.01, 2.5)
-        .with_points(2000);
+        .with_points(4000);
 
     let mut solver = Solver::new(engine);
     let results = solver.solve();

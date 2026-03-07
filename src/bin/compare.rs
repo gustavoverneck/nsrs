@@ -2,11 +2,10 @@ use nsrs::core::model::{GM1, GM3};
 use nsrs::core::physics::PhysicsEngine;
 use nsrs::core::solver::Solver;
 use nsrs::core::io_utils::read_eos_file;
-use nsrs::core::plotting::Artist; 
-use nsrs::core::tov_solver::generate_mr_curve;
+use nsrs::core::plotting::Artist;
+use nsrs::core::tov_solver::generate_mr_curve; 
 use std::env;
 use std::fs;
-use std::path::Path;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -30,7 +29,7 @@ fn main() {
     // 1. Prepara os Engines para processamento paralelo
     let engines: Vec<PhysicsEngine> = b_fields.iter().map(|&bg| {
         PhysicsEngine::new(model_params, bg)
-            .with_limits(0.01, 2.5)
+            .with_limits(0.02, 2.5)
             .with_points(2200)
     }).collect();
 
@@ -43,7 +42,8 @@ fn main() {
         &format!("results/compare_eos_{}.svg", model_name),
         &format!("Equation of State - {}", model_name),
     )
-    .with_x_label("Energy Density \u{3B5} [MeV/fm\u{00B3}]"); // ε [MeV/fm³]
+    .with_x_label("Energy Density \u{3B5} [MeV/fm\u{00B3}]") // ε [MeV/fm³]
+    .with_y_label("Pressure P [MeV/fm\u{00B3}]"); // P [MeV/fm³]
 
 
     let mut mr_artist = Artist::new(
@@ -81,7 +81,7 @@ fn main() {
             Ok((eps, p)) => {
                 eos_artist = eos_artist.add_curve(&eps, &p, &label);
 
-                let (masses, radii) = generate_mr_curve(&eps, &p);
+                let (masses, radii) = generate_mr_curve(&eps, &p, false);
                 if !masses.is_empty() {
                     // Exporta mr.dat bruto
                     save_mr_data(&radii, &masses, &mr_filename).expect("Falha ao salvar mr.dat");

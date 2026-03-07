@@ -242,7 +242,7 @@ impl PhysicsEngine {
 
         let mut x = Vector4::from_column_slice(initial_x);
         let tolerance = 1e-10;
-        let max_iterations = 1000; // Newton puro converge muito rápido (geralmente < 10 passos)
+        let max_iterations = 100; // Newton puro converge muito rápido (geralmente < 10 passos)
         let mut converged = false;
 
         for _ in 0..max_iterations {

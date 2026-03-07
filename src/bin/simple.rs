@@ -40,7 +40,7 @@ fn main() {
     // Gera curva Massa-Raio a partir da EOS recém-calculada
     match read_eos_file(eos_path) {
         Ok((eps, p)) => {
-            let (masses, radii) = generate_mr_curve(&eps, &p);
+            let (masses, radii) = generate_mr_curve(&eps, &p, false);
             if masses.is_empty() || radii.is_empty() {
                 eprintln!("Curva M-R vazia; verifique a EOS gerada.");
             } else {

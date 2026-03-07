@@ -54,7 +54,7 @@ pub fn integrate_star(
     // Inicializa GSL: removido o .ok() pois Interp::new já retorna Option
     let mut accel = InterpAccel::new();
     let mut spline = Interp::new(InterpType::akima(), p_tov.len())?;
-    spline.init(&p_tov, &eps_tov);
+    let _ = spline.init(&p_tov, &eps_tov);
 
     let dr = 0.01; 
     let mut r = 1e-5;
@@ -80,19 +80,103 @@ pub fn integrate_star(
     Some((m, r))
 }
 
-pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64]) -> (Vec<f64>, Vec<f64>) {
+/// Unifica a crosta personalizada (1/fm⁴) com a EoS do núcleo, descartando dados inválidos
+pub fn unify_with_crust(core_eps: &[f64], core_p: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    // Constante de conversão de 1/fm⁴ para MeV/fm³
+    const HBARC: f64 = 197.3269804;
+
+    // Dados da crosta em 1/fm⁴ - from https://github.com/mrpelicer/nuclear_physics
+    const CRUST_P_FM4: &[f64] = &[
+        1.212e-11, 8.236e-11, 2.764e-10, 5.152e-10, 1.593e-09, 4.023e-09, 1.380e-08,
+        3.315e-08, 1.077e-07, 2.559e-07, 3.479e-07, 4.729e-07, 6.430e-07, 9.147e-07,
+        1.041e-06, 1.840e-06, 2.469e-06, 2.496e-06, 2.642e-06, 2.878e-06, 3.110e-06,
+        3.425e-06, 3.852e-06, 4.425e-06, 5.181e-06, 6.168e-06, 8.198e-06, 1.109e-05,
+        1.509e-05, 2.050e-05, 2.767e-05, 3.701e-05, 5.361e-05
+    ];
+
+    const CRUST_E_FM4: &[f64] = &[
+        9.387e-08, 3.738e-07, 9.392e-07, 1.489e-06, 3.741e-06, 7.465e-06, 1.877e-05,
+        3.747e-05, 9.418e-05, 1.881e-04, 2.369e-04, 2.982e-04, 3.758e-04, 5.242e-04,
+        5.958e-04, 9.452e-04, 1.222e-03, 1.268e-03, 1.486e-03, 1.879e-03, 2.264e-03,
+        2.765e-03, 3.400e-03, 4.182e-03, 5.131e-03, 6.260e-03, 8.329e-03, 1.090e-02,
+        1.402e-02, 1.776e-02, 2.218e-02, 2.732e-02, 3.542e-02
+    ];
+
+    let mut raw_eps = Vec::with_capacity(CRUST_P_FM4.len() + core_p.len());
+    let mut raw_p = Vec::with_capacity(CRUST_P_FM4.len() + core_p.len());
+
+    if core_p.is_empty() {
+        return (raw_eps, raw_p);
+    }
+
+    // 1. Inserir a Crosta (aplicando a conversão para MeV/fm³)
+    for i in 0..CRUST_P_FM4.len() {
+        raw_p.push(CRUST_P_FM4[i] * HBARC);
+        raw_eps.push(CRUST_E_FM4[i] * HBARC);
+    }
+
+    // O ponto de transição agora é dinamicamente o último valor de pressão da sua crosta
+    let p_transition = raw_p.last().copied().unwrap_or(0.0);
+
+    // 2. Inserir o Núcleo (GM1/GM3)
+    for i in 0..core_p.len() {
+        // Só aceita pontos do núcleo que sejam maiores que a pressão máxima da crosta
+        if core_p[i] > p_transition {
+            raw_p.push(core_p[i]);
+            raw_eps.push(core_eps[i]);
+        }
+    }
+
+    // 3. FILTRO DE MONOTONIA ESTRITA (Garante compatibilidade com a GSL)
+    let mut combined: Vec<(f64, f64)> = raw_p.into_iter().zip(raw_eps.into_iter()).collect();
+    combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut final_eps = Vec::with_capacity(combined.len());
+    let mut final_p = Vec::with_capacity(combined.len());
+    let mut last_p = -1.0;
+    let mut last_eps = -1.0;
+
+    for (p, eps) in combined {
+        // A física exige que P e EPS cresçam juntos estritamente
+        if p > last_p && eps > last_eps {
+            final_p.push(p);
+            final_eps.push(eps);
+            last_p = p;
+            last_eps = eps;
+        }
+    }
+
+    (final_eps, final_p)
+}
+
+pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], with_crust: bool) -> (Vec<f64>, Vec<f64>) {
     let mut masses = Vec::new();
     let mut radii = Vec::new();
 
-    // 1. Limpamos e ordenamos a EoS antes de começar qualquer integração
-    let (clean_eps, clean_p) = clean_eos(eps_array, p_array);
+    // 1. Costura a crosta APENAS se a flag for verdadeira
+    let (working_eps, working_p) = if with_crust {
+        unify_with_crust(eps_array, p_array)
+    } else {
+        // Se falso, usa apenas a EoS original do núcleo (GM1/GM3)
+        (eps_array.to_vec(), p_array.to_vec())
+    };
+
+    // 2. Limpa e ordena para satisfazer a GSL
+    let (clean_eps, clean_p) = clean_eos(&working_eps, &working_p);
 
     if clean_p.len() < 3 {
-        return (masses, radii); // Retorna vazio se a EoS for insuficiente
+        return (masses, radii); 
     }
 
-    // 2. Iteramos sobre as pressões centrais da EoS limpa
-    for &pc in &clean_p {
+    // 3. Define onde começar a iterar as pressões centrais
+    // Se tiver crosta, pulamos os pontos de baixa pressão para não criar estrelas "ocas".
+    let core_start_idx = if with_crust && !p_array.is_empty() {
+        clean_p.iter().position(|&p| p >= p_array[0]).unwrap_or(0)
+    } else {
+        0
+    };
+
+    for &pc in &clean_p[core_start_idx..] {
         if let Some((m, r)) = integrate_star(pc, &clean_eps, &clean_p) {
             if m > 0.05 && r > 2.0 && m.is_finite() && r.is_finite() {
                 masses.push(m);

@@ -23,7 +23,7 @@ fn main() {
             println!("Integrando equações TOV...");
 
             // 3. Gera a curva Massa-Raio
-            let (masses, radii) = generate_mr_curve(&eps, &p);
+            let (masses, radii) = generate_mr_curve(&eps, &p, false);
 
             if masses.is_empty() || radii.is_empty() {
                 eprintln!("Erro: A curva M-R retornou vazia. Verifique se as pressões da EoS suportam uma estrela.");

@@ -1,4 +1,4 @@
-// src/solver/particles.rs
+// src/core/particles.rs
 
 use crate::core::physics::PhysicsEngine;
 use crate::core::constants::PI2;
@@ -23,7 +23,6 @@ pub fn calculate_all_densities(engine: &mut PhysicsEngine, vomega: f64, vrho: f6
     let rhos_n_p = engine.rhos_b[0] + engine.rhos_b[1];
     let rhos_h = engine.rhos_b[2..8].iter().sum::<f64>();
     
-    // CORREÇÃO: O / PI2 foi removido. As densidades já vieram divididas das funções abaixo!
     engine.rhosb = rhos_n_p + engine.xs * rhos_h; 
     engine.nbt = engine.nb.iter().sum();
 }
@@ -40,7 +39,10 @@ pub fn density_baryon_neutral(
     
     engine.ef_b[idx] = ef;
     
-    // BLINDAGEM 1: Se a energia de Fermi efetiva é negativa, não existe matéria!
+    // ZERA OS MOMENTOS PARA EVITAR "FANTASMAS" DO NEWTON-RAPHSON
+    engine.kf_b_up[idx][0] = 0.0;
+    engine.kf_b_down[idx][0] = 0.0;
+    
     if ef <= 0.0 { return (0.0, 0.0); }
 
     let m_star = engine.m_eff[idx];    
@@ -53,11 +55,13 @@ pub fn density_baryon_neutral(
     let mut rhos_total = 0.0;
     let mut dens_total = 0.0;
 
-    for &m_spin in &[m_up, m_down] {
+    // Quando B=0, m_up == m_down
+    let spins = [m_up, m_down];
+    for spin_idx in 0..2 {
+        let m_spin = spins[spin_idx];
         let kf2 = ef.powi(2) - m_spin.powi(2);
         if kf2 > 0.0 {
             let kf = kf2.sqrt();
-            // BLINDAGEM 2: Previne divisão por zero ou logaritmo infinito se a massa colapsar
             let m_safe = m_spin.abs().max(1e-15); 
             
             rhos_total += (m_spin / (4.0 * PI2)) * (
@@ -66,8 +70,12 @@ pub fn density_baryon_neutral(
             
             dens_total += kf.powi(3) / (6.0 * PI2);
             
-            if m_spin == m_up { engine.kf_b_up[idx][0] = kf; } 
-            else { engine.kf_b_down[idx][0] = kf; }
+            // Grava o kf no array correto usando o índice do loop
+            if spin_idx == 0 { 
+                engine.kf_b_up[idx][0] = kf; 
+            } else { 
+                engine.kf_b_down[idx][0] = kf; 
+            }
         }
     }
     (rhos_total, dens_total)
@@ -76,14 +84,20 @@ pub fn density_baryon_neutral(
 fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, vrho: f64) -> (f64, f64) {
     let q = engine.charges_b[idx].abs() * engine.qe;
     let b = engine.b;
-    let m = engine.m_eff[idx]; // m*
+    let m = engine.m_eff[idx]; 
     let amm = engine.amm_b[idx];
     
     let ef = engine.mu_b[idx] 
              - (engine.xv_v[idx] * vomega) 
-             - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]); // Correção do sinal do isospin (Item 6B)
+             - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]); 
     
     engine.ef_b[idx] = ef;
+
+    // ZERA OS MOMENTOS PARA EVITAR FANTASMAS
+    engine.n_b_up[idx] = 0;
+    engine.n_b_down[idx] = 0;
+    engine.kf_b_up[idx][0] = 0.0;
+    engine.kf_b_down[idx][0] = 0.0;
     
     if ef <= 0.0 { return (0.0, 0.0); }
 
@@ -96,7 +110,6 @@ fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, v
             let m_safe = m.abs().max(1e-15);
             let rhos = (m / (2.0 * PI2)) * (ef * kf - m.powi(2) * ((kf + ef) / m_safe).ln());
             
-            // Salvamos no índice 0 como se fosse um único "nível macro" para a EoS usar
             engine.kf_b_up[idx][0] = kf;
             engine.kf_b_down[idx][0] = kf;
             engine.n_b_up[idx] = 1;
@@ -137,7 +150,6 @@ fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, v
         if kf2 <= 0.0 { break; } 
         
         let kf = kf2.sqrt();
-        // CORREÇÃO: Usa n_up como índice para gravar os dados sequencialmente
         engine.kf_b_up[idx][n_up] = kf;
         n_up += 1;
         
@@ -157,7 +169,6 @@ fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, v
         if kf2 <= 0.0 { break; }
         
         let kf = kf2.sqrt();
-        // CORREÇÃO: Usa n_down como índice. Isso evita o underflow de (nu - 1)
         engine.kf_b_down[idx][n_down] = kf;
         n_down += 1;
         
@@ -177,12 +188,12 @@ fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, v
 pub fn density_lepton(engine: &mut PhysicsEngine, idx: usize) -> (f64, f64) {
     let mue = engine.mue;      
     
-    // BLINDAGEM: Lêptons com energia negativa não existem
-    if mue <= 0.0 { 
-        engine.n_l[idx] = 0;
-        engine.ef_l[idx] = 0.0;
-        return (0.0, 0.0); 
-    }
+    // ZERA OS ESTADOS PARA EVITAR FANTASMAS
+    engine.n_l[idx] = 0;
+    engine.f_l[idx][0] = 0.0;
+    engine.ef_l[idx] = mue;
+    
+    if mue <= 0.0 { return (0.0, 0.0); }
 
     let b = engine.b;
     let q = engine.qe; 
@@ -196,19 +207,17 @@ pub fn density_lepton(engine: &mut PhysicsEngine, idx: usize) -> (f64, f64) {
         let kf2 = mue.powi(2) - m.powi(2);
         if kf2 > 0.0 {
             let kf = kf2.sqrt();
-            let dens = kf.powi(3) / (3.0 * PI2);
+            let dens_val = kf.powi(3) / (3.0 * PI2);
             let m_safe = m.abs().max(1e-15);
-            let rhos = (m / (2.0 * PI2)) * (mue * kf - m.powi(2) * ((kf + mue) / m_safe).ln());
+            let rhos_val = (m / (2.0 * PI2)) * (mue * kf - m.powi(2) * ((kf + mue) / m_safe).ln());
             
             engine.f_l[idx][0] = kf;
             engine.n_l[idx] = 1;
-            engine.ef_l[idx] = mue;
             
-            return (rhos, dens);
+            return (rhos_val, dens_val);
         }
         return (0.0, 0.0);
     }
-
 
     let nu_max_approx = (mue.powi(2) - m.powi(2)) / (2.0 * q * b);
     let nu_max = if nu_max_approx > 0.0 { 
@@ -236,7 +245,6 @@ pub fn density_lepton(engine: &mut PhysicsEngine, idx: usize) -> (f64, f64) {
     }
 
     engine.n_l[idx] = n_occupied; 
-    engine.ef_l[idx] = mue;   
-
+    
     (rhos, dens)
 }

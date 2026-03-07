@@ -37,7 +37,7 @@ impl Solver {
                         
                         // Se dp/de for quase zero ou negativo, a estrela é instável.
                         // Abortamos para evitar que o TOV gere resultados errôneos.
-                        if cs2 < 1e-4 {
+                        if cs2 < 1e-6 {
                             println!(
                                 "Abortando: EoS instável (dp/de = {:.2e}) | mun = {:.4} | B = {:.2e} G",
                                 cs2, mun, self.engine.bg

@@ -20,7 +20,8 @@ pub fn compute(engine: &PhysicsEngine, mue: f64, vsigma: f64, vomega: f64, vrho:
         let ef = engine.ef_b[i];
         if ef <= 0.0 { continue; }
 
-        if engine.charges_b[i] == 0.0 {
+        // Se a partícula for neutra OU B=0, usa a fórmula contínua!
+        if engine.charges_b[i] == 0.0 || engine.b == 0.0 {
             // --- Partículas Neutras (n, L0, S0, X0) ---
             // O AMM desdobra a partícula em 2 estados de spin (Up e Down)
             for &kf in &[engine.kf_b_up[i][0], engine.kf_b_down[i][0]] {
@@ -57,20 +58,35 @@ pub fn compute(engine: &PhysicsEngine, mue: f64, vsigma: f64, vomega: f64, vrho:
         }
     }
 
-    // --- LOOP DE LÉPTONS (0:e-, 1:mu-) ---
+        // --- LOOP DE LÉPTONS (0:e-, 1:mu-) ---
     let mut enerlep = 0.0;
     for i in 0..2 {
         let ef = engine.ef_l[i];
-        let qb = engine.qe * engine.b;
-        
-        for nu in 0..engine.n_l[i] {
-            let kf = engine.f_l[i][nu];
-            let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
-            let g = if nu == 0 { 1.0 } else { 2.0 }; // Degenerescência de Landau para Dirac
+        if ef <= 0.0 { continue; }
+
+        if engine.b == 0.0 {
+            // Fórmula isotrópica para léptons se B=0 (com fator 2 para spin-up e spin-down)
+            let kf = engine.f_l[i][0];
+            if kf > 0.0 {
+                let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
+                enerlep += 2.0 * (1.0 / (4.0 * PI2)) * (
+                    ef.powi(3) * kf / 2.0
+                    - (m_spin / 4.0) * (m_spin * kf * ef + m_spin.powi(3) * ((kf + ef) / m_spin.abs()).ln())
+                );
+            }
+        } else {
+            // Léptons sob Efeito de Landau (B > 0)
+            let qb = engine.qe * engine.b;
             
-            enerlep += (g * qb / (4.0 * PI2)) * (
-                ef * kf + m_spin.powi(2) * ((kf + ef) / m_spin.abs()).ln()
-            );
+            for nu in 0..engine.n_l[i] {
+                let kf = engine.f_l[i][nu];
+                let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
+                let g = if nu == 0 { 1.0 } else { 2.0 }; // Degenerescência de Landau para Dirac
+                
+                enerlep += (g * qb / (4.0 * PI2)) * (
+                    ef * kf + m_spin.powi(2) * ((kf + ef) / m_spin.abs()).ln()
+                );
+            }
         }
     }
 

@@ -87,6 +87,26 @@ fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, v
     
     if ef <= 0.0 { return (0.0, 0.0); }
 
+    // TRATAMENTO PARA O CASO ISOTRÓPICO (B=0)
+    if b == 0.0 {
+        let kf2 = ef.powi(2) - m.powi(2);
+        if kf2 > 0.0 {
+            let kf = kf2.sqrt();
+            let dens = kf.powi(3) / (3.0 * PI2);
+            let m_safe = m.abs().max(1e-15);
+            let rhos = (m / (2.0 * PI2)) * (ef * kf - m.powi(2) * ((kf + ef) / m_safe).ln());
+            
+            // Salvamos no índice 0 como se fosse um único "nível macro" para a EoS usar
+            engine.kf_b_up[idx][0] = kf;
+            engine.kf_b_down[idx][0] = kf;
+            engine.n_b_up[idx] = 1;
+            engine.n_b_down[idx] = 1;
+            
+            return (rhos, dens);
+        }
+        return (0.0, 0.0);
+    }
+
     let nu_max_approx_up = ((ef + amm * b).powi(2) - m.powi(2)) / (2.0 * q * b);
     let nu_max_approx_down = ((ef - amm * b).powi(2) - m.powi(2)) / (2.0 * q * b);
     
@@ -166,11 +186,29 @@ pub fn density_lepton(engine: &mut PhysicsEngine, idx: usize) -> (f64, f64) {
 
     let b = engine.b;
     let q = engine.qe; 
-    let m = engine.ml[idx];    
+    let m = engine.ml[idx];
 
     let mut rhos = 0.0;
     let mut dens = 0.0;
     let mut n_occupied = 0; 
+
+    if b == 0.0 {
+        let kf2 = mue.powi(2) - m.powi(2);
+        if kf2 > 0.0 {
+            let kf = kf2.sqrt();
+            let dens = kf.powi(3) / (3.0 * PI2);
+            let m_safe = m.abs().max(1e-15);
+            let rhos = (m / (2.0 * PI2)) * (mue * kf - m.powi(2) * ((kf + mue) / m_safe).ln());
+            
+            engine.f_l[idx][0] = kf;
+            engine.n_l[idx] = 1;
+            engine.ef_l[idx] = mue;
+            
+            return (rhos, dens);
+        }
+        return (0.0, 0.0);
+    }
+
 
     let nu_max_approx = (mue.powi(2) - m.powi(2)) / (2.0 * q * b);
     let nu_max = if nu_max_approx > 0.0 { 

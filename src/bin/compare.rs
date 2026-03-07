@@ -29,8 +29,8 @@ fn main() {
     // 1. Prepara os Engines para processamento paralelo
     let engines: Vec<PhysicsEngine> = b_fields.iter().map(|&bg| {
         PhysicsEngine::new(model_params, bg)
-            .with_limits(0.02, 2.5)
-            .with_points(2200)
+            .with_limits(0.01, 2.5)
+            .with_points(1200)
     }).collect();
 
     // 2. Executa o cálculo paralelo
@@ -54,7 +54,7 @@ fn main() {
     )
     .with_x_label("Radius [km]")
     .with_y_label("Mass [M\u{2299}]") // Símbolo solar ⊙
-    .with_x_range(10.0, 15.0); // Range alinhado com crust.rs
+    .with_x_range(10.0, 15.0);
 
     // 3. Processamento e Exportação Organizada
     for (i, results) in all_results.iter().enumerate() {
@@ -83,7 +83,7 @@ fn main() {
             Ok((eps, p)) => {
                 eos_artist = eos_artist.add_curve(&eps, &p, &label);
 
-                let (masses, radii) = generate_mr_curve(&eps, &p, false);
+                let (masses, radii) = generate_mr_curve(&eps, &p, true);
                 if !masses.is_empty() {
                     // Exporta mr.dat bruto
                     save_mr_data(&radii, &masses, &mr_filename).expect("Falha ao salvar mr.dat");

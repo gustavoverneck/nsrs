@@ -12,11 +12,11 @@ use std::env;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Uso: {} <B> <GM1|GM3>", args[0]);
+        eprintln!("Uso: {} <GM1|GM3> <B>", args[0]);
         return;
     }
-    let bg: f64 = args[1].parse().expect("B deve ser número");
-    let model_name = &args[2];
+    let model_name = &args[1];
+    let bg: f64 = args[2].parse().expect("B deve ser número");
 
     let model_params = match model_name.as_str() {
         "GM1" => GM1,
@@ -25,8 +25,8 @@ fn main() {
     };
 
     let engine = PhysicsEngine::new(model_params, bg)
-        .with_limits(0.01, 2.5)
-        .with_points(20001);
+        .with_limits(0.02, 5.0)
+        .with_points(2003);
 
     let mut solver = Solver::new(engine);
     let results = solver.solve();

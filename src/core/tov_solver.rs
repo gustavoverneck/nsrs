@@ -115,13 +115,15 @@ pub fn unify_with_crust(core_eps: &[f64], core_p: &[f64]) -> (Vec<f64>, Vec<f64>
         raw_eps.push(CRUST_E_FM4[i] * HBARC);
     }
 
-    // O ponto de transição agora é dinamicamente o último valor de pressão da sua crosta
+    // O ponto de transição agora é dinamicamente o último valor da sua crosta
     let p_transition = raw_p.last().copied().unwrap_or(0.0);
+    let e_transition = raw_eps.last().copied().unwrap_or(0.0);
 
     // 2. Inserir o Núcleo (GM1/GM3)
     for i in 0..core_p.len() {
-        // Só aceita pontos do núcleo que sejam maiores que a pressão máxima da crosta
-        if core_p[i] > p_transition {
+        // A costura só ocorre quando o núcleo supera tanto a pressão quanto a 
+        // densidade de energia máximas da crosta. Isso preserva (e_c, p_c) como a fronteira absoluta.
+        if core_p[i] > p_transition && core_eps[i] > e_transition {
             raw_p.push(core_p[i]);
             raw_eps.push(core_eps[i]);
         }

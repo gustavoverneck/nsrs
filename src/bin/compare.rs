@@ -42,8 +42,10 @@ fn main() {
         &format!("results/compare_eos_{}.svg", model_name),
         &format!("Equation of State - {}", model_name),
     )
-    .with_x_label("Energy Density \u{3B5} [MeV/fm\u{00B3}]") // ε [MeV/fm³]
-    .with_y_label("Pressure P [MeV/fm\u{00B3}]"); // P [MeV/fm³]
+    .with_x_label("Energy Density log \u{3B5} [MeV/fm\u{00B3}]")
+    .with_y_label("Pressure log P [MeV/fm\u{00B3}]")
+    .with_log_scale()
+    .autoscale();
 
 
     let mut mr_artist = Artist::new(
@@ -52,7 +54,7 @@ fn main() {
     )
     .with_x_label("Radius [km]")
     .with_y_label("Mass [M\u{2299}]") // Símbolo solar ⊙
-    .with_x_range(8.0, 14.0); // Fixa o range para estrelas de nêutrons
+    .with_x_range(10.0, 15.0); // Range alinhado com crust.rs
 
     // 3. Processamento e Exportação Organizada
     for (i, results) in all_results.iter().enumerate() {

@@ -6,10 +6,45 @@ use crate::core::constants::{
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NlemModel {
+    Maxwell,        // Eletromagnetismo Clássico (Linear)
+    Modmax(f64),    // Eletrodinâmica ModMax (recebe parâmetro csi)
+    Log(f64),       // Eletrodinâmica Logarítmica (recebe parâmetro csi)
+}
+
+impl NlemModel {
+    /// Recebe o campo magnético original (bg) e retorna o campo magnético efetivo alterado pelo modelo não-linear.
+    pub fn effective_bg(&self, bg: f64) -> f64 {
+        match self {
+            NlemModel::Maxwell => bg,
+            
+            NlemModel::Modmax(csi) => {
+                // Fórmula: bg * exp(-csi)
+                bg * (-csi).exp()
+            },
+            
+            NlemModel::Log(csi) => {
+                // Fórmula: bg / abs(1.0 - bg^2 / (2 * csi^2))
+                let denom = (1.0 - bg.powi(2) / (2.0 * csi.powi(2))).abs();
+                
+                // Prevenção contra singularidade matemática (divisão por zero)
+                if denom < 1e-15 {
+                    eprintln!("Aviso: O campo B atingiu a singularidade do modelo Log (B ≈ √2 * csi)!");
+                    return bg / 1e-15; // Limita em um valor extremamente alto
+                }
+                
+                bg / denom
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PhysicsEngine {
     // Parâmetros fixos
     pub model: ModelParams,
+    pub nlem: NlemModel,
     pub bg: f64,
     pub b: f64,
     pub m_nuc: f64,
@@ -100,6 +135,7 @@ impl PhysicsEngine {
 
         PhysicsEngine {
             model,
+            nlem: NlemModel::Maxwell,
             bg,
             b,
             m_nuc,
@@ -145,6 +181,19 @@ impl PhysicsEngine {
 
             isospin_factor: isospin_factor,
         }
+    }
+    /// Builder para acoplar o Eletromagnetismo Não-Linear
+    pub fn with_nlem(mut self, nlem: NlemModel) -> Self {
+        self.nlem = nlem;
+        
+        // 1. Calcula o campo macroscópico efetivo usando o Enum
+        let bg_effective = self.nlem.effective_bg(self.bg);
+        
+        // 2. Recalcula o 'b' que vai para os Níveis de Landau usando o novo bg
+        let b0 = bg_effective / 4.41e13;
+        self.b = b0 * crate::core::constants::BCE;
+        
+        self
     }
 
     // Métodos builder
@@ -364,4 +413,7 @@ impl PhysicsEngine {
             None
         }
     }
+
+
+
 }

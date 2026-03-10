@@ -1,4 +1,5 @@
 // src/solver/plotting.rs
+#![allow(unused)]
 
 use plotters::prelude::*;
 use std::error::Error;
@@ -167,7 +168,8 @@ pub struct Artist {
     x_max: Option<f64>,
     y_min: Option<f64>,
     y_max: Option<f64>,
-    use_logscale: bool, // Controle para escalas logarítmicas
+    use_logscale: bool,
+    x_label_count: Option<usize>,
     curves: Vec<CurveData>,
 }
 
@@ -183,6 +185,7 @@ impl Artist {
             y_min: None,
             y_max: None,
             use_logscale: false,
+            x_label_count: None,
             curves: Vec::new(),
         }
     }
@@ -192,6 +195,11 @@ impl Artist {
     pub fn autoscale(mut self) -> Self { self.x_min = None; self.x_max = None; self.y_min = None; self.y_max = None; self }
     pub fn with_x_range(mut self, min: f64, max: f64) -> Self { self.x_min = Some(min); self.x_max = Some(max); self }
     
+    pub fn with_x_labels(mut self, count: usize) -> Self {
+        self.x_label_count = Some(count);
+        self
+    }
+
     /// Habilita escala Log-Log (Ideal para a Equação de Estado)
     pub fn with_log_scale(mut self) -> Self {
         self.use_logscale = true;
@@ -247,7 +255,17 @@ impl Artist {
                 .y_label_area_size(50)
                 .build_cartesian_2d((x_start..x_end).log_scale(), (y_start..y_end).log_scale())?;
 
-            chart.configure_mesh().x_desc(&self.x_label).y_desc(&self.y_label).light_line_style(&WHITE.mix(0.1)).draw()?;
+            // --- NOVO: Controle de labels para o mesh Logarítmico ---
+            let mut mesh = chart.configure_mesh();
+            mesh.x_desc(&self.x_label)
+                .y_desc(&self.y_label)
+                .light_line_style(&WHITE.mix(0.1));
+            
+            if let Some(count) = self.x_label_count {
+                mesh.x_labels(count);
+            }
+            mesh.draw()?;
+            // --------------------------------------------------------
 
             for (i, curve) in self.curves.iter().enumerate() {
                 let color = colors[i % colors.len()];
@@ -269,7 +287,17 @@ impl Artist {
                 .y_label_area_size(50)
                 .build_cartesian_2d(x_start..x_end, y_start..y_end)?;
 
-            chart.configure_mesh().x_desc(&self.x_label).y_desc(&self.y_label).light_line_style(&WHITE.mix(0.1)).draw()?;
+            // --- NOVO: Controle de labels para o mesh Linear ---
+            let mut mesh = chart.configure_mesh();
+            mesh.x_desc(&self.x_label)
+                .y_desc(&self.y_label)
+                .light_line_style(&WHITE.mix(0.1));
+            
+            if let Some(count) = self.x_label_count {
+                mesh.x_labels(count);
+            }
+            mesh.draw()?;
+            // ----------------------------------------------------
 
             for (i, curve) in self.curves.iter().enumerate() {
                 let color = colors[i % colors.len()];

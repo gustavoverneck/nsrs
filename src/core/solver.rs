@@ -1,4 +1,5 @@
 // src/solver/solver.rs
+#![allow(unused)]
 
 use crate::core::physics::PhysicsEngine;
 use rayon::prelude::*;

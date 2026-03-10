@@ -1,4 +1,5 @@
 // solver/physics.rs
+#![allow(unused)]
 
 use crate::core::constants::{
     AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, M_NUCLEON, MB, ML, QE, N0

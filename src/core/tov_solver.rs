@@ -44,7 +44,7 @@ pub fn integrate_star(
     pc_mev: f64, 
     eps_array: &[f64], 
     p_array: &[f64]
-) -> Option<(f64, f64)> {
+) -> Option<(f64, f64, f64)> {
     
     let eps_tov: Vec<f64> = eps_array.iter().map(|&e| e * MEV_FM3_TO_MSUN_KM3).collect();
     let p_tov: Vec<f64> = p_array.iter().map(|&p| p * MEV_FM3_TO_MSUN_KM3).collect();
@@ -77,7 +77,7 @@ pub fn integrate_star(
         r += dr;
     }
 
-    Some((m, r))
+    Some((m, r, pc_mev))
 }
 
 /// Unifica a crosta personalizada (1/fm⁴) com a EoS do núcleo, descartando dados inválidos
@@ -85,7 +85,7 @@ pub fn unify_with_crust(core_eps: &[f64], core_p: &[f64]) -> (Vec<f64>, Vec<f64>
     // Constante de conversão de 1/fm⁴ para MeV/fm³
     const HBARC: f64 = 197.3269804;
 
-    // Dados da crosta em 1/fm⁴ - from https://github.com/mrpelicer/nuclear_physics
+    // Dados da crosta em 1/fm⁴- Baym-Pethick-Sutherland - from https://github.com/mrpelicer/nuclear_physics
     const CRUST_P_FM4: &[f64] = &[
         1.212e-11, 8.236e-11, 2.764e-10, 5.152e-10, 1.593e-09, 4.023e-09, 1.380e-08,
         3.315e-08, 1.077e-07, 2.559e-07, 3.479e-07, 4.729e-07, 6.430e-07, 9.147e-07,
@@ -151,9 +151,10 @@ pub fn unify_with_crust(core_eps: &[f64], core_p: &[f64]) -> (Vec<f64>, Vec<f64>
     (final_eps, final_p)
 }
 
-pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], with_crust: bool) -> (Vec<f64>, Vec<f64>) {
+pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], with_crust: bool) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut masses = Vec::new();
     let mut radii = Vec::new();
+    let mut central_pressures = Vec::new();
 
     // 1. Costura a crosta APENAS se a flag for verdadeira
     let (working_eps, working_p) = if with_crust {
@@ -167,7 +168,7 @@ pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], with_crust: bool) -
     let (clean_eps, clean_p) = clean_eos(&working_eps, &working_p);
 
     if clean_p.len() < 3 {
-        return (masses, radii); 
+        return (masses, radii, central_pressures); 
     }
 
     // 3. Define onde começar a iterar as pressões centrais
@@ -179,15 +180,16 @@ pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], with_crust: bool) -
     };
 
     for &pc in &clean_p[core_start_idx..] {
-        if let Some((m, r)) = integrate_star(pc, &clean_eps, &clean_p) {
+        if let Some((m, r, pc_final)) = integrate_star(pc, &clean_eps, &clean_p) {
             if m > 0.05 && r > 2.0 && m.is_finite() && r.is_finite() {
                 masses.push(m);
                 radii.push(r);
+                central_pressures.push(pc_final);
             }
         }
     }
 
-    (masses, radii)
+    (masses, radii, central_pressures)
 }
 
 /// Garante que a pressão seja estritamente crescente para a GSL

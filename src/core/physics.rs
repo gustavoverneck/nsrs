@@ -6,6 +6,7 @@ use crate::core::constants::{
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
+use rgsl::exponential::exp;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NlemModel {
@@ -15,27 +16,51 @@ pub enum NlemModel {
 }
 
 impl NlemModel {
-    /// Recebe o campo magnético original (bg) e retorna o campo magnético efetivo alterado pelo modelo não-linear.
+    /// Recebe o campo magnético original (bg) e retorna o campo magnético 
+    /// EFETIVO alterado pelo modelo não-linear.
     pub fn effective_bg(&self, bg: f64) -> f64 {
         match self {
             NlemModel::Maxwell => bg,
             
             NlemModel::Modmax(csi) => {
                 // Fórmula: bg * exp(-csi)
-                bg * (-csi).exp()
+                bg * exp(-csi)
             },
             
             NlemModel::Log(csi) => {
-                // Fórmula: bg / abs(1.0 - bg^2 / (2 * csi^2))
-                let denom = (1.0 - bg.powi(2) / (2.0 * csi.powi(2))).abs();
-                
-                // Prevenção contra singularidade matemática (divisão por zero)
-                if denom < 1e-15 {
-                    eprintln!("Aviso: O campo B atingiu a singularidade do modelo Log (B ≈ √2 * csi)!");
-                    return bg / 1e-15; // Limita em um valor extremamente alto
-                }
-                
+                // Modelo de Soleng Padrão: bg / (1 + bg^2 / 2*csi^2)
+                // O sinal de '+' garante que nunca haverá divisão por zero!
+                let denom = 1.0 + bg.powi(2) / (2.0 * csi.powi(2));
                 bg / denom
+            }
+        }
+    }
+
+    /// Calcula a Densidade de Energia Magnética Macroscópica da NLEM
+    /// Essa é a energia real que curva o espaço-tempo na equação TOV.
+    pub fn magnetic_energy(&self, bg: f64, ebsi_maxwell: f64) -> f64 {
+        match self {
+            NlemModel::Maxwell => ebsi_maxwell,
+            
+            NlemModel::Modmax(csi) => {
+                // ε_MM = ε_Max * e^(-csi)
+                ebsi_maxwell * exp(-csi)
+            },
+            
+            NlemModel::Log(csi) => {
+                let bg_sq = bg.powi(2);
+                let csi_sq = csi.powi(2);
+                
+                // x = B^2 / (2 * csi^2)
+                let x = bg_sq / (2.0 * csi_sq);
+                
+                // Limite de segurança matemático para x muito próximo de zero
+                if x < 1e-15 {
+                    ebsi_maxwell
+                } else {
+                    // Usamos ln_1p(x) que calcula ln(1 + x)
+                    ebsi_maxwell * (x.ln_1p() / x)
+                }
             }
         }
     }
@@ -287,7 +312,7 @@ impl PhysicsEngine {
     }
 
     // Resolve para um dado mun e chute inicial, retorna solução e resultado
-    pub fn solve_point(&mut self, mun: f64, initial_x: &[f64]) -> Option<([f64; 4], [f64; 13])> {
+    pub fn solve_point(&mut self, mun: f64, initial_x: &[f64]) -> Option<([f64; 4], [f64; 20])> {
         self.mun = mun;
 
         let mut x = Vector4::from_column_slice(initial_x);
@@ -384,30 +409,46 @@ impl PhysicsEngine {
         let betaa = 1e-2;
         let alphaa = 3.0;
 
-        // Conversão de Joules/m³ direta para MeV/fm³
+        // Campo macroscópico local B(n) dependente da densidade
         let bdd = bsurf + btsl * (1.0 - (-betaa * (nbtd / N0).powf(alphaa)).exp());
-        let ebsi = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); // Joules/m³
-        let ebsd = ebsi / 1.602176634e32; // Divisor exato para J/m³ -> MeV/fm³
+        
+        // Calculo da Energia Clássica de Maxwell (Joules/m³)
+        let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); 
+        
+        // 2. Aplica a transformação da Lagrangiana NLEM (Soleng ou ModMax)
+        let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
+        
+        // 3. Converte o resultado de Joules/m³ para MeV/fm³
+        let ebsd = ebsi_nlem / 1.602176634e32; 
 
+        // Adiciona à termodinâmica final da estrela
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + ebsd;
 
         // Limiar da crosta: retorna None se a pressão ficar negativa
         if ener_final >= 0.0 && press_final >= 0.0 {
             let result = [
-                nbtd / 0.153,
-                ener_final,
-                press_final,
-                self.nl[0],
-                self.nl[1],
-                self.nb[0],
-                self.nb[1],
-                self.nb[2],
-                self.nb[3],
-                self.nb[4],
-                self.nb[5],
-                self.nb[6],
-                self.nb[7],
+                nbtd / 0.153, //  0: n/n0
+                ener_final,   //  1: Energia Total
+                press_final,  //  2: Pressão Total
+                self.nl[0],   //  3: e-
+                self.nl[1],   //  4: mu-
+                self.nb[0],   //  5: n
+                self.nb[1],   //  6: p
+                self.nb[2],   //  7: L0
+                self.nb[3],   //  8: S-
+                self.nb[4],   //  9: S0
+                self.nb[5],   // 10: S+
+                self.nb[6],   // 11: X-
+                self.nb[7],   // 12: X0
+                // --- NOVOS PARÂMETROS ---
+                vsigma,       // 13: Campo Sigma
+                vomega,       // 14: Campo Omega
+                vrho,         // 15: Campo Rho
+                self.m_eff[0] / self.m_nuc, // 16: Massa Efetiva do Nêutron (m*/mN)
+                self.mun,     // 17: Potencial Químico do Nêutron
+                mue,          // 18: Potencial Químico do Elétron
+                ebsd,         // 19: Pressão Magnética (Para ver o efeito NLEM)
             ];
             Some((x_final, result))
         } else {

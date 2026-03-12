@@ -15,10 +15,10 @@ impl Solver {
     }
 
     /// Resolve a EoS sequencialmente
-    pub fn solve(&mut self) -> Vec<[f64; 13]> {
+    pub fn solve(&mut self) -> Vec<[f64; 20]> {
         let n = self.engine.n_points;
         let dmub = (self.engine.mun_sup - self.engine.mun_inf) / (n - 1) as f64;
-        let mut results: Vec<[f64; 13]> = Vec::with_capacity(n);
+        let mut results: Vec<[f64; 20]> = Vec::with_capacity(n);
         
         let mut last_x = [0.0, 0.0, 0.0, 0.0];
 
@@ -67,7 +67,7 @@ impl Solver {
     }
 
     /// Resolve múltiplas EoS de forma paralela usando Rayon.
-    pub fn solve_batch(engines: Vec<PhysicsEngine>) -> Vec<Vec<[f64; 13]>> {
+    pub fn solve_batch(engines: Vec<PhysicsEngine>) -> Vec<Vec<[f64; 20]>> {
         engines
             .into_par_iter()
             .map(|engine| {
@@ -78,7 +78,7 @@ impl Solver {
     }
 
     /// Escreve os resultados em um arquivo.
-    pub fn write_eos(results: &[[f64; 13]], filename: &str) -> std::io::Result<()> {
+    pub fn write_eos(results: &[[f64; 20]], filename: &str) -> std::io::Result<()> {
         let mut file = std::fs::File::create(filename)?;
         for data in results.iter() {
             writeln!(

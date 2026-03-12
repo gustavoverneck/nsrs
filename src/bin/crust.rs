@@ -90,7 +90,7 @@ fn main() {
 
                 // --- PLOT E CÁLCULO MR ---
                 // Integração SEM Crosta
-                let (masses_nc, radii_nc) = generate_mr_curve(&eps, &p, false);
+                let (masses_nc, radii_nc, _) = generate_mr_curve(&eps, &p, false);
                 if !masses_nc.is_empty() {
                     let mr_nc_filename = format!("{}mr_no_crust.dat", dir_path);
                     save_mr_data(&radii_nc, &masses_nc, &mr_nc_filename).ok();
@@ -98,7 +98,7 @@ fn main() {
                 }
 
                 // Integração COM Crosta
-                let (masses_wc, radii_wc) = generate_mr_curve(&eps, &p, true);
+                let (masses_wc, radii_wc, _) = generate_mr_curve(&eps, &p, true);
                 if !masses_wc.is_empty() {
                     let mr_wc_filename = format!("{}mr_with_crust.dat", dir_path);
                     save_mr_data(&radii_wc, &masses_wc, &mr_wc_filename).ok();

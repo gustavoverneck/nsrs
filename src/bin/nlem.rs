@@ -106,7 +106,7 @@ fn main() {
                 eos_artist = eos_artist.add_curve(&eps, &p, label);
 
                 // Integra a TOV com a crosta unificada (true)
-                let (masses, radii) = generate_mr_curve(&eps, &p, true);
+                let (masses, radii, _) = generate_mr_curve(&eps, &p, true);
                 if !masses.is_empty() {
                     // Exporta mr.dat bruto
                     save_mr_data(&radii, &masses, &mr_filename).ok();

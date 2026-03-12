@@ -1,9 +1,9 @@
 // src/core/particles.rs
 
-use crate::core::physics::PhysicsEngine;
+use crate::core::physics::HadronsMatter;
 use crate::core::constants::PI2;
 
-pub fn calculate_all_densities(engine: &mut PhysicsEngine, vomega: f64, vrho: f64) {
+pub fn calculate_all_densities(engine: &mut HadronsMatter, vomega: f64, vrho: f64) {
     for i in 0..8 {
         let (rs, rb) = if engine.charges_b[i] == 0.0 {
             density_baryon_neutral(engine, i, vomega, vrho)
@@ -28,7 +28,7 @@ pub fn calculate_all_densities(engine: &mut PhysicsEngine, vomega: f64, vrho: f6
 }
 
 pub fn density_baryon_neutral(
-    engine: &mut PhysicsEngine, 
+    engine: &mut HadronsMatter, 
     idx: usize, 
     vomega: f64, 
     vrho: f64
@@ -81,7 +81,7 @@ pub fn density_baryon_neutral(
     (rhos_total, dens_total)
 }
 
-fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, vrho: f64) -> (f64, f64) {
+fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, vrho: f64) -> (f64, f64) {
     let q = engine.charges_b[idx].abs() * engine.qe;
     let b = engine.b;
     let m = engine.m_eff[idx]; 
@@ -185,7 +185,7 @@ fn density_baryon_charged(engine: &mut PhysicsEngine, idx: usize, vomega: f64, v
     (rhos, dens)
 }
 
-pub fn density_lepton(engine: &mut PhysicsEngine, idx: usize) -> (f64, f64) {
+pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
     let mue = engine.mue;      
     
     // ZERA OS ESTADOS PARA EVITAR FANTASMAS

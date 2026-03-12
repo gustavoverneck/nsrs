@@ -216,3 +216,65 @@ fn clean_eos(eps: &[f64], p: &[f64]) -> (Vec<f64>, Vec<f64>) {
 
     (safe_eps, safe_p)
 }
+
+/// Procura e interpola os dados de quarks para um mun específico
+fn find_quark_point(quark_eos: &[[f64; 20]], target_mun: f64) -> Option<[f64; 20]> {
+    // Busca binária para encontrar a posição do mun (índice 17)
+    let pos = quark_eos.binary_search_by(|row| {
+        row[17].partial_cmp(&target_mun).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    match pos {
+        // Encontrou o valor exato
+        Ok(idx) => Some(quark_eos[idx]),
+        
+        // Não encontrou valor exato, tenta interpolar entre idx-1 e idx
+        Err(idx) => {
+            if idx == 0 || idx >= quark_eos.len() {
+                return None; // mun fora do range da tabela de quarks
+            }
+            
+            let q_low = &quark_eos[idx - 1];
+            let q_high = &quark_eos[idx];
+            
+            // Fator de interpolação linear
+            let factor = (target_mun - q_low[17]) / (q_high[17] - q_low[17]);
+            
+            let mut interpolated = [0.0; 20];
+            for i in 0..20 {
+                interpolated[i] = q_low[i] + factor * (q_high[i] - q_low[i]);
+            }
+            Some(interpolated)
+        }
+    }
+}
+
+pub fn unify_hybrid_eos(hadron_eos: &[[f64; 20]], quark_eos: &[[f64; 20]]) -> (Vec<f64>, Vec<f64>) {
+    let mut final_eps = Vec::new();
+    let mut final_p = Vec::new();
+
+    for h_row in hadron_eos {
+        let mun = h_row[17]; 
+        let p_had = h_row[2];
+
+        // Agora a função existe e retorna os dados interpolados
+        if let Some(q_row) = find_quark_point(quark_eos, mun) {
+            let p_qrk = q_row[2];
+
+            if p_qrk > p_had {
+                // Construção de Maxwell: Fase de Quarks é mais estável
+                final_eps.push(q_row[1]);
+                final_p.push(q_row[2]);
+            } else {
+                // Fase Hadrónica ainda é mais estável
+                final_eps.push(h_row[1]);
+                final_p.push(h_row[2]);
+            }
+        } else {
+            // Se o mun for muito baixo (ex: na crosta), a fase de quarks nem existe
+            final_eps.push(h_row[1]);
+            final_p.push(h_row[2]);
+        }
+    }
+    (final_eps, final_p)
+}

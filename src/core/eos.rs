@@ -1,9 +1,9 @@
 // src/solver/eos.rs
 
-use crate::core::physics::PhysicsEngine;
+use crate::core::physics::HadronsMatter;
 use crate::core::constants::PI2;
 
-pub fn compute(engine: &PhysicsEngine, mue: f64, vsigma: f64, vomega: f64, vrho: f64) -> (f64, f64) {
+pub fn compute(engine: &HadronsMatter, mue: f64, vsigma: f64, vomega: f64, vrho: f64) -> (f64, f64) {
     // 1. Energia dos mésons (Potenciais de campo)
     // Inclui termos de massa e auto-interações (rb, rc para sigma e rxi para omega)
     let enerf = (vsigma / engine.model.gs).powi(2) / 2.0

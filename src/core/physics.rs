@@ -67,7 +67,7 @@ impl NlemModel {
 }
 
 #[derive(Clone)]
-pub struct PhysicsEngine {
+pub struct HadronsMatter {
     // Parâmetros fixos
     pub model: ModelParams,
     pub nlem: NlemModel,
@@ -128,7 +128,7 @@ pub struct PhysicsEngine {
     pub isospin_factor: [f64; 8],
 }
 
-impl PhysicsEngine {
+impl HadronsMatter {
     pub fn new(model: ModelParams, bg: f64) -> Self {
         let m_nuc = M_NUCLEON;
         let qe = QE;
@@ -159,7 +159,7 @@ impl PhysicsEngine {
 
         let isospin_factor = [-0.5, 0.5, 0.0, -1.0, 0.0, 1.0, -0.5, 0.5];
 
-        PhysicsEngine {
+        HadronsMatter {
             model,
             nlem: NlemModel::Maxwell,
             bg,

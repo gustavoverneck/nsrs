@@ -1,8 +1,8 @@
 // src/bin/nlem_limits.rs
 
 use nsrs::core::model::{GM1, GM3};
-use nsrs::core::physics::{PhysicsEngine, NlemModel};
-use nsrs::core::solver::Solver;
+use nsrs::core::physics::{HadronsMatter, NlemModel};
+use nsrs::core::solver::{Solver, EngineMode}; // <-- Importado EngineMode
 use nsrs::core::plotting::Artist;
 use nsrs::core::tov_solver::generate_mr_curve; 
 use std::env;
@@ -60,7 +60,7 @@ fn main() {
     let num_points = csi_vals.len();
     let x_ticks_count = (exp_max - exp_min) as usize;
 
-    // 2. Prepara os Artists (Agora com 5 gráficos!)
+    // 2. Prepara os Artists
     let mut artist_m = Artist::new(
         &format!("results/limit_mass_{}_combined.svg", model_name),
         &format!("Maximum Mass Limit - {}", model_name),
@@ -109,7 +109,6 @@ fn main() {
         let mut radii_at_max = Vec::new();
         let mut valid_log_csi = Vec::new();
         
-        // Novos vetores para a microfísica central
         let mut central_nc_vals = Vec::new();
         let mut central_meff_vals = Vec::new();
         let mut central_emag_vals = Vec::new();
@@ -123,7 +122,7 @@ fn main() {
                 for line in reader.lines().skip(1) {
                     if let Ok(content) = line {
                         let parts: Vec<&str> = content.split(',').collect();
-                        if parts.len() >= 7 { // Agora lemos 7 colunas!
+                        if parts.len() >= 7 {
                             if let (Ok(log_csi), Ok(m_max), Ok(r_max), Ok(nc), Ok(meff), Ok(emag)) = (
                                 parts[1].parse::<f64>(),
                                 parts[2].parse::<f64>(),
@@ -147,11 +146,14 @@ fn main() {
                 continue;
             }
         } else {
-            let engines: Vec<PhysicsEngine> = csi_vals.iter().map(|&csi| {
-                PhysicsEngine::new(model_params, b_field)
+            // ---> CORREÇÃO AQUI: Criando um Vec de EngineMode <---
+            let engines: Vec<EngineMode> = csi_vals.iter().map(|&csi| {
+                let motor = HadronsMatter::new(model_params, b_field)
                     .with_nlem(NlemModel::Log(csi))
                     .with_limits(0.01, 2.5)
-                    .with_points(2000)
+                    .with_points(2000);
+                
+                EngineMode::Hadrons(motor) // Embrulha no enum
             }).collect();
 
             println!("\nVarrendo {} valores de \u{03BE} para B = {} G...", num_points, b_string);
@@ -169,7 +171,6 @@ fn main() {
                 let eos_filename = format!("{}/eos.dat", dir_path);
                 if let Err(_) = Solver::write_eos(results, &eos_filename) { continue; }
 
-                // Otimização: Extrai eps e p direto da memória em vez de ler o arquivo!
                 let eps: Vec<f64> = results.iter().map(|r| r[1]).collect();
                 let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
                 
@@ -178,7 +179,7 @@ fn main() {
                 if !masses.is_empty() {
                     let mut m_max = 0.0;
                     let mut r_max_m = 0.0;
-                    let mut best_pc = 0.0; // Armazena a pressão central da estrela de massa máxima
+                    let mut best_pc = 0.0; 
                     
                     for i_star in 0..masses.len() {
                         let r = radii[i_star];
@@ -193,8 +194,6 @@ fn main() {
                     }
                     
                     if m_max > 0.0 {
-                        // 2. Busca o índice exato no array 'results' que corresponde a esta pressão central
-                        // Isso garante que você pegue a microfísica do NÚCLEO da estrela correta.
                         let core_idx = results.iter()
                             .position(|r| (r[2] - best_pc).abs() < 1e-8)
                             .unwrap_or(results.len() - 1);
@@ -203,15 +202,13 @@ fn main() {
                         radii_at_max.push(r_max_m);
                         valid_log_csi.push(log_csi);
                         
-                        // 3. Extrai a microfísica usando o índice vinculado à Pc
-                        central_nc_vals.push(results[core_idx][0]);  // n/n0
-                        central_meff_vals.push(results[core_idx][16]); // m*/mN
-                        central_emag_vals.push(results[core_idx][19]); // Energia Magnética
+                        central_nc_vals.push(results[core_idx][0]);  
+                        central_meff_vals.push(results[core_idx][16]); 
+                        central_emag_vals.push(results[core_idx][19]); 
                     }
                 }
             }
 
-            // Exporta os Dados expandidos para CSV
             if let Ok(mut file) = fs::File::create(&csv_path) {
                 use std::io::Write;
                 writeln!(file, "csi,log10_csi,max_mass_msun,radius_at_max_km,central_nc,central_meff,central_emag").ok();
@@ -238,7 +235,6 @@ fn main() {
         artist_emag = artist_emag.add_curve(&valid_log_csi, &central_emag_vals, &label);
     }
 
-    // 4. Gera os 5 Gráficos Finais Combinados
     artist_m.plot().ok();
     artist_r.plot().ok();
     artist_nc.plot().ok();
@@ -246,5 +242,4 @@ fn main() {
     artist_emag.plot().ok();
 
     println!("\nProcesso concluído!");
-    println!("Gráficos gerados na pasta results/ limit_mass, limit_radius, limit_nc, limit_meff e limit_emag!");
 }

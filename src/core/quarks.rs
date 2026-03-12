@@ -1,6 +1,6 @@
 // src/core/quarks.rs
 use crate::core::physics::NlemModel;
-use crate::core::constants::{N0, M_NUCLEON};
+use crate::core::constants::{HBAR_C, M_NUCLEON, MV, N0};
 use nalgebra::{Matrix2, Vector2};
 use std::f64::consts::PI;
 
@@ -53,8 +53,8 @@ impl QuarksMatter {
         
         Self {
             bag_constant,
-            gv: 0.0, 
-            mv: 780.0,
+            gv: 0.0,//(2.67357438647 / HBAR_C) * M_NUCLEON, 
+            mv: MV * M_NUCLEON,
             bg,
             nlem,
             // Valores normalizados (mu_n / M_N)
@@ -98,7 +98,8 @@ impl QuarksMatter {
         let mut converged = false;
 
         for &guess_mue in guesses.iter() {
-            let mut x = Vector2::new(guess_mue, self.last_v0);
+            let guess_v0 = if self.gv > 0.0 { mun_mev * 0.1 } else { 0.0 };
+            let mut x = Vector2::new(guess_mue, guess_v0);
             
             for _ in 0..100 {
                 let f_val = self.residuals(mun_mev, x[0], x[1], m_u, m_d, m_s, m_e, m_mu);
@@ -118,8 +119,8 @@ impl QuarksMatter {
                 }
 
                 if let Some(delta) = j_matrix.lu().solve(&(-f_val)) {
-                    x += delta * 0.8; // Amortecimento de 80% para estabilidade
-                } else { break; }
+                    x += delta * 0.2; 
+                }
             }
             if converged { break; }
         }
@@ -200,9 +201,10 @@ impl QuarksMatter {
         // Função auxiliar para densidade com proteção física mu_eff > mass
         let get_n = |mu_total: f64, mass: f64, gv_v0: f64, g: f64| {
             let mu_eff = mu_total - gv_v0;
+            // IMPORTANTE: mu_eff deve ser positivo e maior que a massa
             if mu_eff > mass {
                 let kf = (mu_eff.powi(2) - mass.powi(2)).sqrt();
-                g * kf.powi(3) / (6.0 * PI.powi(2) * hc3)
+                g * kf.powi(3) / (6.0 * std::f64::consts::PI.powi(2) * hc3)
             } else {
                 0.0
             }

@@ -18,7 +18,7 @@ fn main() {
         .with_points(1500);
 
     let quark_engine = QuarksMatter::new(bag_constant, bg)
-        .with_limits(1.5, 10.0)
+        .with_limits(1.5, 5.0)
         .with_points(3000);
 
     // 2. Resolve a Estrela de Hádrons Pura

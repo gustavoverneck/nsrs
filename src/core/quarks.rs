@@ -95,18 +95,19 @@ impl QuarksMatter {
         let m_mu = 105.66;
         let hc3 = HBAR_C.powi(3);
 
-        // 1. Newton-Raphson Robusto com múltiplos chutes
-        let guesses = [self.last_mue, 0.1, 10.0, 50.0, 100.0];
+        // 1. Newton-Raphson Robusto com Clamping para g_v alto
+        let guesses = [self.last_mue, 10.0, 50.0, 100.0];
         let mut final_x = Vector2::new(0.0, 0.0);
         let mut converged = false;
 
         for &guess_mue in guesses.iter() {
-            let guess_v0 = if self.gv > 0.0 { mun_mev * 0.1 } else { 0.0 };
+            // Chute inicial conservador para V0
+            let guess_v0 = if self.gv > 0.0 { mun_mev * 0.05 } else { 0.0 };
             let mut x = Vector2::new(guess_mue, guess_v0);
             
-            for _ in 0..100 {
+            for _ in 0..200 { // Aumentamos as iterações devido ao amortecimento
                 let f_val = self.residuals(mun_mev, x[0], x[1], m_u, m_d, m_s, m_e, m_mu);
-                if f_val.norm() < 1e-11 {
+                if f_val.norm() < 1e-10 {
                     final_x = x;
                     converged = true;
                     break;
@@ -121,12 +122,33 @@ impl QuarksMatter {
                     j_matrix.set_column(i, &((f_temp - f_val) / h));
                 }
 
-                if let Some(delta) = j_matrix.lu().solve(&(-f_val)) {
-                    // Amortecimento dinâmico: mais rápido se não houver campo vetorial, cauteloso se houver
-                    let damping = if self.gv > 2.0 { 0.1 } else if self.gv > 0.0 { 0.5 } else { 1.0 };
+                if let Some(mut delta) = j_matrix.lu().solve(&(-f_val)) {
+                    // PROTEÇÃO 1: Evita saltos absurdos da derivada (Clipping)
+                    if delta[0].abs() > 20.0 { delta[0] = 20.0 * delta[0].signum(); }
+                    if delta[1].abs() > 20.0 { delta[1] = 20.0 * delta[1].signum(); }
+
+                    // PROTEÇÃO 2: Amortecimento agressivo para acoplamentos fortes
+                    let damping = if self.gv > 2.0 { 0.05 } else if self.gv > 0.0 { 0.2 } else { 1.0 };
                     x += delta * damping; 
+
+                    // PROTEÇÃO 3: V0 nunca pode ser negativo (a repulsão é positiva)
+                    if x[1] < 0.0 { x[1] = 0.0; }
+
+                    // PROTEÇÃO 4 (A MAIS IMPORTANTE): V0 não pode aniquilar o plasma
+                    // Garante que (mu - gv*V0) > massa do quark, senão a densidade zera e o solver quebra
+                    if self.gv > 0.0 {
+                        let mu_u_base = mun_mev / 3.0 - (2.0/3.0) * x[0];
+                        if mu_u_base > m_u {
+                            let max_v0 = (mu_u_base - m_u) / self.gv;
+                            if x[1] >= max_v0 {
+                                x[1] = max_v0 * 0.98; // Trava o V0 logo antes de matar a física
+                            }
+                        } else {
+                            x[1] = 0.0; 
+                        }
+                    }
                 } else {
-                    break; // Matriz singular, aborta este chute e tenta o próximo
+                    break; // Matriz singular, aborta e tenta o próximo chute
                 }
             }
             if converged { break; }
@@ -175,8 +197,9 @@ impl QuarksMatter {
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + ebsd;
 
-        // Tratamento para evitar pressões negativas no vácuo nuclear
-        if press_final < 0.0 && mun_norm < 1.1 {
+        // Tratamento para evitar pressões negativas
+        if press_final <= 0.0 {
+            // Enquanto a pressão do gás não vencer a Constante de Sacola, o estado é de vácuo.
             let mut vac = [0.0; 20];
             vac[17] = mun_norm;
             return Some(vac);
@@ -234,9 +257,9 @@ impl QuarksMatter {
         // 1. Carga do Plasma = 0
         let charge = (2.0 / 3.0) * n_u - (1.0 / 3.0) * n_d - (1.0 / 3.0) * n_s - n_e - n_mu;
         
-        // 2. Equação do Campo Vetorial: mv^2 * V0 = gv * (nu + nd + ns)
-        // Note: usamos (nu + nd + ns) * hc3 para converter para unidades de energia consistentes
-        let eom_v = self.gv * (n_u + n_d + n_s) * hc3 - self.mv.powi(2) * v0;
+        // 2. Equação do Campo Vetorial NORMALIZADA
+        // Dividimos por mv^2 para que o resíduo seja o próprio erro em MeV.
+        let eom_v = (self.gv * (n_u + n_d + n_s) * hc3) / self.mv.powi(2) - v0;
 
         Vector2::new(charge, eom_v)
     }

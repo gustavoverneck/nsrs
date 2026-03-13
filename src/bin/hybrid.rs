@@ -17,9 +17,11 @@ fn main() {
         .with_limits(0.0, 2.5)
         .with_points(1500);
 
-    let quark_engine = QuarksMatter::new(bag_constant, 0.0)
+    let mut quark_engine = QuarksMatter::new(bag_constant, 0.0)
         .with_limits(1.5, 5.0)
         .with_points(3000);
+
+    quark_engine.gv = 0.0;
 
     // 2. Resolve a Estrela de Hádrons Pura
     println!("Resolvendo EoS Hadrônica (GM1)...");

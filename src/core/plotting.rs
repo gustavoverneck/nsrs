@@ -1,4 +1,4 @@
-// src/solver/plotting.rs
+// src/core/plotting.rs (ou src/solver/plotting.rs dependendo da sua estrutura)
 #![allow(unused)]
 
 use plotters::prelude::*;
@@ -88,10 +88,9 @@ pub fn plot_eos_curve(
 
     let mut clean_data = Vec::new();
 
-    // Filtro de dados
     for (&e, &p) in eps_array.iter().zip(p_array.iter()) {
         if e.is_finite() && p.is_finite() {
-            if use_logscale && (e <= 0.0 || p <= 0.0) { continue; } // Log não aceita <= 0
+            if use_logscale && (e <= 0.0 || p <= 0.0) { continue; }
             
             clean_data.push((e, p));
             if e < d_x_min { d_x_min = e; }
@@ -105,7 +104,6 @@ pub fn plot_eos_curve(
 
     let plot_red = RGBColor(214, 39, 40);
 
-    // Renderização separada devido aos tipos genéricos do plotters para Log Coord
     if use_logscale {
         let mut chart = ChartBuilder::on(&root)
             .caption("Equation of State", ("sans-serif", 24 * scale))
@@ -149,7 +147,7 @@ pub fn plot_eos_curve(
 }
 
 // ============================================================================
-// ARTIST: GERENCIADOR DE MÚLTIPLAS CURVAS (Ideal para comparações)
+// ARTIST: GERENCIADOR DE MÚLTIPLAS CURVAS (Com Suporte a Cores)
 // ============================================================================
 
 #[derive(Clone)]
@@ -157,6 +155,7 @@ pub struct CurveData {
     pub x: Vec<f64>,
     pub y: Vec<f64>,
     pub label: String,
+    pub color: Option<(u8, u8, u8)>, // NOVO: RGB personalizado
 }
 
 pub struct Artist {
@@ -195,19 +194,28 @@ impl Artist {
     pub fn autoscale(mut self) -> Self { self.x_min = None; self.x_max = None; self.y_min = None; self.y_max = None; self }
     pub fn with_x_range(mut self, min: f64, max: f64) -> Self { self.x_min = Some(min); self.x_max = Some(max); self }
     
-    pub fn with_x_labels(mut self, count: usize) -> Self {
-        self.x_label_count = Some(count);
-        self
-    }
+    pub fn with_x_labels(mut self, count: usize) -> Self { self.x_label_count = Some(count); self }
+    pub fn with_log_scale(mut self) -> Self { self.use_logscale = true; self }
 
-    /// Habilita escala Log-Log (Ideal para a Equação de Estado)
-    pub fn with_log_scale(mut self) -> Self {
-        self.use_logscale = true;
-        self
-    }
-
+    /// Adiciona uma curva com uma cor automática da paleta base
     pub fn add_curve(mut self, x: &[f64], y: &[f64], label: &str) -> Self {
-        self.curves.push(CurveData { x: x.to_vec(), y: y.to_vec(), label: label.to_string() });
+        self.curves.push(CurveData { 
+            x: x.to_vec(), 
+            y: y.to_vec(), 
+            label: label.to_string(),
+            color: None 
+        });
+        self
+    }
+
+    /// NOVO: Adiciona uma curva especificando a cor RGB exata (r, g, b)
+    pub fn add_curve_color(mut self, x: &[f64], y: &[f64], label: &str, r: u8, g: u8, b: u8) -> Self {
+        self.curves.push(CurveData { 
+            x: x.to_vec(), 
+            y: y.to_vec(), 
+            label: label.to_string(),
+            color: Some((r, g, b)) 
+        });
         self
     }
 
@@ -241,12 +249,12 @@ impl Artist {
         let y_start = self.y_min.unwrap_or(if self.use_logscale { d_y_min * 0.8 } else { 0.0 }); 
         let y_end = self.y_max.unwrap_or(if self.use_logscale { d_y_max * 1.5 } else { d_y_max * 1.05 });
 
-        let root = SVGBackend::new(&self.output_path, (800, 600)).into_drawing_area();
+        let root = SVGBackend::new(&self.output_path, (1000, 800)).into_drawing_area();
         root.fill(&WHITE)?;
 
+        // Paleta de fallback
         let colors = [&BLUE, &RED, &GREEN, &MAGENTA, &CYAN, &BLACK];
 
-        // A biblioteca plotters requer instâncias separadas de ChartBuilder para Log e Linear
         if self.use_logscale {
             let mut chart = ChartBuilder::on(&root)
                 .caption(&self.title, ("sans-serif", 20))
@@ -255,28 +263,32 @@ impl Artist {
                 .y_label_area_size(50)
                 .build_cartesian_2d((x_start..x_end).log_scale(), (y_start..y_end).log_scale())?;
 
-            // --- NOVO: Controle de labels para o mesh Logarítmico ---
             let mut mesh = chart.configure_mesh();
             mesh.x_desc(&self.x_label)
                 .y_desc(&self.y_label)
                 .light_line_style(&WHITE.mix(0.1));
             
-            if let Some(count) = self.x_label_count {
-                mesh.x_labels(count);
-            }
+            if let Some(count) = self.x_label_count { mesh.x_labels(count); }
             mesh.draw()?;
-            // --------------------------------------------------------
 
             for (i, curve) in self.curves.iter().enumerate() {
-                let color = colors[i % colors.len()];
                 let step = (curve.x.len() / 2000).max(1);
                 let data = curve.x.iter().zip(curve.y.iter()).enumerate()
                     .filter(|(idx, (x, y))| idx % step == 0 && x.is_finite() && y.is_finite() && *x > &0.0 && *y > &0.0)
                     .map(|(_, (&x, &y))| (x, y));
 
-                chart.draw_series(LineSeries::new(data, color.stroke_width(2)))?
-                    .label(&curve.label)
-                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], color.stroke_width(2)));
+                // Seleciona a cor personalizada ou cai na paleta padrão
+                if let Some((r, g, b)) = curve.color {
+                    let custom_color = RGBColor(r, g, b);
+                    chart.draw_series(LineSeries::new(data, custom_color.stroke_width(2)))?
+                        .label(&curve.label)
+                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], custom_color.stroke_width(2)));
+                } else {
+                    let default_color = colors[i % colors.len()];
+                    chart.draw_series(LineSeries::new(data, default_color.stroke_width(2)))?
+                        .label(&curve.label)
+                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], default_color.stroke_width(2)));
+                }
             }
             chart.configure_series_labels().position(SeriesLabelPosition::UpperLeft).draw()?;
         } else {
@@ -287,33 +299,101 @@ impl Artist {
                 .y_label_area_size(50)
                 .build_cartesian_2d(x_start..x_end, y_start..y_end)?;
 
-            // --- NOVO: Controle de labels para o mesh Linear ---
             let mut mesh = chart.configure_mesh();
             mesh.x_desc(&self.x_label)
                 .y_desc(&self.y_label)
                 .light_line_style(&WHITE.mix(0.1));
             
-            if let Some(count) = self.x_label_count {
-                mesh.x_labels(count);
-            }
+            if let Some(count) = self.x_label_count { mesh.x_labels(count); }
             mesh.draw()?;
-            // ----------------------------------------------------
 
             for (i, curve) in self.curves.iter().enumerate() {
-                let color = colors[i % colors.len()];
                 let step = (curve.x.len() / 2000).max(1);
                 let data = curve.x.iter().zip(curve.y.iter()).enumerate()
                     .filter(|(idx, (x, y))| idx % step == 0 && x.is_finite() && y.is_finite())
                     .map(|(_, (&x, &y))| (x, y));
 
-                chart.draw_series(LineSeries::new(data, color.stroke_width(2)))?
-                    .label(&curve.label)
-                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], color.stroke_width(2)));
+                // Seleciona a cor personalizada ou cai na paleta padrão
+                if let Some((r, g, b)) = curve.color {
+                    let custom_color = RGBColor(r, g, b);
+                    chart.draw_series(LineSeries::new(data, custom_color.stroke_width(2)))?
+                        .label(&curve.label)
+                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], custom_color.stroke_width(2)));
+                } else {
+                    let default_color = colors[i % colors.len()];
+                    chart.draw_series(LineSeries::new(data, default_color.stroke_width(2)))?
+                        .label(&curve.label)
+                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], default_color.stroke_width(2)));
+                }
             }
             chart.configure_series_labels().position(SeriesLabelPosition::UpperRight).draw()?;
         }
 
         root.present()?;
         Ok(())
+    }
+}
+
+
+
+// ============================================================================
+// COLOR SCALE: Gerenciador de Gradientes e Paletas de Cores
+// ============================================================================
+
+#[derive(Clone, Copy)]
+pub enum Palette {
+    BlueToRed,
+    Plasma, // Roxo -> Rosa -> Amarelo
+    Heat,   // Preto -> Vermelho -> Amarelo
+    Cool,   // Ciano -> Magenta
+}
+
+pub struct ColorScale {
+    min: f64,
+    max: f64,
+    palette: Palette,
+}
+
+impl ColorScale {
+    /// Cria uma nova escala de cores definindo o intervalo [min, max]
+    pub fn new(min: f64, max: f64, palette: Palette) -> Self {
+        Self { min, max, palette }
+    }
+
+    /// Retorna a tupla RGB (r, g, b) correspondente ao valor fornecido
+    pub fn get_color(&self, value: f64) -> (u8, u8, u8) {
+        // Normaliza o valor para uma fração entre 0.0 e 1.0 com proteção (clamp)
+        let fraction = if self.max > self.min {
+            ((value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
+        } else {
+            0.0 // Previne NaN caso min e max sejam iguais
+        };
+
+        match self.palette {
+            Palette::BlueToRed => {
+                let r = (255.0 * fraction) as u8;
+                let g = 0;
+                let b = (255.0 * (1.0 - fraction)) as u8;
+                (r, g, b)
+            }
+            Palette::Plasma => {
+                let r = (255.0 * fraction) as u8;
+                let g = (255.0 * fraction.powi(3)) as u8;
+                let b = (255.0 * (1.0 - fraction.sqrt())) as u8;
+                (r, g, b)
+            }
+            Palette::Heat => {
+                let r = (255.0 * fraction.sqrt()) as u8;
+                let g = (255.0 * fraction.powi(2)) as u8;
+                let b = 0;
+                (r, g, b)
+            }
+            Palette::Cool => {
+                let r = (255.0 * fraction) as u8;
+                let g = (255.0 * (1.0 - fraction)) as u8;
+                let b = 255;
+                (r, g, b)
+            }
+        }
     }
 }

@@ -10,14 +10,14 @@ use nsrs::core::plotting::Artist;
 
 fn main() {
     let bg = 1e15; 
-    let bag_constant = 145.0; // MeV/fm³
+    let bag_constant = 85.38; // MeV/fm³
     
     // 1. Instancia os componentes base
     let hadron_engine = HadronsMatter::new(GM1, bg)
         .with_limits(0.0, 2.5)
         .with_points(1500);
 
-    let quark_engine = QuarksMatter::new(bag_constant, bg)
+    let quark_engine = QuarksMatter::new(bag_constant, 0.0)
         .with_limits(1.5, 5.0)
         .with_points(3000);
 

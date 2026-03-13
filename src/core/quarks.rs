@@ -1,4 +1,5 @@
 // src/core/quarks.rs
+
 use crate::core::physics::NlemModel;
 use crate::core::constants::{HBAR_C, M_NUCLEON, MV, N0};
 use nalgebra::{Matrix2, Vector2};
@@ -7,7 +8,7 @@ use std::f64::consts::PI;
 /// Calcula a termodinâmica de um gás de Fermi ideal livre
 /// Retorna: (Densidade [fm^-3], Energia [MeV/fm^3], Pressão [MeV/fm^3])
 fn fermi_gas_thermo(kf_mev: f64, m_mev: f64, g: f64) -> (f64, f64, f64) {
-    let hc3 = 197.3269804_f64.powi(3); // Fator de conversão de MeV^3 para fm^-3
+    let hc3 = HBAR_C.powi(3); // Fator de conversão de MeV^3 para fm^-3
     
     if kf_mev <= 0.0 {
         return (0.0, 0.0, 0.0);
@@ -53,7 +54,7 @@ impl QuarksMatter {
         
         Self {
             bag_constant,
-            gv: 0.0,//(2.67357438647 / HBAR_C) * M_NUCLEON, 
+            gv: 0.0, // (2.67357438647 / HBAR_C) * M_NUCLEON
             mv: MV * M_NUCLEON,
             bg,
             nlem,
@@ -84,13 +85,15 @@ impl QuarksMatter {
 
     /// Resolve o ponto para um mun NORMALIZADO
     pub fn solve_point(&mut self, mun_norm: f64) -> Option<[f64; 20]> {
-        let mun_mev = mun_norm * crate::core::constants::M_NUCLEON;
-        let m_u = 4.0; 
-        let m_d = 4.0; 
-        let m_s = 95.0;
-        let m_e = 0.511; 
+        let mun_mev = mun_norm * M_NUCLEON;
+        
+        // Massas baseadas no program7.f do Fortran
+        let m_u = 5.0; 
+        let m_d = 7.0; 
+        let m_s = 150.0;
+        let m_e = 0.51099907; 
         let m_mu = 105.66;
-        let hc3 = 197.3269804_f64.powi(3);
+        let hc3 = HBAR_C.powi(3);
 
         // 1. Newton-Raphson Robusto com múltiplos chutes
         let guesses = [self.last_mue, 0.1, 10.0, 50.0, 100.0];
@@ -119,7 +122,11 @@ impl QuarksMatter {
                 }
 
                 if let Some(delta) = j_matrix.lu().solve(&(-f_val)) {
-                    x += delta * 0.2; 
+                    // Amortecimento dinâmico: mais rápido se não houver campo vetorial, cauteloso se houver
+                    let damping = if self.gv > 2.0 { 0.1 } else if self.gv > 0.0 { 0.5 } else { 1.0 };
+                    x += delta * damping; 
+                } else {
+                    break; // Matriz singular, aborta este chute e tenta o próximo
                 }
             }
             if converged { break; }
@@ -160,8 +167,8 @@ impl QuarksMatter {
         let betaa = 1e-2;
         let alphaa = 3.0;
 
-        let bdd = bsurf + btsl * (1.0 - (-betaa * (nb_total / crate::core::constants::N0).powf(alphaa)).exp());
-        let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); 
+        let bdd = bsurf + btsl * (1.0 - (-betaa * (nb_total / N0).powf(alphaa)).exp());
+        let ebsi_maxwell = bdd.powi(2) / (8.0 * PI * 1e-7); 
         let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
         let ebsd = ebsi_nlem / 1.602176634e32; 
 
@@ -177,7 +184,7 @@ impl QuarksMatter {
 
         if ener_final >= 0.0 && press_final >= 0.0 {
             let mut result = [0.0; 20];
-            result[0] = nb_total / crate::core::constants::N0; 
+            result[0] = nb_total / N0; 
             result[1] = ener_final;
             result[2] = press_final;
             result[3] = n_e;
@@ -196,7 +203,7 @@ impl QuarksMatter {
     }
 
     fn residuals(&self, mun_mev: f64, mue: f64, v0: f64, mu: f64, md: f64, ms: f64, me: f64, mmu: f64) -> Vector2<f64> {
-        let hc3 = 197.3269804_f64.powi(3);
+        let hc3 = HBAR_C.powi(3); // Atualizado para usar a constante global
         
         // Função auxiliar para densidade com proteção física mu_eff > mass
         let get_n = |mu_total: f64, mass: f64, gv_v0: f64, g: f64| {
@@ -204,7 +211,7 @@ impl QuarksMatter {
             // IMPORTANTE: mu_eff deve ser positivo e maior que a massa
             if mu_eff > mass {
                 let kf = (mu_eff.powi(2) - mass.powi(2)).sqrt();
-                g * kf.powi(3) / (6.0 * std::f64::consts::PI.powi(2) * hc3)
+                g * kf.powi(3) / (6.0 * PI.powi(2) * hc3)
             } else {
                 0.0
             }
@@ -213,10 +220,12 @@ impl QuarksMatter {
         let n_u = get_n(mun_mev / 3.0 - 2.0 / 3.0 * mue, mu, self.gv * v0, 6.0);
         let n_d = get_n(mun_mev / 3.0 + 1.0 / 3.0 * mue, md, self.gv * v0, 6.0);
         let n_s = get_n(mun_mev / 3.0 + 1.0 / 3.0 * mue, ms, self.gv * v0, 6.0);
+        
         let n_e = if mue > me { 
             let kf = (mue.powi(2) - me.powi(2)).sqrt();
             2.0 * kf.powi(3) / (6.0 * PI.powi(2) * hc3)
         } else { 0.0 };
+        
         let n_mu = if mue > mmu {
             let kf = (mue.powi(2) - mmu.powi(2)).sqrt();
             2.0 * kf.powi(3) / (6.0 * PI.powi(2) * hc3)

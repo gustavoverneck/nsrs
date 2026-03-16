@@ -126,6 +126,8 @@ pub struct HadronsMatter {
     pub max_landau_limit: usize,
 
     pub isospin_factor: [f64; 8],
+
+    pub csi: f64,
 }
 
 impl HadronsMatter {
@@ -158,6 +160,8 @@ impl HadronsMatter {
         let n_l = [0; 2];
 
         let isospin_factor = [-0.5, 0.5, 0.0, -1.0, 0.0, 1.0, -0.5, 0.5];
+
+        let csi = 0.0;
 
         HadronsMatter {
             model,
@@ -206,8 +210,17 @@ impl HadronsMatter {
             max_landau_limit: max_landau_limit,
 
             isospin_factor: isospin_factor,
+
+            csi,
         }
     }
+
+    /// Builder para acoplar o termo de violação de simetria de lorentz (TermoA)
+    pub fn with_csi(mut self, csi: f64) -> Self {
+        self.csi = csi;
+        self
+    }
+
     /// Builder para acoplar o Eletromagnetismo Não-Linear
     pub fn with_nlem(mut self, nlem: NlemModel) -> Self {
         self.nlem = nlem;
@@ -404,13 +417,15 @@ impl HadronsMatter {
         let press_conv = press * factor_mev_fm3;
 
         // Adição da Pressão/Energia do Campo Magnético
-        let bsurf = 1e11; 
+        let bsurf_tesla = 1e11;
         let btsl = self.bg * 1e-4; 
-        let betaa = 1e-2;
+
+        // parâmetros fenomenológicos
+        let betaa = 5.76e-3; 
         let alphaa = 3.0;
 
         // Campo macroscópico local B(n) dependente da densidade
-        let bdd = bsurf + btsl * (1.0 - (-betaa * (nbtd / N0).powf(alphaa)).exp());
+        let bdd = bsurf_tesla + btsl * (1.0 - (-betaa * (nbtd / N0).powf(alphaa)).exp());
         
         // Calculo da Energia Clássica de Maxwell (Joules/m³)
         let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); 

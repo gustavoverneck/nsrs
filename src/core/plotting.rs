@@ -193,7 +193,7 @@ impl Artist {
     pub fn with_y_label(mut self, label: &str) -> Self { self.y_label = label.to_string(); self }
     pub fn autoscale(mut self) -> Self { self.x_min = None; self.x_max = None; self.y_min = None; self.y_max = None; self }
     pub fn with_x_range(mut self, min: f64, max: f64) -> Self { self.x_min = Some(min); self.x_max = Some(max); self }
-    
+    pub fn with_y_range(mut self, min: f64, max: f64) -> Self { self.y_min = Some(min); self.y_max = Some(max); self }
     pub fn with_x_labels(mut self, count: usize) -> Self { self.x_label_count = Some(count); self }
     pub fn with_log_scale(mut self) -> Self { self.use_logscale = true; self }
 

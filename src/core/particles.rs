@@ -59,7 +59,10 @@ pub fn density_baryon_neutral(
     let spins = [m_up, m_down];
     for spin_idx in 0..2 {
         let m_spin = spins[spin_idx];
+        
+        // CORREÇÃO FÍSICA: Partículas neutras não acoplam com eB, logo não sofrem o shift do LSV
         let kf2 = ef.powi(2) - m_spin.powi(2);
+        
         if kf2 > 0.0 {
             let kf = kf2.sqrt();
             let m_safe = m_spin.abs().max(1e-15); 
@@ -85,7 +88,12 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
     let q = engine.charges_b[idx].abs() * engine.qe;
     let b = engine.b;
     let m = engine.m_eff[idx]; 
+    let m_bare = engine.mb[idx]; // Massa de repouso original da partícula (sem acoplamento sigma)
     let amm = engine.amm_b[idx];
+    
+    // CORREÇÃO FÍSICA (LSV): O acoplamento exato de Lorentz Violation com o Campo Magnético
+    // Delta_M^2 = 2 * xi * m_b * B + xi^2 * B^2
+    let lsv_shift = 2.0 * engine.csi * m_bare * b + (engine.csi * b).powi(2);
     
     let ef = engine.mu_b[idx] 
              - (engine.xv_v[idx] * vomega) 
@@ -103,11 +111,13 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
 
     // TRATAMENTO PARA O CASO ISOTRÓPICO (B=0)
     if b == 0.0 {
+        // Sem campo magnético, o acoplamento LSV zera. A física volta a ser a de Fermi puro.
         let kf2 = ef.powi(2) - m.powi(2);
         if kf2 > 0.0 {
             let kf = kf2.sqrt();
             let dens = kf.powi(3) / (3.0 * PI2);
             let m_safe = m.abs().max(1e-15);
+            
             let rhos = (m / (2.0 * PI2)) * (ef * kf - m.powi(2) * ((kf + ef) / m_safe).ln());
             
             engine.kf_b_up[idx][0] = kf;
@@ -120,8 +130,9 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
         return (0.0, 0.0);
     }
 
-    let nu_max_approx_up = ((ef + amm * b).powi(2) - m.powi(2)) / (2.0 * q * b);
-    let nu_max_approx_down = ((ef - amm * b).powi(2) - m.powi(2)) / (2.0 * q * b);
+    // Estimativa do nível máximo de Landau ajustada com o shift do LSV
+    let nu_max_approx_up = ((ef + amm * b).powi(2) - m.powi(2) - lsv_shift) / (2.0 * q * b);
+    let nu_max_approx_down = ((ef - amm * b).powi(2) - m.powi(2) - lsv_shift) / (2.0 * q * b);
     
     let nu_max = if nu_max_approx_up > 0.0 || nu_max_approx_down > 0.0 { 
         let max_nu = nu_max_approx_up.max(nu_max_approx_down);
@@ -143,7 +154,8 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
 
     // --- Spin UP ---
     for nu in nu_start_up..nu_max {
-        let m_landau = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
+        // LSV: Incremento adicionado na massa do nível de Landau
+        let m_landau = (m.powi(2) + 2.0 * q * b * nu as f64 + lsv_shift).sqrt(); 
         let m_eff_spin = m_landau - amm * b;
         
         let kf2 = ef.powi(2) - m_eff_spin.powi(2);
@@ -162,7 +174,8 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
 
     // --- Spin DOWN ---
     for nu in nu_start_down..nu_max {
-        let m_landau = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
+        // LSV: Incremento adicionado na massa do nível de Landau
+        let m_landau = (m.powi(2) + 2.0 * q * b * nu as f64 + lsv_shift).sqrt(); 
         let m_eff_spin = m_landau + amm * b;
         
         let kf2 = ef.powi(2) - m_eff_spin.powi(2);
@@ -199,6 +212,9 @@ pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
     let q = engine.qe; 
     let m = engine.ml[idx];
 
+    // CORREÇÃO FÍSICA (LSV): Para léptons, a massa efetiva e de repouso são iguais
+    let lsv_shift = 2.0 * engine.csi * m * b + (engine.csi * b).powi(2);
+
     let mut rhos = 0.0;
     let mut dens = 0.0;
     let mut n_occupied = 0; 
@@ -219,13 +235,15 @@ pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
         return (0.0, 0.0);
     }
 
-    let nu_max_approx = (mue.powi(2) - m.powi(2)) / (2.0 * q * b);
+    // Estimativa ajustada
+    let nu_max_approx = (mue.powi(2) - m.powi(2) - lsv_shift) / (2.0 * q * b);
     let nu_max = if nu_max_approx > 0.0 { 
         (nu_max_approx.floor() as usize + 1).min(engine.max_landau_limit) 
     } else { 0 };
 
     for nu in 0..nu_max {
-        let m_landau_2 = m.powi(2) + 2.0 * q * b * nu as f64;
+        // LSV: Inserido dentro da massa do nível de Landau
+        let m_landau_2 = m.powi(2) + 2.0 * q * b * nu as f64 + lsv_shift;
         let kf2 = mue.powi(2) - m_landau_2;
         
         if kf2 <= 0.0 { break; } 

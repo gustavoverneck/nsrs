@@ -118,13 +118,18 @@ impl Solver {
 
     /// Exporta os resultados da EoS para um arquivo formatado.
     pub fn write_eos(results: &[[f64; 20]], filename: &str) -> std::io::Result<()> {
+        use std::io::Write; // Garante que o trait Write está no escopo
         let mut file = std::fs::File::create(filename)?;
+
         for data in results.iter() {
-            writeln!(
-                file,
-                "{:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e}",
-                data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12]
-            )?;
+            // 1. Transforma os 20 valores em uma única String separada por espaços
+            let line = data.iter()
+                .map(|val| format!("{:12.5e}", val))
+                .collect::<Vec<String>>()
+                .join(" ");
+
+            // 2. Escreve a linha inteira no arquivo
+            writeln!(file, "{}", line)?;
         }
         Ok(())
     }

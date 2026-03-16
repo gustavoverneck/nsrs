@@ -278,3 +278,36 @@ pub fn unify_hybrid_eos(hadron_eos: &[[f64; 20]], quark_eos: &[[f64; 20]]) -> (V
     }
     (final_eps, final_p)
 }
+
+
+/// Suaviza um array usando Média Móvel Central e garante monotonicidade estrita
+/// Essencial para remover oscilações de Haas-van Alphen (Níveis de Landau) da EoS.
+pub fn smooth_array(data: &[f64], window: usize) -> Vec<f64> {
+    if window <= 1 || data.len() < 2 {
+        return data.to_vec();
+    }
+
+    let mut smoothed = Vec::with_capacity(data.len());
+    let half_window = window / 2;
+
+    // 1. Passo de Suavização (Média Móvel)
+    for i in 0..data.len() {
+        let start = i.saturating_sub(half_window);
+        let end = (i + half_window).min(data.len() - 1);
+        let count = (end - start + 1) as f64;
+
+        let sum: f64 = data[start..=end].iter().sum();
+        smoothed.push(sum / count);
+    }
+
+    // 2. Passo de Monotonicidade Estrita (Garantia para o TOV)
+    // As equações TOV exigem dP/dEps > 0. Se a suavização achatar a curva, forçamos um micro-crescimento.
+    for i in 1..smoothed.len() {
+        if smoothed[i] <= smoothed[i - 1] {
+            // Adiciona um valor desprezível (1e-12) apenas para manter a derivada positiva
+            smoothed[i] = smoothed[i - 1] + 1e-12; 
+        }
+    }
+
+    smoothed
+}

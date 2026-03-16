@@ -80,15 +80,22 @@ def main():
             norm = mcolors.Normalize(vmin=min(log_csi_list), vmax=max(log_csi_list))
             global_cmap = plt.get_cmap('magma')
 
+            # --- Criação das Figuras ---
+            # Unificando Populações e Velocidade do Som (2 linhas, 1 coluna)
+            fig_combined, (ax_pop, ax_cs2) = plt.subplots(
+                nrows=2, ncols=1, 
+                figsize=(7, 8), 
+                sharex=True, # Alinhamento perfeito do eixo X
+                gridspec_kw={'height_ratios': [1.5, 1], 'hspace': 0.05} # População um pouco maior, sem espaço entre eles
+            )
+            
+            # Figuras avulsas restantes
             figs = {
-                'pop': plt.subplots(figsize=(7, 5.5)),
                 'eos': plt.subplots(figsize=(6, 5)),
-                'cs2': plt.subplots(figsize=(6, 5)),
                 'meff': plt.subplots(figsize=(6, 5)),
                 'mun': plt.subplots(figsize=(6, 5))
             }
 
-            # Acumuladores para auto-scaling de m* e mun
             meff_data_all, mun_data_all = [], []
 
             for i, (log_csi, path) in enumerate(entries):
@@ -100,7 +107,7 @@ def main():
                     nb_tot = df.iloc[:, 5:13].sum(axis=1).values
                     color = global_cmap(norm(log_csi))
 
-                    # 1. Populações
+                    # 1. Populações (Gráfico de cima)
                     mask_pop = (nb_tot > 1e-8)
                     parts_data = {
                         'n': df[5], 'p': df[6], 'e-': df[3], 'mu-': df[4],
@@ -111,21 +118,21 @@ def main():
                         yi = clamp(dens.values[mask_pop] / nb_tot[mask_pop])
                         if np.any(yi > 5e-4):
                             p_cmap = plt.get_cmap(particle_cmaps.get(name, 'viridis'))
-                            figs['pop'][1].plot(n_n0[mask_pop], yi, color=p_cmap(norm(log_csi)), alpha=0.3, lw=0.7)
+                            ax_pop.plot(n_n0[mask_pop], yi, color=p_cmap(norm(log_csi)), alpha=0.3, lw=0.7)
 
-                    # 2. EoS
-                    mask_eos = (eps > 0.1) & (press > 0.1)
-                    figs['eos'][1].plot(eps[mask_eos], press[mask_eos], color=color, alpha=0.4, lw=0.8)
-
-                    # 3. Velocidade do Som
+                    # 2. Velocidade do Som (Gráfico de baixo)
                     _, idx_unq = np.unique(eps, return_index=True)
                     idx_unq = np.sort(idx_unq)
                     if len(idx_unq) > 5:
                         cs2 = np.gradient(press[idx_unq], eps[idx_unq])
                         cs2 = np.where((cs2 > 0) & (cs2 < 1.2), cs2, np.nan)
-                        figs['cs2'][1].plot(n_n0[idx_unq], cs2, color=color, alpha=0.3, lw=0.8)
+                        ax_cs2.plot(n_n0[idx_unq], cs2, color=color, alpha=0.3, lw=0.8)
 
-                    # 4. m* e mun (Corrigindo o problema do "branco")
+                    # 3. EoS
+                    mask_eos = (eps > 0.1) & (press > 0.1)
+                    figs['eos'][1].plot(eps[mask_eos], press[mask_eos], color=color, alpha=0.4, lw=0.8)
+
+                    # 4. m* e mun
                     if num_cols >= 18:
                         m_eff_vals = df[16].values
                         mun_vals = df[17].values
@@ -136,19 +143,35 @@ def main():
 
                 except Exception: continue
 
-            # ========== FINALIZAÇÃO ==========
+            # ========== FINALIZAÇÃO DO GRÁFICO COMBINADO ==========
+            
+            # Subplot Topo: Populações
+            for name, (px, py) in fixed_label_positions.items():
+                ax_pop.text(px, py, latex_labels.get(name, name), fontsize=10, fontweight='bold', 
+                        ha='center', va='center', zorder=40,
+                        bbox=dict(facecolor='white', edgecolor='none', alpha=0.8, pad=0.5))
+            
+            ax_pop.set_yscale('log')
+            ax_pop.set_ylim(1e-5, 1.3)
+            ax_pop.set_ylabel(r'Fraction $Y_i$')
+            # Esconde os ticks do eixo X no gráfico superior para ficar limpo
+            ax_pop.tick_params(labelbottom=False) 
+            fig_combined.colorbar(plt.cm.ScalarMappable(cmap='Greys', norm=norm), ax=ax_pop, label=r'$\log_{10}(\xi)$', pad=0.02)
 
-            # Populações: Rótulos Fixos como na Imagem
-            ax = figs['pop'][1]
-            # for name, (px, py) in fixed_label_positions.items():
-            #     ax.text(px, py, latex_labels.get(name, name), fontsize=10, fontweight='bold', 
-            #             ha='center', va='center', zorder=40,
-            #             bbox=dict(facecolor='white', edgecolor='none', alpha=0.8, pad=0.5))
-            ax.set_yscale('log'); ax.set_ylim(1e-5, 1.3); ax.set_xlim(0, 8)
-            ax.set_xlabel(r'$n_B/n_0$'); ax.set_ylabel(r'Fraction $Y_i$')
-            figs['pop'][0].colorbar(plt.cm.ScalarMappable(cmap='Greys', norm=norm), ax=ax, label=r'$\log_{10}(\xi)$', pad=0.02)
-            figs['pop'][0].savefig(output_root / f"pop_labeled_{model}_{b_str}.pdf", bbox_inches='tight')
+            # Subplot Base: Velocidade do Som
+            ax_cs2.axhline(1.0, color='red', ls='--', lw=1, alpha=0.6, label='Causality')
+            ax_cs2.axhline(1/3, color='gray', ls=':', lw=1, alpha=0.6, label='Conformal')
+            ax_cs2.set_ylim(0, 1.1)
+            ax_cs2.set_xlim(0, 9.25)
+            ax_cs2.set_ylabel(r'$c_s^2$')
+            ax_cs2.set_xlabel(r'Density $n_B/n_0$')
+            ax_cs2.legend(loc='upper left', fontsize=8)
+            fig_combined.colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=ax_cs2, label=r'$\log_{10}(\xi)$', pad=0.02)
 
+            fig_combined.savefig(output_root / f"pop_and_cs2_aligned_{model}_{b_str}.pdf", bbox_inches='tight')
+
+            # ========== FINALIZAÇÃO DOS OUTROS GRÁFICOS ==========
+            
             # EoS
             ax = figs['eos'][1]
             ax.set_xscale('log'); ax.set_yscale('log')
@@ -156,7 +179,7 @@ def main():
             figs['eos'][0].colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=ax, label=r'$\log_{10}(\xi)$')
             figs['eos'][0].savefig(output_root / f"eos_loglog_{model}_{b_str}.pdf", bbox_inches='tight')
 
-            # Massa Efetiva (Ajuste de Limites Automático)
+            # Massa Efetiva
             ax = figs['meff'][1]
             if meff_data_all:
                 ax.set_ylim(np.min(meff_data_all)*0.95, np.max(meff_data_all)*1.05)
@@ -174,7 +197,7 @@ def main():
 
             plt.close('all')
 
-    print(f"\n✅ Atlas físico concluído em: {output_root}")
+    print(f"\n✅ Atlas físico (Populações + CS2 alinhados) concluído em: {output_root}")
 
 if __name__ == "__main__":
     main()

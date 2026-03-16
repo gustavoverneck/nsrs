@@ -4,7 +4,7 @@ use nsrs::core::model::{GM1, GM3};
 use nsrs::core::physics::HadronsMatter;
 use nsrs::core::solver::{Solver, EngineMode}; 
 use nsrs::core::plotting::{Artist, ColorScale, Palette}; 
-use nsrs::core::tov_solver::generate_mr_curve; 
+use nsrs::core::tov_solver::{generate_mr_curve, smooth_array}; 
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -64,7 +64,7 @@ fn main() {
     let mut artist_m = Artist::new(
         &format!("results/lsv/mass_max_{}_combined.svg", model_name),
         &format!("Maximum Mass Limit (LSV) - {}", model_name),
-    ).with_x_label("log\u{2081}\u{2080}(\u{03BE}) [MeV\u{207B}\u{00B9}]").with_y_label("Maximum Mass [M\u{2299}]").autoscale().with_x_range(exp_min, exp_max).with_x_labels(x_ticks_count).with_y_range(1.9, 2.1);
+    ).with_x_label("log\u{2081}\u{2080}(\u{03BE}) [MeV\u{207B}\u{00B9}]").with_y_label("Maximum Mass [M\u{2299}]").autoscale().with_x_range(exp_min, exp_max).with_x_labels(x_ticks_count).with_y_range(1.7, 2.1);
 
     let mut artist_r = Artist::new(
         &format!("results/lsv/radius_max_{}_combined.svg", model_name),
@@ -99,7 +99,7 @@ fn main() {
         let base_dir = format!("output/lsv/{}/B_{}", model_name, b_string);
 
         // Prepara os Artists de CORES
-        let mut artist_mr_color = Artist::new(&format!("results/lsv/color_mr_{}_B_{}.svg", model_name, b_string), &format!("MR - Varying LSV (\u{03BE}) - B={} G", b_string)).with_x_label("Radius [km]").with_y_label("Mass [M\u{2299}]").with_x_range(10.0, 15.0).with_y_range(1.5, 2.2);
+        let mut artist_mr_color = Artist::new(&format!("results/lsv/color_mr_{}_B_{}.svg", model_name, b_string), &format!("MR - Varying LSV (\u{03BE}) - B={} G", b_string)).with_x_label("Radius [km]").with_y_label("Mass [M\u{2299}]").with_x_range(10.0, 15.0).with_y_range(0.0, 2.2);
         let mut artist_eos_color = Artist::new(&format!("results/lsv/color_eos_{}_B_{}.svg", model_name, b_string), &format!("EoS - Varying LSV (\u{03BE}) - B={} G", b_string)).with_x_label("\u{03B5} [MeV/fm\u{00B3}]").with_y_label("P [MeV/fm\u{00B3}]").autoscale().with_log_scale();
         let mut artist_meff_color = Artist::new(&format!("results/lsv/color_meff_{}_B_{}.svg", model_name, b_string), &format!("Effective Mass vs Density (\u{03BE}) - B={} G", b_string)).with_x_label("Density [n / n\u{2080}]").with_y_label("m* / m_N").autoscale();
         
@@ -176,9 +176,22 @@ fn main() {
                         }
                     }
                     if eps_f.len() > 10 {
-                        let (masses, radii, _) = generate_mr_curve(&eps_f, &p_f, true);
+                        let window_size = 30; 
+                        // let eps_smooth = smooth_array(&eps_f, window_size);
+                        // let p_smooth = smooth_array(&p_f, window_size);
+
+                        // Passa os vetores suavizados para o solver TOV
+                        let (masses, radii, central_p_list) = generate_mr_curve(&eps_f, &p_f, false);
                         let label = format!("log(\u{03BE}) = {:.2}", log_csi);
                         let (r, g, b) = color_scale.get_color(log_csi);
+                        
+                        // Altere para plotar todas as curvas, mas apenas algumas na legenda
+                        if i % 40 == 0 || i == csi_vals.len() - 1 {
+                            artist_mr_color = artist_mr_color.add_curve_color(&radii, &masses, &label, r, g, b);
+                        } else {
+                            // Se o seu Artist suportar, adicione a curva sem label para não poluir a legenda
+                            artist_mr_color = artist_mr_color.add_curve_color(&radii, &masses, "", r, g, b);
+                        }
                         
                         artist_mr_color = artist_mr_color.add_curve_color(&radii, &masses, &label, r, g, b);
                         artist_eos_color = artist_eos_color.add_curve_color(&eps_f, &p_f, &label, r, g, b);
@@ -212,7 +225,7 @@ fn main() {
 
         } else {
             let engines: Vec<EngineMode> = csi_vals.iter().map(|&csi| {
-                let motor = HadronsMatter::new(model_params, b_field).with_csi(csi).with_limits(0.01, 2.5).with_points(1500);
+                let motor = HadronsMatter::new(model_params, b_field).with_csi(csi).with_limits(0.01, 2.5).with_points(2000);
                 EngineMode::Hadrons(motor)
             }).collect();
 

@@ -26,13 +26,13 @@ pub fn compute(engine: &HadronsMatter, mue: f64, vsigma: f64, vomega: f64, vrho:
             // O AMM desdobra a partícula em 2 estados de spin (Up e Down)
             for &kf in &[engine.kf_b_up[i][0], engine.kf_b_down[i][0]] {
                 if kf > 0.0 {
-                    // Massa efetiva de spin derivada da cinemática: m_s^2 = Ef^2 - kf^2
-                    let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
+                    let m_spin = (ef.powi(2) - kf.powi(2)).max(0.0).sqrt();
+                    let m_safe = m_spin.max(1e-15);
                     
                     // Fórmula para um único estado de spin (g=1), fator 1/4pi^2
                     enerbar += (1.0 / (4.0 * PI2)) * (
                         ef.powi(3) * kf / 2.0
-                        - (m_spin / 4.0) * (m_spin * kf * ef + m_spin.powi(3) * ((kf + ef) / m_spin.abs()).ln())
+                        - (m_spin / 4.0) * (m_spin * kf * ef + m_spin.powi(3) * ((kf + ef) / m_safe.abs()).ln())
                     );
                 }
             }

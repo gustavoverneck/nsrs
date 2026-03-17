@@ -81,12 +81,21 @@ def main():
             global_cmap = plt.get_cmap('magma')
 
             # --- Criação das Figuras ---
-            # Unificando Populações e Velocidade do Som (2 linhas, 1 coluna)
+            
+            # 1. Antigo: Populações e Velocidade do Som (2 linhas)
             fig_combined, (ax_pop, ax_cs2) = plt.subplots(
                 nrows=2, ncols=1, 
                 figsize=(7, 8), 
-                sharex=True, # Alinhamento perfeito do eixo X
-                gridspec_kw={'height_ratios': [1.5, 1], 'hspace': 0.05} # População um pouco maior, sem espaço entre eles
+                sharex=True,
+                gridspec_kw={'height_ratios': [1.5, 1], 'hspace': 0.05} 
+            )
+
+            # 2. NOVO: Densidade de Energia, Pressão e Populações (3 linhas)
+            fig_triple, (ax_eps, ax_press, ax_pop_triple) = plt.subplots(
+                nrows=3, ncols=1, 
+                figsize=(7, 10), 
+                sharex=True, 
+                gridspec_kw={'height_ratios': [1, 1, 1.5], 'hspace': 0.05} 
             )
             
             # Figuras avulsas restantes
@@ -107,7 +116,7 @@ def main():
                     nb_tot = df.iloc[:, 5:13].sum(axis=1).values
                     color = global_cmap(norm(log_csi))
 
-                    # 1. Populações (Gráfico de cima)
+                    # 1. Populações (Aplicado em ambos os gráficos)
                     mask_pop = (nb_tot > 1e-8)
                     parts_data = {
                         'n': df[5], 'p': df[6], 'e-': df[3], 'mu-': df[4],
@@ -118,9 +127,14 @@ def main():
                         yi = clamp(dens.values[mask_pop] / nb_tot[mask_pop])
                         if np.any(yi > 5e-4):
                             p_cmap = plt.get_cmap(particle_cmaps.get(name, 'viridis'))
-                            ax_pop.plot(n_n0[mask_pop], yi, color=p_cmap(norm(log_csi)), alpha=0.3, lw=0.7)
+                            p_color = p_cmap(norm(log_csi))
+                            
+                            # Plota no gráfico de 2 painéis
+                            ax_pop.plot(n_n0[mask_pop], yi, color=p_color, alpha=0.3, lw=0.7)
+                            # Plota no NOVO gráfico de 3 painéis
+                            ax_pop_triple.plot(n_n0[mask_pop], yi, color=p_color, alpha=0.3, lw=0.7)
 
-                    # 2. Velocidade do Som (Gráfico de baixo)
+                    # 2. Velocidade do Som (Gráfico de baixo 2 painéis)
                     _, idx_unq = np.unique(eps, return_index=True)
                     idx_unq = np.sort(idx_unq)
                     if len(idx_unq) > 5:
@@ -128,11 +142,17 @@ def main():
                         cs2 = np.where((cs2 > 0) & (cs2 < 1.2), cs2, np.nan)
                         ax_cs2.plot(n_n0[idx_unq], cs2, color=color, alpha=0.3, lw=0.8)
 
-                    # 3. EoS
+                    # 3. Macro EoS no Novo Gráfico Triplo (Eps e Pressão vs Densidade Bariônica)
+                    # Usamos valores estritamente positivos para não quebrar a escala logarítmica
+                    mask_macro = (eps > 1e-5) & (press > 1e-5)
+                    ax_eps.plot(n_n0[mask_macro], eps[mask_macro], color=color, alpha=0.4, lw=0.8)
+                    ax_press.plot(n_n0[mask_macro], press[mask_macro], color=color, alpha=0.4, lw=0.8)
+
+                    # 4. EoS log-log
                     mask_eos = (eps > 0.1) & (press > 0.1)
                     figs['eos'][1].plot(eps[mask_eos], press[mask_eos], color=color, alpha=0.4, lw=0.8)
 
-                    # 4. m* e mun
+                    # 5. m* e mun
                     if num_cols >= 18:
                         m_eff_vals = df[16].values
                         mun_vals = df[17].values
@@ -141,24 +161,23 @@ def main():
                         figs['meff'][1].plot(n_n0, m_eff_vals, color=color, alpha=0.4)
                         figs['mun'][1].plot(n_n0, mun_vals, color=color, alpha=0.4)
 
-                except Exception: continue
+                except Exception as e: 
+                    continue
 
-            # ========== FINALIZAÇÃO DO GRÁFICO COMBINADO ==========
+            # ========== FINALIZAÇÃO DOS GRÁFICOS COMBINADOS ==========
             
-            # Subplot Topo: Populações
-            for name, (px, py) in fixed_label_positions.items():
-                ax_pop.text(px, py, latex_labels.get(name, name), fontsize=10, fontweight='bold', 
-                        ha='center', va='center', zorder=40,
-                        bbox=dict(facecolor='white', edgecolor='none', alpha=0.8, pad=0.5))
+            # --- Formatação do Gráfico de 2 Painéis (Original) ---
+            # for name, (px, py) in fixed_label_positions.items():
+            #     ax_pop.text(px, py, latex_labels.get(name, name), fontsize=10, fontweight='bold', 
+            #             ha='center', va='center', zorder=40,
+            #             bbox=dict(facecolor='white', edgecolor='none', alpha=0.8, pad=0.5))
             
             ax_pop.set_yscale('log')
             ax_pop.set_ylim(1e-5, 1.3)
             ax_pop.set_ylabel(r'Fraction $Y_i$')
-            # Esconde os ticks do eixo X no gráfico superior para ficar limpo
             ax_pop.tick_params(labelbottom=False) 
             fig_combined.colorbar(plt.cm.ScalarMappable(cmap='Greys', norm=norm), ax=ax_pop, label=r'$\log_{10}(\xi)$', pad=0.02)
 
-            # Subplot Base: Velocidade do Som
             ax_cs2.axhline(1.0, color='red', ls='--', lw=1, alpha=0.6, label='Causality')
             ax_cs2.axhline(1/3, color='gray', ls=':', lw=1, alpha=0.6, label='Conformal')
             ax_cs2.set_ylim(0, 1.1)
@@ -169,6 +188,36 @@ def main():
             fig_combined.colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=ax_cs2, label=r'$\log_{10}(\xi)$', pad=0.02)
 
             fig_combined.savefig(output_root / f"pop_and_cs2_aligned_{model}_{b_str}.pdf", bbox_inches='tight')
+
+
+            # --- Formatação do NOVO Gráfico de 3 Painéis ---
+            ax_eps.set_ylabel(r'log $\varepsilon$ [MeV/fm$^3$]')
+            ax_press.set_ylabel(r'$log P$ [MeV/fm$^3$]')
+            
+            # Aplicação da escala logarítmica (Descomentado!)
+            ax_eps.set_yscale('log')
+            ax_press.set_yscale('log')
+            
+            # Oculta os rótulos do eixo X nos dois gráficos de cima
+            ax_eps.tick_params(labelbottom=False)
+            ax_press.tick_params(labelbottom=False)
+
+            # for name, (px, py) in fixed_label_positions.items():
+            #     ax_pop_triple.text(px, py, latex_labels.get(name, name), fontsize=10, fontweight='bold', 
+            #             ha='center', va='center', zorder=40,
+            #             bbox=dict(facecolor='white', edgecolor='none', alpha=0.8, pad=0.5))
+
+            ax_pop_triple.set_yscale('log')
+            ax_pop_triple.set_ylim(1e-5, 1.3)
+            ax_pop_triple.set_ylabel(r'Fraction $Y_i$')
+            ax_pop_triple.set_xlabel(r'Density $n_B/n_0$')
+            ax_pop_triple.set_xlim(0, 9.25) # Limite padrão para alinhar com as populações
+
+            # Adiciona uma única barra de cores lateral para a figura inteira
+            fig_triple.colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=[ax_eps, ax_press, ax_pop_triple], label=r'$\log_{10}(\xi)$', pad=0.02)
+
+            fig_triple.savefig(output_root / f"macro_and_pop_aligned_{model}_{b_str}.pdf", bbox_inches='tight')
+
 
             # ========== FINALIZAÇÃO DOS OUTROS GRÁFICOS ==========
             
@@ -197,7 +246,7 @@ def main():
 
             plt.close('all')
 
-    print(f"\n✅ Atlas físico (Populações + CS2 alinhados) concluído em: {output_root}")
+    print(f"\n✅ Atlas físico atualizado (incluindo painel triplo log) salvo em: {output_root}")
 
 if __name__ == "__main__":
     main()

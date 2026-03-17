@@ -268,7 +268,7 @@ fn main() {
                 }
                 
                 if eps_f.len() > 10 {
-                    let (masses, radii, central_p_list) = generate_mr_curve(&eps_f, &p_f, true);
+                    let (masses, radii, central_p_list) = generate_mr_curve(&eps_f, &p_f, false);
                     let label = format!("log(\u{03BE}) = {:.2}", log_csi);
                     let (cr, cg, cb) = color_scale.get_color(log_csi);
                     

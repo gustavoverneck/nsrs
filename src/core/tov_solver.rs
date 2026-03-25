@@ -56,7 +56,7 @@ pub fn integrate_star(
     let mut spline = Interp::new(InterpType::akima(), p_tov.len())?;
     let _ = spline.init(&p_tov, &eps_tov);
 
-    let dr = 0.01; 
+    let dr = 0.001; 
     let mut r = 1e-5;
     let mut p = pc_tov;
     let mut m = 0.0;

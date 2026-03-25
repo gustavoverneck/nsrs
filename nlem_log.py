@@ -55,7 +55,7 @@ fixed_label_positions = {
 # ==========================================
 def main():
     # Atualizado para ler e salvar nos diretórios do NLEM Log
-    input_root = Path('output/nlem_log')
+    input_root = Path('output/limits')
     output_root = Path('results/nlem_log/python_plots')
     output_root.mkdir(parents=True, exist_ok=True)
 

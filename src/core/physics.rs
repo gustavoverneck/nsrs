@@ -456,6 +456,4 @@ impl HadronsMatter {
         }
     }
 
-
-
 }

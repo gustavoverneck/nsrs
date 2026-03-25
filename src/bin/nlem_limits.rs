@@ -174,7 +174,7 @@ fn main() {
                 let eps: Vec<f64> = results.iter().map(|r| r[1]).collect();
                 let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
                 
-                let (masses, radii, central_p_list) = generate_mr_curve(&eps, &p_arr, true);
+                let (masses, radii, central_p_list) = generate_mr_curve(&eps, &p_arr, false);
 
                 if !masses.is_empty() {
                     let mut m_max = 0.0;

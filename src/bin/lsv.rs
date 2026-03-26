@@ -4,7 +4,7 @@ use nsrs::core::model::{GM1, GM3};
 use nsrs::core::physics::HadronsMatter;
 use nsrs::core::solver::{Solver, EngineMode}; 
 use nsrs::core::plotting::{Artist, ColorScale, Palette}; 
-use nsrs::core::tov_solver::{generate_mr_curve, smooth_array}; 
+use nsrs::core::tov_solver::{generate_mr_curve}; 
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -176,12 +176,8 @@ fn main() {
                         }
                     }
                     if eps_f.len() > 10 {
-                        let window_size = 30; 
-                        // let eps_smooth = smooth_array(&eps_f, window_size);
-                        // let p_smooth = smooth_array(&p_f, window_size);
-
                         // Passa os vetores suavizados para o solver TOV
-                        let (masses, radii, central_p_list) = generate_mr_curve(&eps_f, &p_f, false);
+                        let (masses, radii, _central_p_list) = generate_mr_curve(&eps_f, &p_f, false);
                         let label = format!("log(\u{03BE}) = {:.2}", log_csi);
                         let (r, g, b) = color_scale.get_color(log_csi);
                         
@@ -225,7 +221,10 @@ fn main() {
 
         } else {
             let engines: Vec<EngineMode> = csi_vals.iter().map(|&csi| {
-                let motor = HadronsMatter::new(model_params, b_field).with_csi(csi).with_limits(0.01, 2.5).with_points(2000);
+                let motor = HadronsMatter::new(model_params, b_field)
+                                            .with_csi(csi)
+                                            .with_limits(0.02, 1.98)
+                                            .with_points(2000);
                 EngineMode::Hadrons(motor)
             }).collect();
 
@@ -325,11 +324,11 @@ fn main() {
             }
         }
 
-        artist_mr_color.plot().ok();
-        artist_eos_color.plot().ok();
-        artist_meff_color.plot().ok();
-        artist_pop_p_color.plot().ok();
-        artist_pop_sm_color.plot().ok();
+        artist_mr_color.plot().unwrap();
+        artist_eos_color.plot().unwrap();
+        artist_meff_color.plot().unwrap();
+        artist_pop_p_color.plot().unwrap();
+        artist_pop_sm_color.plot().unwrap();
         println!("  -> Gráficos de degradê e populações gerados em 'results/lsv/' para B = {} G.", b_string);
 
         let label = format!("B = {} G", b_string);

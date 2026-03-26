@@ -1,11 +1,11 @@
 // solver/physics.rs
-#![allow(unused)]
+
 
 use crate::core::constants::{
     AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, M_NUCLEON, MB, ML, QE, N0
 };
 use crate::core::model::ModelParams;
-use nalgebra::{Matrix4, Vector4};
+use nalgebra::{Vector4};
 use rgsl::exponential::exp;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -330,62 +330,61 @@ impl HadronsMatter {
 
         let mut x = Vector4::from_column_slice(initial_x);
         let tolerance = 1e-10;
-        let max_iterations = 100; // Newton puro converge muito rápido (geralmente < 10 passos)
+        let max_iterations = 20; // Newton puro converge muito rápido (geralmente < 10 passos)
         let mut converged = false;
 
         for _iter in 0..max_iterations {
-        let f_val_vec = self.funcv(x.as_slice());
-        let f_val = nalgebra::Vector4::from_column_slice(&f_val_vec);
-        let current_norm = f_val.norm();
+            let f_val_vec = self.funcv(x.as_slice());
+            let f_val = nalgebra::Vector4::from_column_slice(&f_val_vec);
+            let current_norm = f_val.norm();
 
-        if current_norm < tolerance {
-            converged = true;
-            break;
-        }
-
-        // 1. Calcula a Matriz Jacobiana EXATA por diferenças finitas
-        let mut j_matrix = nalgebra::Matrix4::zeros();
-        for i in 0..4 {
-            // Passo dinâmico para evitar erros de ponto flutuante em variáveis pequenas
-            let h = 1e-8 * (x[i].abs() + 1e-2); 
-            let mut x_temp = x;
-            x_temp[i] += h;
-            
-            let f_temp_vec = self.funcv(x_temp.as_slice());
-            let f_temp = nalgebra::Vector4::from_column_slice(&f_temp_vec);
-            
-            let column_derivative = (f_temp - f_val) / h;
-            j_matrix.set_column(i, &column_derivative);
-        }
-
-        // 2. Resolve o sistema linear J * Δx = -F usando Decomposição LU
-        let delta_x = match j_matrix.lu().solve(&(-f_val)) {
-            Some(step) => step,
-            None => break, // Jacobiano singular: aborta para evitar instabilidades
-        };
-
-        // 3. BACKTRACKING LINE SEARCH COM DAMPING (Amortecimento)
-        // Se o campo magnético for extremo (B > 10^17 G), iniciamos com alpha menor
-        // para prevenir que o solver salte para fora do poço de potencial químico.
-        let mut alpha = if self.bg > 1e17 { 0.5 } else { 1.0 };
-        let mut step_accepted = false;
-
-        // Aumentado para 20 tentativas para garantir convergência em transições de Landau
-        for _ in 0..20 {
-            let x_try = x + alpha * delta_x;
-            let f_new_vec = self.funcv(x_try.as_slice());
-            let f_new = nalgebra::Vector4::from_column_slice(&f_new_vec);
-            let try_norm = f_new.norm();
-
-            // Condição de descida: Rejeita se gerar NaN ou se o erro aumentar
-            if !try_norm.is_nan() && try_norm < current_norm {
-                x = x_try;
-                step_accepted = true;
+            if current_norm < tolerance {
+                converged = true;
                 break;
             }
-            
-            alpha *= 0.5; // Redução do passo (Damping Factor)
-        }
+
+            // 1. Calcula a Matriz Jacobiana EXATA por diferenças finitas
+            let mut j_matrix = nalgebra::Matrix4::zeros();
+            for i in 0..4 {
+                // Passo dinâmico para evitar erros de ponto flutuante em variáveis pequenas
+                let h = 1e-8 * (x[i].abs() + 1e-2); 
+                let mut x_temp = x;
+                x_temp[i] += h;
+                
+                let f_temp_vec = self.funcv(x_temp.as_slice());
+                let f_temp = nalgebra::Vector4::from_column_slice(&f_temp_vec);
+                
+                let column_derivative = (f_temp - f_val) / h;
+                j_matrix.set_column(i, &column_derivative);
+            }
+
+            // 2. Resolve o sistema linear J * Δx = -F usando Decomposição LU
+            let delta_x = match j_matrix.lu().solve(&(-f_val)) {
+                Some(step) => step,
+                None => break, // Jacobiano singular: aborta para evitar instabilidades
+            };
+
+            // 3. BACKTRACKING LINE SEARCH COM DAMPING (Amortecimento)
+            // Se o campo magnético for extremo (B > 10^17 G), iniciamos com alpha menor
+            // para prevenir que o solver salte para fora do poço de potencial químico.
+            let mut alpha = if self.bg > 1e17 { 0.5 } else { 1.0 };
+            let mut step_accepted = false;
+
+            for _ in 0..max_iterations {
+                let x_try = x + alpha * delta_x;
+                let f_new_vec = self.funcv(x_try.as_slice());
+                let f_new = nalgebra::Vector4::from_column_slice(&f_new_vec);
+                let try_norm = f_new.norm();
+
+                // Condição de descida: Rejeita se gerar NaN ou se o erro aumentar
+                if !try_norm.is_nan() && try_norm < current_norm {
+                    x = x_try;
+                    step_accepted = true;
+                    break;
+                }
+                
+                alpha *= 0.5; // Redução do passo (Damping Factor)
+            }
 
             // IMPORTANTE: Removido o micro-passo forçado (0.001 * delta_x).
             // Se o backtracking falhar, o ponto é instável e retornamos None.
@@ -434,7 +433,7 @@ impl HadronsMatter {
         // Adiciona à termodinâmica final da estrela
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + ebsd;
-
+        
         // Limiar da crosta: retorna None se a pressão ficar negativa
         if ener_final >= 0.0 && press_final >= 0.0 {
             let result = [
@@ -469,7 +468,7 @@ impl HadronsMatter {
 
 
 
-pub fn calculate_dhva_frequency(mue: f64, b_gauss: f64) -> f64 {
+pub fn calculate_dhva_frequency(mue: f64, _b_gauss: f64) -> f64 {
     let me = 0.510998; // MeV (massa do elétron)
     
     // A frequência F é proporcional ao quadrado do momento de Fermi transverso máximo

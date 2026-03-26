@@ -3,9 +3,6 @@ use crate::core::physics::HadronsMatter;
 use crate::core::quarks::QuarksMatter;
 use crate::core::hybrid::HybridMatter;
 use rayon::prelude::*;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use console::style;
-use std::io::Write;
 
 // 1. Enum que define o modelo físico a ser resolvido
 pub enum EngineMode {
@@ -25,7 +22,7 @@ impl Solver {
 
     pub fn solve(&mut self) -> Vec<[f64; 20]> {
         // Obtém limites e metadados conforme o modo da engine
-        let (mun_inf, mun_sup, n, bg_val) = match &self.engine {
+        let (mun_inf, mun_sup, n, _bg_val) = match &self.engine {
             EngineMode::Hadrons(h) => (h.mun_inf, h.mun_sup, h.n_points, h.bg),
             EngineMode::Quarks(q) => (q.mun_inf, q.mun_sup, q.n_points, q.bg),
             EngineMode::Hybrid(hyb) => (

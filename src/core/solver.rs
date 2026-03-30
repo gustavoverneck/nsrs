@@ -3,7 +3,6 @@ use crate::core::physics::HadronsMatter;
 use crate::core::quarks::QuarksMatter;
 use crate::core::hybrid::HybridMatter;
 use rayon::prelude::*;
-use std::io::Write;
 
 // 1. Enum que define o modelo físico a ser resolvido
 pub enum EngineMode {
@@ -22,86 +21,98 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> Vec<[f64; 20]> {
-        // Puxa os limites e metadados dependendo do modelo ativo
+        // Obtém limites e metadados conforme o modo da engine
         let (mun_inf, mun_sup, n, bg_val) = match &self.engine {
             EngineMode::Hadrons(h) => (h.mun_inf, h.mun_sup, h.n_points, h.bg),
             EngineMode::Quarks(q) => (q.mun_inf, q.mun_sup, q.n_points, q.bg),
-            // No modo híbrido, usamos os limites definidos no motor de hádrons
             EngineMode::Hybrid(hyb) => (
-                hyb.hadrons.mun_inf, 
-                hyb.hadrons.mun_sup, 
-                hyb.hadrons.n_points, 
-                hyb.hadrons.bg
+                hyb.hadrons.mun_inf,
+                hyb.hadrons.mun_sup,
+                hyb.hadrons.n_points,
+                hyb.hadrons.bg,
             ),
         };
 
-        let dmub = (mun_sup - mun_inf) / (n - 1) as f64;
+        let initial_dmub = (mun_sup - mun_inf) / (n - 1) as f64;
+        let mut dmub = initial_dmub;
+        let min_dmub = 1e-6;   // passo mínimo aceitável
+
         let mut results: Vec<[f64; 20]> = Vec::with_capacity(n);
         let mut last_x = [0.0, 0.0, 0.0, 0.0];
+        let mut last_mun = mun_inf;   // último mun que convergiu
+        let mut mun = mun_inf;
 
-        for i in 0..n {
-            let mun = mun_inf + i as f64 * dmub;
-            
-            // 2. Escolha do método de resolução baseado no modo da Engine
+        while mun <= mun_sup + 1e-9 {
+            // Tenta resolver o ponto com o mun atual
+            // Agora todos os braços retornam Option<([f64;4], [f64;20])>
             let point_data = match &mut self.engine {
-                EngineMode::Hadrons(h_engine) => {
-                    if let Some((x_converged, result)) = h_engine.solve_point(mun, &last_x) {
-                        last_x = x_converged; // Atualiza chute para o próximo mun
-                        Some(result)
-                    } else {
-                        None
-                    }
-                },
-                EngineMode::Quarks(q_engine) => {
-                    // Quarks são resolvidos analiticamente (Beta-Equilibrium)
-                    q_engine.solve_point(mun)
-                },
-                EngineMode::Hybrid(hyb_engine) => {
-                    // Híbrido compara Maxwell e também gerencia o estado x dos hádrons
-                    if let Some((x_converged, result)) = hyb_engine.solve_point(mun, &last_x) {
-                        last_x = x_converged;
-                        Some(result)
-                    } else {
-                        None
-                    }
-                }
+                EngineMode::Hadrons(h_engine) => h_engine.solve_point(mun, &last_x),
+                // Para Quarks, transformamos o resultado em tupla com estado dummy
+                EngineMode::Quarks(q_engine) => q_engine.solve_point(mun).map(|result| ([0.0; 4], result)),
+                EngineMode::Hybrid(hyb_engine) => hyb_engine.solve_point(mun, &last_x),
             };
 
-            // 3. Processamento de estabilidade e armazenamento
-            if let Some(point_result) = point_data {
-                
-                // --- VERIFICAÇÃO DE ESTABILIDADE (dp/de) ---
+            if let Some((x_converged, point_result)) = point_data {
+                // Sucesso: atualiza chute, faz verificações e armazena
+                last_x = x_converged;
+                last_mun = mun;
+
+                // Verificação de estabilidade (dp/de)
                 if !results.is_empty() {
                     let prev = results.last().unwrap();
-                    let de = point_result[1] - prev[1]; // Delta Energia
-                    let dp = point_result[2] - prev[2]; // Delta Pressão
+                    let de = point_result[1] - prev[1];
+                    let dp = point_result[2] - prev[2];
 
                     if de > 0.0 {
-                        let cs2 = dp / de; // Velocidade do som ao quadrado
-                        
+                        let cs2 = dp / de;
                         if cs2 < 1e-6 {
                             println!(
-                                "Abortando: EoS instável (dp/de = {:.2e}) | mun = {:.4} | B = {:.2e} G",
-                                cs2, mun, bg_val
+                                "EoS instável (dp/de = {:.2e}) em mun = {:.4}. Encerrando.",
+                                cs2, mun
                             );
                             break;
                         }
-
                         if cs2 > 1.1 {
-                            println!("Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}", cs2, mun);
+                            println!(
+                                "Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}",
+                                cs2, mun
+                            );
                         }
                     }
                 }
 
-                results.push(point_result); 
+                results.push(point_result);
+
+                // Avança para o próximo mun
+                mun += dmub;
+
+                // Se o passo estava reduzido, tenta aumentá-lo gradualmente
+                if dmub < initial_dmub {
+                    dmub = (dmub * 1.5).min(initial_dmub);
+                }
             } else {
+                // Falha na convergência: reduz o passo e tenta novamente a partir do último sucesso
+                dmub *= 0.5;
+                if dmub < min_dmub {
+                    println!(
+                        "Limite atingido: não foi possível avançar após mun = {:.4} (passo mínimo).",
+                        last_mun
+                    );
+                    break;
+                }
                 println!(
-                    "Abortando: Falha na convergência da EoS | mun = {:.4} | B = {:.2e} G",
-                    mun, bg_val
+                    "Dificuldade de convergência em mun = {:.4}. Reduzindo passo para {:.1e}",
+                    mun, dmub
                 );
-                break;
+                // Retrocede para o último ponto bem-sucedido e tenta com passo menor
+                mun = if results.is_empty() {
+                    mun_inf
+                } else {
+                    last_mun + dmub
+                };
             }
         }
+
         results
     }
 

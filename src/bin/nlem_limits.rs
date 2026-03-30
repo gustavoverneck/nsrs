@@ -150,7 +150,7 @@ fn main() {
             let engines: Vec<EngineMode> = csi_vals.iter().map(|&csi| {
                 let motor = HadronsMatter::new(model_params, b_field)
                     .with_nlem(NlemModel::Log(csi))
-                    .with_limits(0.01, 2.5)
+                    .with_limits(0.01, 2.0)
                     .with_points(2000);
                 
                 EngineMode::Hadrons(motor) // Embrulha no enum

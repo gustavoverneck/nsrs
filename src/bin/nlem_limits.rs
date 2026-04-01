@@ -146,7 +146,6 @@ fn main() {
                 continue;
             }
         } else {
-            // ---> CORREÇÃO AQUI: Criando um Vec de EngineMode <---
             let engines: Vec<EngineMode> = csi_vals.iter().map(|&csi| {
                 let motor = HadronsMatter::new(model_params, b_field)
                     .with_nlem(NlemModel::Log(csi))

@@ -15,6 +15,12 @@ pub enum NlemModel {
     Log(f64),       // Eletrodinâmica Logarítmica (recebe parâmetro csi)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MagneticTopology {
+    Isotropic,   // Campo caótico (P_mag = 1/3 eps_mag) -> Obrigatório para TOV 1D
+    Anisotropic, // Campo alinhado (P_mag = eps_mag) -> Para solvers 2D futuros
+}
+
 impl NlemModel {
     /// Recebe o campo magnético original (bg) e retorna o campo magnético 
     /// EFETIVO alterado pelo modelo não-linear.
@@ -71,6 +77,7 @@ pub struct HadronsMatter {
     // Parâmetros fixos
     pub model: ModelParams,
     pub nlem: NlemModel,
+    pub topology: MagneticTopology,
     pub bg: f64,
     pub b: f64,
     pub m_nuc: f64,
@@ -162,6 +169,7 @@ impl HadronsMatter {
         HadronsMatter {
             model,
             nlem: NlemModel::Maxwell,
+            topology: MagneticTopology::Isotropic,
             bg,
             b,
             m_nuc,
@@ -208,6 +216,12 @@ impl HadronsMatter {
             isospin_factor: isospin_factor,
         }
     }
+    /// Define a topologia das linhas de campo magnético
+    pub fn with_topology(mut self, top: MagneticTopology) -> Self {
+        self.topology = top;
+        self
+    }
+
     /// Builder para acoplar o Eletromagnetismo Não-Linear
     pub fn with_nlem(mut self, nlem: NlemModel) -> Self {
         self.nlem = nlem;
@@ -419,11 +433,17 @@ impl HadronsMatter {
         let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
         
         // 3. Converte o resultado de Joules/m³ para MeV/fm³
-        let ebsd = ebsi_nlem / 1.602176634e32; 
+        let ebsd = ebsi_nlem / 1.602176634e32;
+
+        // 4. CONDICIONAL DE TOPOLOGIA MAGNÉTICA
+        let pmag_effective = match self.topology {
+            MagneticTopology::Isotropic => ebsd / 3.0,
+            MagneticTopology::Anisotropic => ebsd, // ou ebsd * 1.0
+        };
 
         // Adiciona à termodinâmica final da estrela
         let ener_final = ener_conv + ebsd;
-        let press_final = press_conv + ebsd;
+        let press_final = press_conv + pmag_effective;
 
         // Limiar da crosta: retorna None se a pressão ficar negativa
         if ener_final >= 0.0 && press_final >= 0.0 {
@@ -448,7 +468,7 @@ impl HadronsMatter {
                 self.m_eff[0] / self.m_nuc, // 16: Massa Efetiva do Nêutron (m*/mN)
                 self.mun,     // 17: Potencial Químico do Nêutron
                 mue,          // 18: Potencial Químico do Elétron
-                ebsd,         // 19: Pressão Magnética (Para ver o efeito NLEM)
+                ebsd,         // 19: Densidade de energia Magnética em MeV/fm³
             ];
             Some((x_final, result))
         } else {

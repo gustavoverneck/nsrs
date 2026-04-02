@@ -1,7 +1,7 @@
 // src/bin/magtop.rs
 
 use nsrs::core::model::{GM1, GM3};
-use nsrs::core::physics::{HadronsMatter, NlemModel, MagneticTopology};
+use nsrs::core::physics::{HadronsMatter, MagneticTopology};
 use nsrs::core::solver::{Solver, EngineMode};
 use nsrs::core::plotting::Artist;
 use nsrs::core::tov_solver::generate_mr_curve;
@@ -38,24 +38,8 @@ fn main() {
         .collect();
 
     fs::create_dir_all("results/magtop").unwrap_or_default();
-
-    // Artists Combinados
-    let mut artist_eos = Artist::new(
-        &format!("results/magtop/eos_topology_{}.svg", model_name),
-        &format!("Equation of State (Topology) - {}", model_name),
-    )
-    .with_x_label("Energy Density \u{03B5} [MeV/fm\u{00B3}]")
-    .with_y_label("Pressure P [MeV/fm\u{00B3}]")
-    .autoscale()
-    .with_log_scale();
-
-    let mut artist_mr = Artist::new(
-        &format!("results/magtop/mr_topology_{}.svg", model_name),
-        &format!("Mass-Radius (Topology) - {}", model_name),
-    )
-    .with_x_label("Radius [km]")
-    .with_y_label("Mass [M\u{2299}]")
-    .autoscale();
+    let plots_dir = format!("results/magtop/{}", model_name);
+    fs::create_dir_all(&plots_dir).unwrap_or_default();
 
     let csv_summary = format!("results/magtop/summary_topology_{}.csv", model_name);
     let mut summary_data = Vec::new();
@@ -65,12 +49,31 @@ fn main() {
         let base_dir = format!("output/magtop/{}/B_{}", model_name, b_string);
         let dir_iso = format!("{}/isotropic", base_dir);
         let dir_aniso = format!("{}/anisotropic", base_dir);
+        let plot_b_tag = b_string.replace('+', "p").replace('-', "m");
+
+        let mut artist_eos = Artist::new(
+            &format!("{}/eos_topology_{}_B_{}.svg", plots_dir, model_name, plot_b_tag),
+            &format!("Equation of State (Topology) - {} | B = {} G", model_name, b_string),
+        )
+        .with_x_label("Energy Density \u{03B5} [MeV/fm\u{00B3}]")
+        .with_y_label("Pressure P [MeV/fm\u{00B3}]")
+        .autoscale()
+        .with_log_scale();
+
+        let mut artist_mr = Artist::new(
+            &format!("{}/mr_topology_{}_B_{}.svg", plots_dir, model_name, plot_b_tag),
+            &format!("Mass-Radius (Topology) - {} | B = {} G", model_name, b_string),
+        )
+        .with_x_label("Radius [km]")
+        .with_y_label("Mass [M\u{2299}]")
+        .with_x_range(8.0, 16.0);
+
+        let mut any_curve_plotted = false;
 
         if !plot_only {
             println!("Calculando EoS para B = {} G...", b_string);
-            
-            // Instancia os dois motores com as topologias diferentes
-            // Nota: Fixamos NlemModel::Maxwell para isolar APENAS o efeito da topologia
+
+            // Instancia os dois motores com as topologias diferentes.
             let engine_iso = EngineMode::Hadrons(
                 HadronsMatter::new(model_params, b_field)
                     .with_topology(MagneticTopology::Isotropic)
@@ -99,7 +102,6 @@ fn main() {
             }
         }
 
-        // Leitura e Plotagem
         let topologies = [("isotropic", "Iso"), ("anisotropic", "Aniso")];
 
         for (folder, label_suffix) in topologies.iter() {
@@ -126,14 +128,13 @@ fn main() {
                 }
 
                 if eps_vec.len() > 10 {
-                    // Passamos 'false' para não forçar a suavização pesada se não for necessário
                     let (masses, radii, _central_p_list) = generate_mr_curve(&eps_vec, &p_vec, false);
                     let label = format!("{} ({})", b_string, label_suffix);
 
                     artist_eos = artist_eos.add_curve(&eps_vec, &p_vec, &label);
                     artist_mr = artist_mr.add_curve(&radii, &masses, &label);
+                    any_curve_plotted = true;
 
-                    // Extrair Massa Máxima para o CSV
                     let mut m_max = 0.0;
                     let mut r_at_m_max = 0.0;
                     for i in 0..masses.len() {
@@ -146,13 +147,15 @@ fn main() {
                 }
             }
         }
+
+        if any_curve_plotted {
+            artist_eos.plot().ok();
+            artist_mr.plot().ok();
+        } else {
+            eprintln!("Aviso: nenhum dado válido encontrado para B = {} G", b_string);
+        }
     }
 
-    // Salvar gráficos
-    artist_eos.plot().ok();
-    artist_mr.plot().ok();
-
-    // Salvar CSV de Resumo
     if let Ok(mut file) = fs::File::create(&csv_summary) {
         use std::io::Write;
         writeln!(file, "b_field,topology,max_mass,radius_at_max").ok();

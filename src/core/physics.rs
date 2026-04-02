@@ -2,7 +2,7 @@
 #![allow(unused)]
 
 use crate::core::constants::{
-    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, M_NUCLEON, MB, ML, N0, QE
+    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA, M_NUCLEON, MB, ML, N0, QE
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
@@ -418,11 +418,9 @@ impl HadronsMatter {
         // Adição da Pressão/Energia do Campo Magnético
         let bsurf = 1e11; 
         let btsl = self.bg * 1e-4; 
-        let betaa = 1e-2;
-        let alphaa = 3.0;
 
         // Campo macroscópico local B(n) dependente da densidade
-        let bdd = bsurf + btsl * (1.0 - (-betaa * (nbtd / N0).powf(alphaa)).exp());
+        let bdd = bsurf + btsl * (1.0 - (-BDD_BETAA * (nbtd / N0).powf(BDD_ALPHAA)).exp());
         
         // Calculo da Energia Clássica de Maxwell (Joules/m³)
         let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); 

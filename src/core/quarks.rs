@@ -1,7 +1,7 @@
 // src/core/quarks.rs
 
 use crate::core::physics::NlemModel;
-use crate::core::constants::{HBAR_C, M_NUCLEON, MV, N0};
+use crate::core::constants::{BDD_ALPHAA, BDD_BETAA, HBAR_C, M_NUCLEON, MV, N0};
 use nalgebra::{Matrix2, Vector2};
 use std::f64::consts::PI;
 
@@ -186,10 +186,8 @@ impl QuarksMatter {
         // --- CONTRIBUIÇÃO MAGNÉTICA (NLEM) ---
         let bsurf = 1e11; 
         let btsl = self.bg * 1e-4; 
-        let betaa = 1e-2;
-        let alphaa = 3.0;
 
-        let bdd = bsurf + btsl * (1.0 - (-betaa * (nb_total / N0).powf(alphaa)).exp());
+        let bdd = bsurf + btsl * (1.0 - (-BDD_BETAA * (nb_total / N0).powf(BDD_ALPHAA)).exp());
         let ebsi_maxwell = bdd.powi(2) / (8.0 * PI * 1e-7); 
         let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
         let ebsd = ebsi_nlem / 1.602176634e32; 

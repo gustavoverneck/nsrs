@@ -41,6 +41,7 @@ pub const MV: f64 = 783.0 / M_NUCLEON; // Vector meson (Omega)
 pub const MR: f64 = 770.0 / M_NUCLEON; // Isovector meson (Rho)
 
 pub const BCE: f64 = ML[0] * ML[0] / QE;
+pub const BCE_G: f64 = 4.41e13;
 
 // Ative o magneton nuclear removendo o * 0.0
 pub const RNCM: f64 = QE / 2.0; 
@@ -54,3 +55,4 @@ pub const AMMS0: f64 = RNCM * 0.649; // Sigma0 (Teórico)
 pub const AMMSP: f64 = RNCM * 1.458; // Sigma+ (2.458 - 1)
 pub const AMMXM: f64 = RNCM * 0.349; // Xi-    (-0.65 - (-1))
 pub const AMMX0: f64 = RNCM * -1.250; // Xi0
+

@@ -2,7 +2,7 @@
 #![allow(unused)]
 
 use crate::core::constants::{
-    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, M_NUCLEON, MB, ML, QE, N0
+    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, M_NUCLEON, MB, ML, N0, QE
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
@@ -142,10 +142,8 @@ impl HadronsMatter {
         let ml = ML;
         let mb = MB;
         let xs = 0.7;
-        let bce = BCE;
-
-        let b0 = bg / 4.41e13;
-        let b = b0 * bce;
+        let b0 = bg / BCE_G;
+        let b = b0 * BCE;
 
         let m_eff = [0.0; 8];
         let mu_b = [0.0; 8];
@@ -230,8 +228,8 @@ impl HadronsMatter {
         let bg_effective = self.nlem.effective_bg(self.bg);
         
         // 2. Recalcula o 'b' que vai para os Níveis de Landau usando o novo bg
-        let b0 = bg_effective / 4.41e13;
-        self.b = b0 * crate::core::constants::BCE;
+        let b0 = bg_effective / BCE_G;
+        self.b = b0 * BCE;
         
         self
     }

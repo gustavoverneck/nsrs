@@ -1,3 +1,4 @@
+use crate::core::constants::RESULTS_SIZE;
 // src/core/solver.rs
 use crate::core::physics::HadronsMatter;
 use crate::core::quarks::QuarksMatter;
@@ -20,7 +21,7 @@ impl Solver {
         Solver { engine }
     }
 
-    pub fn solve(&mut self) -> Vec<[f64; 20]> {
+    pub fn solve(&mut self) -> Vec<[f64; RESULTS_SIZE]> {
         // Obtém limites e metadados conforme o modo da engine
         let (mun_inf, mun_sup, n, bg_val) = match &self.engine {
             EngineMode::Hadrons(h) => (h.mun_inf, h.mun_sup, h.n_points, h.bg),
@@ -37,14 +38,14 @@ impl Solver {
         let mut dmub = initial_dmub;
         let min_dmub = 1e-6;   // passo mínimo aceitável
 
-        let mut results: Vec<[f64; 20]> = Vec::with_capacity(n);
+        let mut results: Vec<[f64; RESULTS_SIZE]> = Vec::with_capacity(n);
         let mut last_x = [0.0, 0.0, 0.0, 0.0];
         let mut last_mun = mun_inf;   // último mun que convergiu
         let mut mun = mun_inf;
 
         while mun <= mun_sup + 1e-9 {
             // Tenta resolver o ponto com o mun atual
-            // Agora todos os braços retornam Option<([f64;4], [f64;20])>
+            // Agora todos os braços retornam Option<([f64;4], [f64;RESULTS_SIZE])>
             let point_data = match &mut self.engine {
                 EngineMode::Hadrons(h_engine) => h_engine.solve_point(mun, &last_x),
                 // Para Quarks, transformamos o resultado em tupla com estado dummy
@@ -117,7 +118,7 @@ impl Solver {
     }
 
     /// Resolve múltiplas EoS de forma paralela usando Rayon.
-    pub fn solve_batch(engines: Vec<EngineMode>) -> Vec<Vec<[f64; 20]>> {
+    pub fn solve_batch(engines: Vec<EngineMode>) -> Vec<Vec<[f64; RESULTS_SIZE]>> {
         engines
             .into_par_iter()
             .map(|engine| {
@@ -128,7 +129,7 @@ impl Solver {
     }
 
     /// Exporta os resultados da EoS para um arquivo formatado.
-    pub fn write_eos(results: &[[f64; 20]], filename: &str) -> std::io::Result<()> {
+    pub fn write_eos(results: &[[f64; RESULTS_SIZE]], filename: &str) -> std::io::Result<()> {
         use std::io::Write; // Garante que o trait Write está no escopo
         let mut file = std::fs::File::create(filename)?;
 

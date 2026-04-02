@@ -1,5 +1,6 @@
 // src/bin/bag_model.rs
 
+use nsrs::core::constants::RESULTS_SIZE;
 use nsrs::core::quarks::QuarksMatter;
 use nsrs::core::solver::{Solver, EngineMode};
 use nsrs::core::tov_solver::generate_mr_curve;
@@ -115,7 +116,7 @@ fn main() {
 /// Função auxiliar para extrair Eps e P dos resultados do solver.
 /// Diferente do hybrid.rs, filtramos as energias e pressões > 0 
 /// para garantir que o TOV não falhe ao lidar com o vácuo autoligado das Strange Stars.
-fn extract_eos_filtered(results: &[[f64; 20]]) -> (Vec<f64>, Vec<f64>) {
+fn extract_eos_filtered(results: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>) {
     let mut eps = Vec::new();
     let mut p = Vec::new();
     for r in results {

@@ -1,6 +1,8 @@
 // src/core/tov_solver.rs
 use std::f64::consts::PI;
-use rgsl::{Interp, InterpAccel, InterpType, interpolation}; // Importado 'interpolation'
+use rgsl::{Interp, InterpAccel, InterpType, interpolation};
+
+use crate::core::constants::RESULTS_SIZE; // Importado 'interpolation'
 
 // Constantes de Conversão
 const MEV_FM3_TO_MSUN_KM3: f64 = 8.9653e-7;
@@ -218,7 +220,7 @@ fn clean_eos(eps: &[f64], p: &[f64]) -> (Vec<f64>, Vec<f64>) {
 }
 
 /// Procura e interpola os dados de quarks para um mun específico
-fn find_quark_point(quark_eos: &[[f64; 20]], target_mun: f64) -> Option<[f64; 20]> {
+fn find_quark_point(quark_eos: &[[f64; RESULTS_SIZE]], target_mun: f64) -> Option<[f64; RESULTS_SIZE]> {
     // Busca binária para encontrar a posição do mun (índice 17)
     let pos = quark_eos.binary_search_by(|row| {
         row[17].partial_cmp(&target_mun).unwrap_or(std::cmp::Ordering::Equal)
@@ -240,7 +242,7 @@ fn find_quark_point(quark_eos: &[[f64; 20]], target_mun: f64) -> Option<[f64; 20
             // Fator de interpolação linear
             let factor = (target_mun - q_low[17]) / (q_high[17] - q_low[17]);
             
-            let mut interpolated = [0.0; 20];
+            let mut interpolated = [0.0; RESULTS_SIZE];
             for i in 0..20 {
                 interpolated[i] = q_low[i] + factor * (q_high[i] - q_low[i]);
             }
@@ -249,7 +251,7 @@ fn find_quark_point(quark_eos: &[[f64; 20]], target_mun: f64) -> Option<[f64; 20
     }
 }
 
-pub fn unify_hybrid_eos(hadron_eos: &[[f64; 20]], quark_eos: &[[f64; 20]]) -> (Vec<f64>, Vec<f64>) {
+pub fn unify_hybrid_eos(hadron_eos: &[[f64; RESULTS_SIZE]], quark_eos: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>) {
     let mut final_eps = Vec::new();
     let mut final_p = Vec::new();
 

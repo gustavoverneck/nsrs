@@ -1,5 +1,6 @@
 // src/bin/hybrid.rs
 
+use nsrs::core::constants::RESULTS_SIZE;
 use nsrs::core::model::GM1;
 use nsrs::core::physics::{HadronsMatter};
 use nsrs::core::quarks::QuarksMatter;
@@ -73,7 +74,7 @@ fn main() {
 }
 
 /// Função auxiliar para extrair Eps e P dos resultados do solver
-fn extract_eos(results: &[[f64; 20]]) -> (Vec<f64>, Vec<f64>) {
+fn extract_eos(results: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>) {
     let eps = results.iter().map(|r| r[1]).collect();
     let p = results.iter().map(|r| r[2]).collect();
     (eps, p)

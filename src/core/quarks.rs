@@ -1,7 +1,7 @@
 // src/core/quarks.rs
 
 use crate::core::physics::NlemModel;
-use crate::core::constants::{BDD_ALPHAA, BDD_BETAA, HBAR_C, M_NUCLEON, MV, N0};
+use crate::core::constants::{BDD_ALPHAA, BDD_BETAA, HBAR_C, M_NUCLEON, MV, N0, RESULTS_SIZE};
 use nalgebra::{Matrix2, Vector2};
 use std::f64::consts::PI;
 
@@ -84,7 +84,7 @@ impl QuarksMatter {
     }
 
     /// Resolve o ponto para um mun NORMALIZADO
-    pub fn solve_point(&mut self, mun_norm: f64) -> Option<[f64; 20]> {
+    pub fn solve_point(&mut self, mun_norm: f64) -> Option<[f64; RESULTS_SIZE]> {
         let mun_mev = mun_norm * M_NUCLEON;
         
         // Massas baseadas no program7.f do Fortran
@@ -198,13 +198,13 @@ impl QuarksMatter {
         // Tratamento para evitar pressões negativas
         if press_final <= 0.0 {
             // Enquanto a pressão do gás não vencer a Constante de Sacola, o estado é de vácuo.
-            let mut vac = [0.0; 20];
+            let mut vac = [0.0; RESULTS_SIZE];
             vac[17] = mun_norm;
             return Some(vac);
         }
 
         if ener_final >= 0.0 && press_final >= 0.0 {
-            let mut result = [0.0; 20];
+            let mut result = [0.0; RESULTS_SIZE];
             result[0] = nb_total / N0; 
             result[1] = ener_final;
             result[2] = press_final;
@@ -217,6 +217,7 @@ impl QuarksMatter {
             result[17] = mun_norm;
             result[18] = final_x[0];
             result[19] = ebsd;
+            result[20] = bdd;
             Some(result)
         } else {
             None

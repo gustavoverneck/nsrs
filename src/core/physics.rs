@@ -2,7 +2,7 @@
 #![allow(unused)]
 
 use crate::core::constants::{
-    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA, M_NUCLEON, MB, ML, N0, QE
+    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA, M_NUCLEON, MB, ML, N0, QE, RESULTS_SIZE
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
@@ -324,7 +324,7 @@ impl HadronsMatter {
     }
 
     // Resolve para um dado mun e chute inicial, retorna solução e resultado
-    pub fn solve_point(&mut self, mun: f64, initial_x: &[f64]) -> Option<([f64; 4], [f64; 20])> {
+    pub fn solve_point(&mut self, mun: f64, initial_x: &[f64]) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
         self.mun = mun;
 
         let mut x = Vector4::from_column_slice(initial_x);
@@ -465,6 +465,7 @@ impl HadronsMatter {
                 self.mun,     // 17: Potencial Químico do Nêutron
                 mue,          // 18: Potencial Químico do Elétron
                 ebsd,         // 19: Densidade de energia Magnética em MeV/fm³
+                bdd,
             ];
             Some((x_final, result))
         } else {

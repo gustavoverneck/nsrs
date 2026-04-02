@@ -1,5 +1,6 @@
 // src/core/hybrid.rs
 
+use crate::core::constants::RESULTS_SIZE;
 use crate::core::physics::HadronsMatter;
 use crate::core::quarks::QuarksMatter;
 
@@ -15,7 +16,7 @@ impl HybridMatter {
 
     /// Resolve o ponto híbrido comparando as pressões (Construção de Maxwell).
     /// Retorna Option<([Chute_Newton_Raphson], [Dados_Termodinamicos])>
-    pub fn solve_point(&mut self, mun: f64, last_x_hadrons: &[f64; 4]) -> Option<([f64; 4], [f64; 20])> {
+    pub fn solve_point(&mut self, mun: f64, last_x_hadrons: &[f64; 4]) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
         // 1. Calcula a termodinâmica para os Hádrons (retorna tupla com estado numérico)
         let had_res = self.hadrons.solve_point(mun, last_x_hadrons);
         

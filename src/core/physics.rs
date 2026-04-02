@@ -258,27 +258,44 @@ impl HadronsMatter {
     // Função de resíduo (chamada pelo solver numérico)
     pub fn funcv(&mut self, x: &[f64]) -> Vec<f64> {
         let (mue, vsigma, vomega, vrho) = self.mapping(x);
-        
+
         let x_sigma = [1.0, 1.0, self.xs, self.xs, self.xs, self.xs, self.xs, self.xs];
-        
+
         self.mue = mue;
         self.mup = self.mun - mue;
-        
+
         self.mu_b[0] = self.mun;
 
-        // massas efetivas
+        // 1) Massas efetivas
         for i in 0..8 {
             self.m_eff[i] = self.mb[i] - x_sigma[i] * vsigma;
         }
 
-        // potenciais químicos de todas as outras partículas
+        // 1b) Potenciais químicos dos outros bárions
         for i in 1..8 {
             self.mu_b[i] = self.mu_b[0] - self.charges_b[i] * mue;
         }
 
-        // calcular densidades
+        // 2) Atualização dinâmica do campo magnético local
+        let nb_total: f64 = self.nb.iter().sum();
+        let nbtd = nb_total * (self.m_nuc / 197.32).powi(3); // fm^-3
+
+        let bsurf = 1e11; // Tesla
+        let btsl = self.bg * 1e-4; // Gauss -> Tesla
+        let bdd = bsurf + btsl * (1.0 - (-BDD_BETAA * (nbtd / N0).powf(BDD_ALPHAA)).exp());
+
+        let bdd_nlem = self.nlem.effective_bg(bdd);
+        
+        let bdd_nlem_gauss = bdd_nlem * 1e4;
+        let b0 = bdd_nlem_gauss / BCE_G; 
+        
+        // Atualiza o engine com as unidades naturais (MeV^2 ou fm^-2) do projeto
+        self.b = b0 * BCE;
+
+        // 3) Densidades com B local atualizado
         crate::core::particles::calculate_all_densities(self, vomega, vrho);
 
+        // 4) Equações de campo
         let fsigma = self.equation_sigma(vsigma);
         let fomega = self.equation_omega(vomega);
         let frho = self.equation_rho(vrho);
@@ -329,72 +346,76 @@ impl HadronsMatter {
 
         let mut x = Vector4::from_column_slice(initial_x);
         let tolerance = 1e-10;
-        let max_iterations = 100; // Newton puro converge muito rápido (geralmente < 10 passos)
+        let max_iterations = 100;
         let mut converged = false;
 
         for _ in 0..max_iterations {
-            let f_val_vec = self.funcv(x.as_slice());
-            let f_val = Vector4::from_column_slice(&f_val_vec);
+            // Estado congelado para Jacobiano consistente
+            let base_state = self.clone();
 
-            if f_val.norm() < tolerance {
+            let mut eval_state = base_state.clone();
+            let f_val_vec = eval_state.funcv(x.as_slice());
+            let f_val = Vector4::from_column_slice(&f_val_vec);
+            let f_norm = f_val.norm();
+
+            if f_norm < tolerance {
+                *self = eval_state;
                 converged = true;
                 break;
             }
 
-            // 1. Calcula a Matriz Jacobiana EXATA por diferenças finitas em CADA iteração
+            // Jacobiana por diferenças finitas
             let mut j_matrix = Matrix4::zeros();
-            
             for i in 0..4 {
-                // Passo dinâmico para evitar erros de ponto flutuante em variáveis pequenas
-                let h = 1e-8 * (x[i].abs() + 1e-2); 
+                let h = 1e-8 * (x[i].abs() + 1e-2);
                 let mut x_temp = x;
                 x_temp[i] += h;
-                
-                let f_temp_vec = self.funcv(x_temp.as_slice());
+
+                let mut temp_state = base_state.clone();
+                let f_temp_vec = temp_state.funcv(x_temp.as_slice());
                 let f_temp = Vector4::from_column_slice(&f_temp_vec);
-                
-                let column_derivative = (f_temp - f_val) / h;
-                j_matrix.set_column(i, &column_derivative);
+
+                let col = (f_temp - f_val) / h;
+                j_matrix.set_column(i, &col);
             }
 
-            // 2. Resolve o sistema linear J * Δx = -F usando Decomposição LU
             let delta_x = match j_matrix.lu().solve(&(-f_val)) {
                 Some(step) => step,
-                None => {
-                    // Se cair aqui, a derivada é zero (matriz singular). 
-                    // O Newton não consegue prosseguir.
-                    break;
-                }
+                None => break,
             };
 
-            // 3. Backtracking Line Search (Mecanismo de Segurança)
+            // Backtracking line-search com estado congelado
             let mut alpha = 1.0;
             let mut step_accepted = false;
 
             for _ in 0..15 {
                 let x_try = x + alpha * delta_x;
-                let f_new_vec = self.funcv(x_try.as_slice());
-                let f_new = Vector4::from_column_slice(&f_new_vec);
 
-                // Rejeita o passo se ele atirou o solver para uma área não física (gerando NaN)
-                if f_new.norm().is_nan() {
+                let mut trial_state = base_state.clone();
+                let f_new_vec = trial_state.funcv(x_try.as_slice());
+                let f_new = Vector4::from_column_slice(&f_new_vec);
+                let f_new_norm = f_new.norm();
+
+                if f_new_norm.is_nan() {
                     alpha *= 0.5;
                     continue;
                 }
 
-                // Condição de Armijo simplificada (se o erro diminuiu, aceitamos o passo)
-                if f_new.norm() < f_val.norm() {
+                if f_new_norm < f_norm {
                     x = x_try;
+                    *self = trial_state;
                     step_accepted = true;
                     break;
                 }
-                
+
                 alpha *= 0.5;
             }
 
-            // Se as 15 tentativas de corte de passo falharam, damos um micro-passo forçado
             if !step_accepted {
                 x += 0.001 * delta_x;
+                let mut forced_state = base_state.clone();
+                let _ = forced_state.funcv(x.as_slice());
+                *self = forced_state;
             }
         }
 
@@ -404,68 +425,55 @@ impl HadronsMatter {
 
         let x_final = [x[0], x[1], x[2], x[3]];
 
-        // Mapeamento e computação física usando o resultado convergido
         let (mue, vsigma, vomega, vrho) = self.mapping(&x_final);
         let (ener, press) = crate::core::eos::compute(self, mue, vsigma, vomega, vrho);
 
         let nb_total = self.nb.iter().sum::<f64>();
         let nbtd = nb_total * (self.m_nuc / 197.32).powi(3);
-        
-        let factor_mev_fm3 = self.m_nuc * (self.m_nuc / 197.32).powi(3);    // Fator direto para MeV/fm³
+
+        let factor_mev_fm3 = self.m_nuc * (self.m_nuc / 197.32).powi(3);
         let ener_conv = ener * factor_mev_fm3;
         let press_conv = press * factor_mev_fm3;
 
-        // Adição da Pressão/Energia do Campo Magnético
-        let bsurf = 1e11; 
-        let btsl = self.bg * 1e-4; 
-
-        // Campo macroscópico local B(n) dependente da densidade
+        let bsurf = 1e11;
+        let btsl = self.bg * 1e-4;
         let bdd = bsurf + btsl * (1.0 - (-BDD_BETAA * (nbtd / N0).powf(BDD_ALPHAA)).exp());
-        
-        // Calculo da Energia Clássica de Maxwell (Joules/m³)
-        let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7); 
-        
-        // 2. Aplica a transformação da Lagrangiana NLEM (Soleng ou ModMax)
+
+        let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7);
         let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
-        
-        // 3. Converte o resultado de Joules/m³ para MeV/fm³
         let ebsd = ebsi_nlem / 1.602176634e32;
 
-        // 4. CONDICIONAL DE TOPOLOGIA MAGNÉTICA
         let pmag_effective = match self.topology {
             MagneticTopology::Isotropic => ebsd / 3.0,
-            MagneticTopology::Anisotropic => ebsd, // ou ebsd * 1.0
+            MagneticTopology::Anisotropic => ebsd,
         };
 
-        // Adiciona à termodinâmica final da estrela
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + pmag_effective;
 
-        // Limiar da crosta: retorna None se a pressão ficar negativa
         if ener_final >= 0.0 && press_final >= 0.0 {
             let result = [
-                nbtd / 0.153, //  0: n/n0
-                ener_final,   //  1: Energia Total
-                press_final,  //  2: Pressão Total
-                self.nl[0],   //  3: e-
-                self.nl[1],   //  4: mu-
-                self.nb[0],   //  5: n
-                self.nb[1],   //  6: p
-                self.nb[2],   //  7: L0
-                self.nb[3],   //  8: S-
-                self.nb[4],   //  9: S0
-                self.nb[5],   // 10: S+
-                self.nb[6],   // 11: X-
-                self.nb[7],   // 12: X0
-                // --- NOVOS PARÂMETROS ---
-                vsigma,       // 13: Campo Sigma
-                vomega,       // 14: Campo Omega
-                vrho,         // 15: Campo Rho
-                self.m_eff[0] / self.m_nuc, // 16: Massa Efetiva do Nêutron (m*/mN)
-                self.mun,     // 17: Potencial Químico do Nêutron
-                mue,          // 18: Potencial Químico do Elétron
-                ebsd,         // 19: Densidade de energia Magnética em MeV/fm³
-                bdd,
+                nbtd / 0.153, //  0: n/n0 (adimensional)
+                ener_final,   //  1: Energia Total [MeV/fm^3]
+                press_final,  //  2: Pressão Total [MeV/fm^3]
+                self.nl[0],   //  3: e- [fm^-3]
+                self.nl[1],   //  4: mu- [fm^-3]
+                self.nb[0],   //  5: n [fm^-3]
+                self.nb[1],   //  6: p [fm^-3]
+                self.nb[2],   //  7: L0 [fm^-3]
+                self.nb[3],   //  8: S- [fm^-3]
+                self.nb[4],   //  9: S0 [fm^-3]
+                self.nb[5],   // 10: S+ [fm^-3]
+                self.nb[6],   // 11: X- [fm^-3]
+                self.nb[7],   // 12: X0 [fm^-3]
+                vsigma,       // 13: Campo Sigma [MeV]
+                vomega,       // 14: Campo Omega [MeV]
+                vrho,         // 15: Campo Rho [MeV]
+                self.m_eff[0] / self.m_nuc, // 16: m*/mN (adimensional)
+                self.mun,     // 17: mu_n [adimensional no código atual]
+                mue,          // 18: mu_e [adimensional no código atual]
+                ebsd,         // 19: Densidade de energia magnética [MeV/fm^3]
+                bdd,          // 20: Campo magnético local B(n) [T]
             ];
             Some((x_final, result))
         } else {

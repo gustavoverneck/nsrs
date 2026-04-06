@@ -36,6 +36,9 @@ latex_labels = {
     'S+': r'$\Sigma^+$', 'X-': r'$\Xi^-$', 'X0': r'$\Xi^0$'
 }
 
+# Ordem fixa das partículas para geração dos gráficos individuais
+particle_order = ['n', 'p', 'e-', 'mu-', 'L0', 'S-', 'S0', 'S+', 'X-', 'X0']
+
 # POSIÇÕES CALIBRADAS PELA IMAGEM DE REFERÊNCIA
 fixed_label_positions = {
     'n':    (1.2, 0.85),
@@ -82,13 +85,8 @@ def main():
             global_cmap = plt.get_cmap('magma')
 
             # --- Criação das Figuras ---
-            # Unificando Populações e Velocidade do Som (2 linhas, 1 coluna)
-            fig_combined, (ax_pop, ax_cs2) = plt.subplots(
-                nrows=2, ncols=1, 
-                figsize=(7, 8), 
-                sharex=True, 
-                gridspec_kw={'height_ratios': [1.5, 1], 'hspace': 0.05} 
-            )
+            # Velocidade do som em figura dedicada
+            fig_cs2, ax_cs2 = plt.subplots(figsize=(6, 4.5))
             
             # Figuras avulsas restantes
             figs = {
@@ -98,7 +96,11 @@ def main():
                 'emag': plt.subplots(figsize=(6, 5)) # Adicionado gráfico de Energia Magnética
             }
 
+            # Frações por partícula (uma figura por partícula)
+            particle_figs = {p: plt.subplots(figsize=(6, 4.5)) for p in particle_order}
+
             meff_data_all, mun_data_all, emag_data_all = [], [], []
+            eos_has_data = False
 
             for i, (log_csi, path) in enumerate(entries):
                 try:
@@ -109,7 +111,7 @@ def main():
                     nb_tot = df.iloc[:, 5:13].sum(axis=1).values
                     color = global_cmap(norm(log_csi))
 
-                    # 1. Populações (Gráfico de cima)
+                    # 1. Populações (agora separadas por partícula)
                     mask_pop = (nb_tot > 1e-8)
                     parts_data = {
                         'n': df[5], 'p': df[6], 'e-': df[3], 'mu-': df[4],
@@ -119,8 +121,8 @@ def main():
                     for name, dens in parts_data.items():
                         yi = clamp(dens.values[mask_pop] / nb_tot[mask_pop])
                         if np.any(yi > 5e-4):
-                            p_cmap = plt.get_cmap(particle_cmaps.get(name, 'viridis'))
-                            ax_pop.plot(n_n0[mask_pop], yi, color=p_cmap(norm(log_csi)), alpha=0.3, lw=0.7)
+                            ax_part = particle_figs[name][1]
+                            ax_part.plot(n_n0[mask_pop], yi, color=color, alpha=0.35, lw=0.8)
 
                     # 2. Velocidade do Som (Gráfico de baixo)
                     _, idx_unq = np.unique(eps, return_index=True)
@@ -132,7 +134,9 @@ def main():
 
                     # 3. EoS
                     mask_eos = (eps > 0.1) & (press > 0.1)
-                    figs['eos'][1].plot(eps[mask_eos], press[mask_eos], color=color, alpha=0.4, lw=0.8)
+                    if np.any(mask_eos):
+                        eos_has_data = True
+                        figs['eos'][1].plot(eps[mask_eos], press[mask_eos], color=color, alpha=0.4, lw=0.8)
 
                     # 4. m*, mun e emag
                     if num_cols >= 18:
@@ -150,21 +154,26 @@ def main():
 
                 except Exception: continue
 
-            # ========== FINALIZAÇÃO DO GRÁFICO COMBINADO ==========
-            
-            # Subplot Topo: Populações
-            for name, (px, py) in fixed_label_positions.items():
-                ax_pop.text(px, py, latex_labels.get(name, name), fontsize=10, fontweight='bold', 
-                        ha='center', va='center', zorder=40,
-                        bbox=dict(facecolor='white', edgecolor='none', alpha=0.8, pad=0.5))
-            
-            ax_pop.set_yscale('log')
-            ax_pop.set_ylim(1e-5, 1.3)
-            ax_pop.set_ylabel(r'Fraction $Y_i$')
-            ax_pop.tick_params(labelbottom=False) 
-            fig_combined.colorbar(plt.cm.ScalarMappable(cmap='Greys', norm=norm), ax=ax_pop, label=r'$\log_{10}(\xi)$', pad=0.02)
+            # ========== FINALIZAÇÃO DOS GRÁFICOS DE POPULAÇÃO (INDIVIDUAIS) ==========
+            for part_name, (fig_part, ax_part) in particle_figs.items():
+                ax_part.set_yscale('log')
+                ax_part.set_ylim(1e-5, 1.3)
+                ax_part.set_xlim(0, 9.25)
+                ax_part.set_xlabel(r'Density $n_B/n_0$')
+                ax_part.set_ylabel(r'Fraction $Y_i$')
+                ax_part.set_title(latex_labels.get(part_name, part_name))
+                fig_part.colorbar(
+                    plt.cm.ScalarMappable(cmap=global_cmap, norm=norm),
+                    ax=ax_part,
+                    label=r'$\log_{10}(\xi)$'
+                )
+                part_safe = part_name.replace('-', 'm').replace('+', 'p')
+                fig_part.savefig(
+                    output_root / f"pop_{part_safe}_{model}_{b_str}.pdf",
+                    bbox_inches='tight'
+                )
 
-            # Subplot Base: Velocidade do Som
+            # ========== FINALIZAÇÃO DA VELOCIDADE DO SOM ==========
             ax_cs2.axhline(1.0, color='red', ls='--', lw=1, alpha=0.6, label='Causality')
             ax_cs2.axhline(1/3, color='gray', ls=':', lw=1, alpha=0.6, label='Conformal')
             ax_cs2.set_ylim(0, 1.1)
@@ -172,18 +181,20 @@ def main():
             ax_cs2.set_ylabel(r'$c_s^2$')
             ax_cs2.set_xlabel(r'Density $n_B/n_0$')
             ax_cs2.legend(loc='upper left', fontsize=8)
-            fig_combined.colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=ax_cs2, label=r'$\log_{10}(\xi)$', pad=0.02)
-
-            fig_combined.savefig(output_root / f"pop_and_cs2_aligned_{model}_{b_str}.pdf", bbox_inches='tight')
+            fig_cs2.colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=ax_cs2, label=r'$\log_{10}(\xi)$', pad=0.02)
+            fig_cs2.savefig(output_root / f"cs2_gradient_{model}_{b_str}.pdf", bbox_inches='tight')
 
             # ========== FINALIZAÇÃO DOS OUTROS GRÁFICOS ==========
             
             # EoS
             ax = figs['eos'][1]
-            ax.set_xscale('log'); ax.set_yscale('log')
-            ax.set_xlabel(r'$\varepsilon$ [MeV/fm$^3$]'); ax.set_ylabel(r'$P$ [MeV/fm$^3$]')
-            figs['eos'][0].colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=ax, label=r'$\log_{10}(\xi)$')
-            figs['eos'][0].savefig(output_root / f"eos_loglog_{model}_{b_str}.pdf", bbox_inches='tight')
+            if eos_has_data:
+                ax.set_xscale('log'); ax.set_yscale('log')
+                ax.set_xlabel(r'$\varepsilon$ [MeV/fm$^3$]'); ax.set_ylabel(r'$P$ [MeV/fm$^3$]')
+                figs['eos'][0].colorbar(plt.cm.ScalarMappable(cmap=global_cmap, norm=norm), ax=ax, label=r'$\log_{10}(\xi)$')
+                figs['eos'][0].savefig(output_root / f"eos_loglog_{model}_{b_str}.pdf", bbox_inches='tight')
+            else:
+                print(f"⚠️ Sem dados positivos para EoS em {model} | {b_str}; arquivo não gerado.")
 
             # Massa Efetiva
             ax = figs['meff'][1]

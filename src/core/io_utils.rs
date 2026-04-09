@@ -1,6 +1,9 @@
 use std::error::Error;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
+
+use crate::core::constants::RESULTS_SIZE;
 
 pub fn read_eos_file<P: AsRef<Path>>(path: P) -> Result<(Vec<f64>, Vec<f64>), Box<dyn Error>> {
     let content = fs::read_to_string(path)?;
@@ -35,9 +38,6 @@ pub fn read_eos_file<P: AsRef<Path>>(path: P) -> Result<(Vec<f64>, Vec<f64>), Bo
         return Err("Arquivo vazio ou formato incorreto (precisa de 3 colunas).".into());
     }
     
-    // O seu script Python verifica se precisa inverter a ordem.
-    // Nossa função sort_eos_data garante que sempre ficará em ordem crescente de Pressão,
-    // o que é a maneira mais segura e robusta de preparar os dados para interpolação.
     sort_eos_data(&mut eps_data, &mut p_data);
 
     Ok((eps_data, p_data))
@@ -49,4 +49,57 @@ fn sort_eos_data(eps: &mut Vec<f64>, p: &mut Vec<f64>) {
     
     *p = combined.iter().map(|x| x.0).collect();
     *eps = combined.iter().map(|x| x.1).collect();
+}
+
+pub fn write_eos_with_mr<P: AsRef<Path>>(
+    results: &[[f64; RESULTS_SIZE]],
+    masses: &[f64],
+    radii: &[f64],
+    central_pressures: &[f64],
+    path: P,
+) -> std::io::Result<()> {
+    let mut file = fs::File::create(path)?;
+
+    writeln!(
+        file,
+        "# nB eps p ... mr_mass_msun mr_radius_km"
+    )?;
+
+    let n_mr = masses.len().min(radii.len()).min(central_pressures.len());
+
+    for row in results.iter() {
+        let p_row = row[2];
+
+        let mut matched_mass = f64::NAN;
+        let mut matched_radius = f64::NAN;
+        let mut best_diff = f64::INFINITY;
+
+        for i in 0..n_mr {
+            let p_c = central_pressures[i];
+            let diff = (p_c - p_row).abs();
+            let tol = p_row.abs().max(1.0) * 1e-8;
+
+            if diff <= tol && diff < best_diff {
+                best_diff = diff;
+                matched_mass = masses[i];
+                matched_radius = radii[i];
+            }
+        }
+
+        let base_line = row
+            .iter()
+            .map(|val| format!("{:12.5e}", val))
+            .collect::<Vec<String>>()
+            .join(" ");
+
+        writeln!(
+            file,
+            "{} {:12.5e} {:12.5e}",
+            base_line,
+            matched_mass,
+            matched_radius
+        )?;
+    }
+
+    Ok(())
 }

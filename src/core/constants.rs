@@ -60,3 +60,4 @@ pub const BDD_BETAA: f64 = 1e-2;
 pub const BDD_ALPHAA: f64 = 3.0;
 
 pub const RESULTS_SIZE: usize = 21;
+pub const DATA_SIZE: usize = RESULTS_SIZE + 2;

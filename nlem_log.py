@@ -53,6 +53,8 @@ COL_MUN = 17
 COL_EMAG = 19
 
 LOG_CSI_LABEL = r"$\log_{10}(\xi)$"
+MAX_VALID_MASS_MSUN = 3.0
+MAX_VALID_RADIUS_KM = 20.0
 
 
 @dataclass
@@ -228,12 +230,23 @@ def compute_cs2_bounds(eps: np.ndarray, p: np.ndarray) -> Tuple[float, float]:
     return float(np.min(cs2)), float(np.max(cs2))
 
 
+def valid_mr_mask(mass_col: np.ndarray, radius_col: np.ndarray) -> np.ndarray:
+    return (
+        np.isfinite(mass_col)
+        & np.isfinite(radius_col)
+        & (mass_col > 0.0)
+        & (radius_col > 0.0)
+        & (mass_col <= MAX_VALID_MASS_MSUN)
+        & (radius_col <= MAX_VALID_RADIUS_KM)
+    )
+
+
 def summarize_dataset(ds: Dataset) -> SummaryRow:
     arr = ds.data
 
     mass_col = arr[:, -2]
     radius_col = arr[:, -1]
-    mr_mask = np.isfinite(mass_col) & np.isfinite(radius_col) & (mass_col > 0.0) & (radius_col > 0.0)
+    mr_mask = valid_mr_mask(mass_col, radius_col)
 
     n_mr_points = int(np.count_nonzero(mr_mask))
     n_eos_points = int(arr.shape[0])
@@ -391,8 +404,8 @@ def plot_family_eos_mr(
             m = d.data[:, -2]
             r = d.data[:, -1]
             p_central = d.data[:, COL_P]
-            
-            mask = np.isfinite(m) & np.isfinite(r) & (m > 0.0) & (r > 0.0)
+
+            mask = valid_mr_mask(m, r)
             if np.count_nonzero(mask) < 3:
                 continue
                 

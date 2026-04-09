@@ -16,26 +16,26 @@ O projeto resolve a **equação de estado (EoS)** para um modelo hadrônico, int
 - `src/core/`: núcleo físico e numérico (EoS, solver, TOV, plot, I/O)
 - `src/bin/`: executáveis para análises e varreduras
 
-Executáveis mais usados no fluxo hadrônico:
+## Dependências e Pré-requisitos
 
-- `magtop`: compara topologia isotrópica vs anisotrópica
-- `nlem_limits`: varre parâmetros NLEM e extrai limites observáveis
-- `tov`: gera curva M-R a partir de um `eos.dat`
+Para compilar o núcleo em Rust e executar os scripts de análise avançada, você precisará das seguintes ferramentas instaladas no seu sistema:
 
-## Estado atual
+### 1. Dependências do Sistema (C/Rust)
+O NSRS utiliza a biblioteca `rgsl` (bindings de Rust para a GNU Scientific Library) para integrações numéricas (Runge-Kutta) e interpolações. É necessário ter a biblioteca original do GSL instalada no sistema operacional:
 
-- **Hadrônico**: principal trilha de uso e documentação.
-- **Quarks e híbridas**: presentes no código como desenvolvimento em andamento.
-
-## Documentação
-
-- Documentação técnica do pipeline (foco hadrônico): [DOCUMENTATION.md](DOCUMENTATION.md)
-- Modelos e equações físicas: [PHYSICS.md](PHYSICS.md)
-
-## Execução rápida
-
-Exemplos:
-
-- `cargo run --bin magtop -- GM1 1e16 5e17 1e18`
-- `cargo run --bin nlem_limits -- GM1 8 28 1e15 5e16 1e17`
-- `cargo run --bin tov output/magtop/GM1/B_1.00e17/isotropic/eos.dat`
+* **Ubuntu / Debian / Linux Mint:**
+    ```bash
+    sudo apt-get install libgsl-dev
+    ```
+* **Arch Linux / Manjaro:**
+    ```bash
+    sudo pacman -S gsl
+    ```
+* **macOS (via Homebrew):**
+    ```bash
+    brew install gsl
+    ```
+* **Fedora / CentOS:**
+    ```bash
+    sudo dnf install gsl-devel
+    ```

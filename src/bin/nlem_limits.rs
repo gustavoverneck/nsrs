@@ -1,10 +1,9 @@
 // src/bin/nlem_limits.rs
 
-use nsrs::core::model::{GM1, GM3};
-use nsrs::core::physics::{HadronsMatter, NlemModel};
-use nsrs::core::solver::{Solver, EngineMode}; // <-- Importado EngineMode
-use nsrs::core::plotting::Artist;
-use nsrs::core::tov_solver::generate_mr_curve; 
+use nsrs::{
+    Artist, EngineMode, GM1, GM3, HadronsMatter, NlemModel, Solver, generate_mr_curve,
+    write_eos_with_mr,
+};
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -166,14 +165,14 @@ fn main() {
                 
                 let dir_path = format!("{}/csi_{:.2e}", base_dir, csi);
                 if let Err(_) = fs::create_dir_all(&dir_path) { continue; }
-                
-                let eos_filename = format!("{}/eos.dat", dir_path);
-                if let Err(_) = Solver::write_eos(results, &eos_filename) { continue; }
 
                 let eps: Vec<f64> = results.iter().map(|r| r[1]).collect();
                 let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
                 
                 let (masses, radii, central_p_list) = generate_mr_curve(&eps, &p_arr, true);
+
+                let eos_filename = format!("{}/eos.dat", dir_path);
+                if let Err(_) = write_eos_with_mr(results, &masses, &radii, &central_p_list, &eos_filename) { continue; }
 
                 if !masses.is_empty() {
                     let mut m_max = 0.0;

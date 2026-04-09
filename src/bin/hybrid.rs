@@ -1,14 +1,8 @@
 // src/bin/hybrid.rs
 
-use nsrs::core::constants::RESULTS_SIZE;
-use nsrs::core::model::GM1;
-use nsrs::core::physics::{HadronsMatter};
-use nsrs::core::quarks::QuarksMatter;
-use nsrs::core::hybrid::HybridMatter;
-use nsrs::core::solver::{Solver, EngineMode};
-use nsrs::core::tov_solver::generate_mr_curve;
-use nsrs::core::plotting::Artist;
-
+use nsrs::{
+    Artist, EngineMode, GM1, HadronsMatter, QuarksMatter, HybridMatter, Solver, generate_mr_curve, constants::RESULTS_SIZE
+};
 fn main() {
     let bg = 1e15; 
     let bag_constant = 85.38; // MeV/fm³

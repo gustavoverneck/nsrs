@@ -5,13 +5,10 @@ Análise científica completa dos dados NLEM gerados em output/limits.
 Objetivos:
 - Consolidar EoS, M-R e populações para GM1/GM3 e topologias isotrópica/anisotrópica.
 - Quantificar o efeito de log10(csi) na estrutura estelar.
+- Avaliar os limites de causalidade e estabilidade através da velocidade do som (c_s^2).
+- Mapear os limiares de surgimento (onset thresholds) das partículas.
+- Mapear a quantização de Landau para elétrons via mu_e e B(n).
 - Gerar tabelas e figuras prontas para publicação/inspeção posterior em Python.
-
-Estrutura esperada dos dados (nova):
-    output/limits/<MODEL>/B_<BVAL>/<isotropic|anisotropic>/csi_<CSI>/eos.dat
-
-Também aceita estrutura legada sem pasta de topologia:
-    output/limits/<MODEL>/B_<BVAL>/csi_<CSI>/eos.dat
 """
 
 from __future__ import annotations
@@ -50,7 +47,13 @@ COL_NX0 = 12
 
 COL_MEFF = 16
 COL_MUN = 17
+COL_MUE = 18
 COL_EMAG = 19
+COL_BDD = 20
+
+# Fator padrão. Se necessário, o código também detecta automaticamente
+# se o mu_e parece normalizado e converte por 939.0 para MeV.
+MUE_TO_MEV_FACTOR = 1.0
 
 LOG_CSI_LABEL = r"$\log_{10}(\xi)$"
 MAX_VALID_MASS_MSUN = 3.0
@@ -134,11 +137,8 @@ def _safe_float(text: str) -> Optional[float]:
 
 
 def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, str, float, float]]:
-    """
-    Retorna: (model, b_label, b_value, topology, csi, log_csi)
-    """
     rx = re.compile(
-        r".*/output/limits/(?P<model>GM[13])/B_(?P<b>[^/]+)/(?:"
+        r".*/output/limits/(?P<model>GM\d+)/B_(?P<b>[^/]+)/(?:"
         r"(?P<topology>isotropic|anisotropic)/)?csi_(?P<csi>[^/]+)/eos\.dat$"
     )
     m = rx.match(path.resolve().as_posix())
@@ -169,7 +169,6 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
 
-    # Esperamos pelo menos as 20 colunas físicas + 2 colunas MR
     if arr.shape[1] < 22:
         return None
 
@@ -301,45 +300,17 @@ def write_summary_csv(rows: Sequence[SummaryRow], out_csv: Path) -> None:
     with out_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow([
-            "model",
-            "b_label",
-            "b_value",
-            "topology",
-            "csi",
-            "log_csi",
-            "n_eos_points",
-            "n_mr_points",
-            "max_mass_msun",
-            "radius_at_max_km",
-            "central_nb_n0",
-            "central_eps_mevfm3",
-            "central_p_mevfm3",
-            "central_meff",
-            "central_emag_mevfm3",
-            "cs2_min",
-            "cs2_max",
-            "eos_path",
+            "model", "b_label", "b_value", "topology", "csi", "log_csi",
+            "n_eos_points", "n_mr_points", "max_mass_msun", "radius_at_max_km",
+            "central_nb_n0", "central_eps_mevfm3", "central_p_mevfm3", "central_meff",
+            "central_emag_mevfm3", "cs2_min", "cs2_max", "eos_path",
         ])
         for r in rows:
             w.writerow([
-                r.model,
-                r.b_label,
-                r.b_value,
-                r.topology,
-                r.csi,
-                r.log_csi,
-                r.n_eos_points,
-                r.n_mr_points,
-                r.max_mass_msun,
-                r.radius_at_max_km,
-                r.central_nb_n0,
-                r.central_eps_mevfm3,
-                r.central_p_mevfm3,
-                r.central_meff,
-                r.central_emag_mevfm3,
-                r.cs2_min,
-                r.cs2_max,
-                r.eos_path,
+                r.model, r.b_label, r.b_value, r.topology, r.csi, r.log_csi,
+                r.n_eos_points, r.n_mr_points, r.max_mass_msun, r.radius_at_max_km,
+                r.central_nb_n0, r.central_eps_mevfm3, r.central_p_mevfm3,
+                r.central_meff, r.central_emag_mevfm3, r.cs2_min, r.cs2_max, r.eos_path,
             ])
 
 
@@ -353,6 +324,122 @@ def _subsample_sorted(items: Sequence[Dataset], max_items: int) -> List[Dataset]
     idx = np.linspace(0, len(items) - 1, max_items).round().astype(int)
     idx = np.unique(idx)
     return [items[i] for i in idx]
+
+
+def _compute_electron_landau_nu_max(mu_e: np.ndarray, b_tesla: np.ndarray) -> np.ndarray:
+    m_e_mev = 0.511
+    b_crit_tesla = 4.414e9
+    nu_max = np.zeros_like(mu_e, dtype=float)
+
+    valid = (
+        np.isfinite(mu_e)
+        & np.isfinite(b_tesla)
+        & (b_tesla > 0.0)
+        & (mu_e * mu_e > m_e_mev * m_e_mev)
+    )
+    if not np.any(valid):
+        return nu_max
+
+    e_b_mev2 = (b_tesla[valid] / b_crit_tesla) * (m_e_mev * m_e_mev)
+    denom_landau = 2.0 * e_b_mev2
+    good = denom_landau > 0.0
+    if not np.any(good):
+        return nu_max
+
+    valid_idx = np.nonzero(valid)[0]
+    target_idx = valid_idx[good]
+    numer = (mu_e[target_idx] * mu_e[target_idx]) - (m_e_mev * m_e_mev)
+    nu_vals = np.floor(numer / denom_landau[good])
+    nu_max[target_idx] = np.maximum(0.0, nu_vals)
+    return nu_max
+
+
+def _infer_mue_to_mev_factor(mu_e_raw: np.ndarray) -> float:
+    """
+    Heurística: se o valor máximo típico de mu_e for muito pequeno (ordem < 5),
+    assume-se que está normalizado por m_n e converte para MeV.
+    """
+    finite = mu_e_raw[np.isfinite(mu_e_raw)]
+    if finite.size == 0:
+        return MUE_TO_MEV_FACTOR
+    max_val = float(np.nanmax(finite))
+    return 939.0 if max_val < 5.0 else 1.0
+
+
+def _plot_single_landau_curve(
+    ds: Dataset,
+    cmap: mcolors.Colormap,
+    cmin: float,
+    denom: float,
+) -> bool:
+    if ds.data.shape[1] <= COL_BDD:
+        return False
+
+    nb = ds.data[:, COL_NB]
+    mu_e_raw = ds.data[:, COL_MUE]
+    mu_factor = _infer_mue_to_mev_factor(mu_e_raw)
+    mu_e = mu_e_raw * mu_factor
+    b_tesla = ds.data[:, COL_BDD]
+    nu_max = _compute_electron_landau_nu_max(mu_e, b_tesla)
+    if not np.any(np.isfinite(nu_max)):
+        return False
+
+    color = cmap((ds.log_csi - cmin) / denom)
+    plt.step(
+        nb,
+        nu_max,
+        where="post",
+        color=color,
+        alpha=0.85,
+        lw=1.3,
+    )
+    return True
+
+
+def plot_landau_levels(
+    datasets: Sequence[Dataset],
+    out_dir: Path,
+    dpi: int,
+) -> None:
+    """
+    Calcula e plota o número máximo de níveis de Landau ocupados por elétrons
+    em função da densidade bariônica para cada família (model, topology, B).
+    """
+    ensure_dir(out_dir)
+
+    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    for ds in datasets:
+        by_combo.setdefault(group_key(ds), []).append(ds)
+
+    for key, arr in by_combo.items():
+        model, topology, b_label = key
+        arr_sorted = sorted(arr, key=lambda d: d.log_csi)
+        plot_set = arr_sorted
+        if not plot_set:
+            continue
+
+        cvals = np.array([d.log_csi for d in plot_set], dtype=float)
+        cmin, cmax = float(np.min(cvals)), float(np.max(cvals))
+        denom = (cmax - cmin) if (cmax - cmin) > 1e-12 else 1.0
+        cmap = plt.get_cmap("plasma")
+
+        plt.figure(figsize=(8, 6))
+        plotted = False
+
+        for d in plot_set:
+            plotted = _plot_single_landau_curve(d, cmap=cmap, cmin=cmin, denom=denom) or plotted
+
+        if plotted:
+            plt.xlabel(r"Densidade bariônica $n_B/n_0$")
+            plt.ylabel(r"Nível máximo de Landau eletrônico $\nu_{\max}^e$")
+            plt.title(f"Quantização de Landau | {model} | {topology} | B={b_label} G")
+            plt.grid(alpha=0.3)
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
+            cbar = plt.colorbar(sm, ax=plt.gca())
+            cbar.set_label(LOG_CSI_LABEL)
+            plt.tight_layout()
+            plt.savefig(out_dir / f"landau_levels_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.close()
 
 
 def plot_family_eos_mr(
@@ -373,6 +460,7 @@ def plot_family_eos_mr(
         plot_set = _subsample_sorted(arr_sorted, max_curves)
         cmap_eos = plt.get_cmap("viridis")
         cmap_mr = plt.get_cmap("plasma")
+        cmap_cs2 = plt.get_cmap("cool")
 
         cvals = np.array([d.log_csi for d in plot_set], dtype=float)
         cmin, cmax = float(np.min(cvals)), float(np.max(cvals))
@@ -389,11 +477,9 @@ def plot_family_eos_mr(
         plt.title(f"EoS family | {model} | {topology} | B={b_label} G")
         plt.grid(alpha=0.25)
         
-        # Adiciona Colorbar EoS
         sm = plt.cm.ScalarMappable(cmap=cmap_eos, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
         cbar = plt.colorbar(sm, ax=plt.gca())
         cbar.set_label(LOG_CSI_LABEL)
-        
         plt.tight_layout()
         plt.savefig(out_dir / f"eos_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
@@ -413,9 +499,7 @@ def plot_family_eos_mr(
             r_valid = r[mask]
             p_valid = p_central[mask]
             
-            # Ordena pela pressão central para curva suave (evita ziguezague)
             sort_idx = np.argsort(p_valid)
-            
             color = cmap_mr((d.log_csi - cmin) / denom)
             plt.plot(r_valid[sort_idx], m_valid[sort_idx], color=color, alpha=0.8, lw=1.0)
             
@@ -424,13 +508,54 @@ def plot_family_eos_mr(
         plt.title(f"M-R family | {model} | {topology} | B={b_label} G")
         plt.grid(alpha=0.25)
         
-        # Adiciona Colorbar M-R
         sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
         cbar_mr = plt.colorbar(sm_mr, ax=plt.gca())
         cbar_mr.set_label(LOG_CSI_LABEL)
-        
         plt.tight_layout()
         plt.savefig(out_dir / f"mr_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.close()
+
+        # --- Speed of Sound (c_s^2) family ---
+        plt.figure(figsize=(8, 6))
+        for d in plot_set:
+            eps = d.data[:, COL_EPS]
+            p = d.data[:, COL_P]
+            mask = np.isfinite(eps) & np.isfinite(p)
+            eps_val = eps[mask]
+            p_val = p[mask]
+            
+            if eps_val.size > 2:
+                idx = np.argsort(eps_val)
+                eps_sorted = eps_val[idx]
+                p_sorted = p_val[idx]
+                
+                de = np.diff(eps_sorted)
+                dp = np.diff(p_sorted)
+                
+                good = de > 1e-14
+                if np.any(good):
+                    cs2 = np.zeros_like(de)
+                    cs2[good] = dp[good] / de[good]
+                    
+                    color = cmap_cs2((d.log_csi - cmin) / denom)
+                    plt.plot(eps_sorted[:-1][good], cs2[good], color=color, alpha=0.8, lw=1.0)
+                    
+        plt.axhline(1.0, color='red', linestyle='--', alpha=0.7, label='Causalidade ($c_s^2 = 1$)')
+        plt.axhline(0.0, color='black', linestyle='--', alpha=0.7, label='Estabilidade ($c_s^2 = 0$)')
+        plt.axhline(1/3, color='gray', linestyle=':', alpha=0.7, label='Limite Conforme ($c_s^2 = 1/3$)')
+        
+        plt.xlabel(r"$\epsilon$ [MeV/fm$^3$]")
+        plt.ylabel(r"$c_s^2$ (Unidades de $c=1$)")
+        plt.title(f"Speed of Sound | {model} | {topology} | B={b_label} G")
+        plt.grid(alpha=0.25)
+        plt.legend(loc='upper right', fontsize=9)
+        
+        sm_cs2 = plt.cm.ScalarMappable(cmap=cmap_cs2, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
+        cbar_cs2 = plt.colorbar(sm_cs2, ax=plt.gca())
+        cbar_cs2.set_label(LOG_CSI_LABEL)
+        
+        plt.tight_layout()
+        plt.savefig(out_dir / f"cs2_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
@@ -493,6 +618,79 @@ def plot_population_snapshots(
         plt.close(fig)
 
 
+def find_onset_threshold(nb_array: np.ndarray, pop_array: np.ndarray, threshold_val: float = 1e-6) -> float:
+    """Retorna a densidade nb_array onde pop_array ultrapassa o limite (threshold_val)."""
+    mask = pop_array > threshold_val
+    if not np.any(mask):
+        return math.nan
+    idx = np.argmax(mask)
+    return float(nb_array[idx])
+
+
+def plot_population_thresholds(
+    datasets: Sequence[Dataset],
+    out_dir: Path,
+    dpi: int,
+) -> None:
+    """
+    Plota a densidade bariônica de surgimento (onset) das partículas em função de log10(csi).
+    Foco nas partículas que 'nascem' em altas densidades (Múons e Hiperons).
+    """
+    ensure_dir(out_dir)
+    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    for ds in datasets:
+        by_combo.setdefault(group_key(ds), []).append(ds)
+
+    # Excluímos n, p, e- porque já existem desde o início (crosta/baixa densidade)
+    species_to_track = [
+        (COL_NMU, "mu-"),
+        (COL_NL0, "Lambda0"),
+        (COL_NSM, "Sigma-"),
+        (COL_NS0, "Sigma0"),
+        (COL_NSP, "Sigma+"),
+        (COL_NXM, "Xi-"),
+        (COL_NX0, "Xi0"),
+    ]
+
+    for key, arr in by_combo.items():
+        model, topology, b_label = key
+        arr_sorted = sorted(arr, key=lambda d: d.log_csi)
+        if not arr_sorted:
+            continue
+
+        x_vals = [d.log_csi for d in arr_sorted]
+        
+        plt.figure(figsize=(8, 6))
+        plotted_any = False
+
+        for col, label in species_to_track:
+            y_vals = []
+            for ds in arr_sorted:
+                if ds.data.shape[1] > col:
+                    # Avalia o threshold para cada valor de log(csi)
+                    onset = find_onset_threshold(ds.data[:, COL_NB], ds.data[:, col])
+                    y_vals.append(onset)
+                else:
+                    y_vals.append(math.nan)
+
+            y_arr = np.array(y_vals)
+            mask = np.isfinite(y_arr)
+            
+            if np.count_nonzero(mask) > 0:
+                plt.plot(np.array(x_vals)[mask], y_arr[mask], marker='o', ms=4, lw=1.5, label=label)
+                plotted_any = True
+
+        if plotted_any:
+            plt.xlabel(LOG_CSI_LABEL)
+            plt.ylabel(r"Onset Density ($n_B$) [fm$^{-3}$]")
+            plt.title(f"Particle Onset Thresholds | {model} | {topology} | B={b_label} G")
+            plt.grid(alpha=0.3, linestyle='--')
+            plt.legend(fontsize=9, loc='best')
+            plt.tight_layout()
+            plt.savefig(out_dir / f"onset_thresholds_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.close()
+
+
 def _plot_metric_for_subset(
     rows: Sequence[SummaryRow],
     model: str,
@@ -515,7 +713,6 @@ def _plot_metric_for_subset(
         y = np.array([getattr(r, metric_name) for r in part], dtype=float)
         mask = np.isfinite(x) & np.isfinite(y)
         
-        # Correção: Permitir plotar mesmo que haja apenas 1 ponto válido para testes
         if np.count_nonzero(mask) < 1:
             continue
         plt.plot(x[mask], y[mask], marker="o", ms=3, lw=1.2, label=f"B={part[0].b_label} G")
@@ -535,11 +732,14 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
 
     models = sorted({r.model for r in rows})
     topologies = sorted({r.topology for r in rows})
+    
     metrics = [
         ("max_mass_msun", r"$M_{\max}$ [$M_\odot$]", "max_mass_vs_logcsi"),
         ("radius_at_max_km", r"$R(M_{\max})$ [km]", "radius_at_max_vs_logcsi"),
         ("central_nb_n0", r"$n_c/n_0$", "central_density_vs_logcsi"),
         ("central_emag_mevfm3", r"$\epsilon_{mag,c}$ [MeV/fm$^3$]", "central_emag_vs_logcsi"),
+        ("cs2_max", r"$\max(c_s^2)$", "cs2max_vs_logcsi"),
+        ("cs2_min", r"$\min(c_s^2)$", "cs2min_vs_logcsi"),
     ]
 
     for metric_name, y_label, prefix in metrics:
@@ -572,6 +772,23 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     lines.append(f"- Models: **{', '.join(models)}**")
     lines.append(f"- Topologies: **{', '.join(tops)}**")
     lines.append("")
+    
+    lines.append("## Causality and Stability Diagnostics")
+    lines.append("Analyzing the speed of sound $c_s^2 = dP/d\\epsilon$ to verify physical validity constraints.")
+    lines.append("")
+    
+    causality_violations = sum(1 for r in rows if r.cs2_max > 1.0)
+    stability_violations = sum(1 for r in rows if r.cs2_min < 0.0)
+    
+    lines.append(f"- **Causality Violations ($c_s^2 > 1$):** {causality_violations} datasets")
+    lines.append(f"- **Stability Violations ($c_s^2 < 0$):** {stability_violations} datasets")
+    lines.append("")
+    
+    if causality_violations > 0 or stability_violations > 0:
+        lines.append("**Warning:** Some datasets exhibit non-physical behavior. High $\\xi$ combined with extreme magnetic fields may lead to $c_s^2 > 1.0$ (superluminal sound speed) or $c_s^2 < 0$ (mechanical instability). Inspect the `cs2_max` and `cs2_min` trend graphs to determine the $\\xi$ cutoff.")
+    else:
+        lines.append("All analyzed datasets respect the physical limits of causality and thermodynamic stability.")
+    lines.append("")
 
     def slope_for(sub: List[SummaryRow], metric: str) -> float:
         x = np.array([r.log_csi for r in sub], dtype=float)
@@ -593,7 +810,14 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     for r in rows:
         grouped.setdefault((r.model, r.topology, r.b_label), []).append(r)
 
-    for (model, topo, b_label), sub in sorted(grouped.items(), key=lambda kv: (kv[0][0], kv[0][1], float(kv[0][2]))):
+    for (model, topo, b_label), sub in sorted(
+        grouped.items(),
+        key=lambda kv: (
+            kv[0][0],
+            kv[0][1],
+            _safe_float(kv[0][2]) if _safe_float(kv[0][2]) is not None else math.inf,
+        ),
+    ):
         sub = sorted(sub, key=lambda x: x.log_csi)
         s_mass = slope_for(sub, "max_mass_msun")
         s_rad = slope_for(sub, "radius_at_max_km")
@@ -623,7 +847,7 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     lines.append("- Positive $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ tends to stiffen the effective sequence in your setup.")
     lines.append("- Negative $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ softens the sequence.")
     lines.append("- Compare isotropic vs anisotropic at fixed $(model, B)$ to isolate topology effects.")
-    lines.append("- Use population snapshots to identify threshold shifts for hyperon onset with changing $\\xi$.")
+    lines.append("- Use population thresholds to map how $\\xi$ delays or anticipates hyperon onset.")
 
     out_file.write_text("\n".join(lines), encoding="utf-8")
 
@@ -656,11 +880,20 @@ def main() -> None:
         max_curves=max(1, args.max_curves_per_family),
         dpi=args.dpi,
     )
-    print(f"[OK] Famílias EoS/MR: {families_dir}")
+    print(f"[OK] Famílias EoS/MR e Velocidade do Som (cs2): {families_dir}")
 
     pops_dir = args.output_root / "populations"
     plot_population_snapshots(datasets, pops_dir, dpi=args.dpi)
     print(f"[OK] Snapshots de populações: {pops_dir}")
+
+    # --- NOVO: Geração dos gráficos de limiar de surgimento (Thresholds) ---
+    thresholds_dir = args.output_root / "thresholds"
+    plot_population_thresholds(datasets, thresholds_dir, dpi=args.dpi)
+    print(f"[OK] Gráficos de Thresholds de Partículas: {thresholds_dir}")
+
+    landau_dir = args.output_root / "landau_levels"
+    plot_landau_levels(datasets, landau_dir, dpi=args.dpi)
+    print(f"[OK] Níveis de Quantização de Landau: {landau_dir}")
 
     report_md = args.output_root / "scientific_report.md"
     write_scientific_report(summary_rows, report_md)

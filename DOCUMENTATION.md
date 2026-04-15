@@ -62,7 +62,7 @@ Fluxo alto nível:
 - `EngineMode` define o modo físico (hadrons/quarks/hybrid).
 - Para o escopo atual, o caminho principal é `EngineMode::Hadrons(HadronsMatter)`.
 - `Solver::solve()` implementa varredura adaptativa em $\mu_n$.
-- `Solver::solve_batch()` acelera varreduras grandes em paralelo.
+- `Solver::solve_parallel()` acelera varreduras grandes em paralelo.
 - `Solver::write_eos()` salva tabelas `eos.dat`.
 
 ### `src/core/physics.rs`

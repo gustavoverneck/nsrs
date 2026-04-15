@@ -118,14 +118,23 @@ impl Solver {
     }
 
     /// Resolve múltiplas EoS de forma paralela usando Rayon.
-    pub fn solve_batch(engines: Vec<EngineMode>) -> Vec<Vec<[f64; RESULTS_SIZE]>> {
-        engines
-            .into_par_iter()
-            .map(|engine| {
-                let mut solver = Solver::new(engine);
-                solver.solve()
-            })
-            .collect()
+    pub fn solve_parallel(engines: Vec<EngineMode>, num_threads: usize) -> Vec<Vec<[f64; RESULTS_SIZE]>> {
+        // 1. Criamos um construtor de pool de threads personalizado
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build()
+            .expect("Falha ao criar o ThreadPool do Rayon");
+
+        // 2. Executamos o processamento paralelo dentro deste pool específico
+        pool.install(|| {
+            engines
+                .into_par_iter()
+                .map(|engine| {
+                    let mut solver = Solver::new(engine);
+                    solver.solve()
+                })
+                .collect()
+        })
     }
 
     /// Exporta os resultados da EoS para um arquivo formatado.

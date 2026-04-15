@@ -10,7 +10,7 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let csi_vals = vec![1e-1, 1e-3, 1e-5, 1e-6, 1e-9, 1e-12, 1e-15];
+    let csi_vals = vec![0.01, 0.05, 0.1];
     
     let b_fields: Vec<f64> = if args.len() > 1 {
         args[1..]

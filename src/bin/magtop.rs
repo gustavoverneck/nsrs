@@ -133,7 +133,7 @@ fn main() {
             );
 
             // Resolve as duas em paralelo
-            let results = Solver::solve_batch(vec![engine_iso, engine_aniso]);
+            let results = Solver::solve_parallel(vec![engine_iso, engine_aniso], 8);
 
             if results.len() == 2 {
                 fs::create_dir_all(&dir_iso).ok();

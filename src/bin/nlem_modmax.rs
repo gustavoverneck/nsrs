@@ -10,7 +10,7 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let csi_vals = vec![0.01, 0.05, 0.1];
+    let csi_vals = vec![0.0, 0.05, 0.1, 0.25, 0.5];
     
     let b_fields: Vec<f64> = if args.len() > 1 {
         args[1..]
@@ -24,7 +24,7 @@ fn main() {
     };
 
     let num_points = csi_vals.len();
-    let models = [("GM1", GM1), ("GM3", GM3)];
+    let models = [("GM1", GM1)];//, ("GM3", GM3)];
     let topologies = [
         // ("isotropic", MagneticTopology::Isotropic),
         ("anisotropic", MagneticTopology::Anisotropic),
@@ -41,8 +41,8 @@ fn main() {
                     .map(|&csi| {
                         let motor = HadronsMatter::new(model_params, b_field)
                             .with_topology(topology_mode)
-                            .with_nlem(NlemModel::Log(csi))
-                            .with_limits(0.01, 2.0)
+                            .with_nlem(NlemModel::Modmax(csi))
+                            .with_limits(0.02, 2.0)
                             .with_points(2000);
 
                         EngineMode::Hadrons(motor)
@@ -53,7 +53,7 @@ fn main() {
                     "\nModelo={} | Topologia={} | Varrendo {} valores de \u{03BE} para B = {} G...",
                     model_name, topology_name, num_points, b_string
                 );
-                let all_results = Solver::solve_batch(engines);
+                let all_results = Solver::solve_parallel(engines, 8);
 
                 let base_dir = format!("output/modmax/{}/B_{}/{}", model_name, b_string, topology_name);
 
@@ -68,7 +68,7 @@ fn main() {
                     let eps: Vec<f64> = results.iter().map(|r| r[1]).collect();
                     let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
 
-                    let (masses, radii, central_p_list, _) = generate_mr_curve(&eps, &p_arr, false);
+                    let (masses, radii, central_p_list) = generate_mr_curve(&eps, &p_arr, false);
 
                     let eos_filename = format!("{}/eos.dat", dir_path);
                     if let Err(_) =

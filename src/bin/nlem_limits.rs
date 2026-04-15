@@ -79,7 +79,7 @@ fn main() {
                     "\nModelo={} | Topologia={} | Varrendo {} valores de \u{03BE} para B = {} G...",
                     model_name, topology_name, num_points, b_string
                 );
-                let all_results = Solver::solve_batch(engines);
+                let all_results = Solver::solve_parallel(engines, 8);
 
                 let base_dir = format!("output/limits/{}/B_{}/{}", model_name, b_string, topology_name);
 

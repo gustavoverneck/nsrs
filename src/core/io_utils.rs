@@ -86,6 +86,11 @@ pub fn write_eos_with_mr<P: AsRef<Path>>(
             }
         }
 
+        // Skip rows with NaN values
+        if matched_mass.is_nan() || matched_radius.is_nan() || row.iter().any(|v| v.is_nan()) {
+            continue;
+        }
+
         let base_line = row
             .iter()
             .map(|val| format!("{:12.5e}", val))

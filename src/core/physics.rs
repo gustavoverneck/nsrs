@@ -2,7 +2,8 @@
 #![allow(unused)]
 
 use crate::core::constants::{
-    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA, M_NUCLEON, MB, ML, N0, QE, RESULTS_SIZE
+    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA,
+    M_NUCLEON, MB, ML, N0, QE, RESULTS_SIZE, MAX_LANDAU_LIMIT
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
@@ -136,6 +137,9 @@ pub struct HadronsMatter {
 }
 
 impl HadronsMatter {
+    // constante estática para acoplamento sigma
+    const X_SIGMA: [f64; 8] = [1.0, 1.0, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7];
+
     pub fn new(model: ModelParams, bg: f64) -> Self {
         let m_nuc = M_NUCLEON;
         let qe = QE;
@@ -153,11 +157,10 @@ impl HadronsMatter {
 
         let xv_v = [1.0, 1.0, 0.783, 0.783, 0.783, 0.783, 0.783, 0.783];
         let xv_r = [1.0, 1.0, 0.783, 0.783, 0.783, 0.783, 0.783, 0.783];
-        let max_landau_limit = 100_000;
 
-        let kf_b_up = std::array::from_fn(|_| vec![0.0; max_landau_limit]);
-        let kf_b_down = std::array::from_fn(|_| vec![0.0; max_landau_limit]);
-        let f_l = std::array::from_fn(|_| vec![0.0; max_landau_limit]);
+        let kf_b_up = std::array::from_fn(|_| Vec::new());
+        let kf_b_down = std::array::from_fn(|_| Vec::new());
+        let f_l = std::array::from_fn(|_| Vec::new());
 
         let ef_l = [0.0; 2];
         let n_l = [0; 2];
@@ -167,9 +170,9 @@ impl HadronsMatter {
         HadronsMatter {
             model,
             nlem: NlemModel::Maxwell,
-            topology: MagneticTopology::Isotropic,
+            topology: MagneticTopology::Anisotropic,
             bg,
-            b: bg,
+            b,
             m_nuc,
             qe,
             ml,
@@ -179,7 +182,7 @@ impl HadronsMatter {
             charges_b,
             amm_b,
             xs,
-            mun_inf: 0.92,
+            mun_inf: 0.02,
             mun_sup: 1.80,
             n_points: 1201,
 
@@ -209,7 +212,7 @@ impl HadronsMatter {
             n_b_down: [0; 8],
             n_l,
 
-            max_landau_limit: max_landau_limit,
+            max_landau_limit: MAX_LANDAU_LIMIT,
 
             isospin_factor: isospin_factor,
         }
@@ -256,19 +259,16 @@ impl HadronsMatter {
     }
 
     // Função de resíduo (chamada pelo solver numérico)
-    pub fn funcv(&mut self, x: &[f64]) -> Vec<f64> {
+    pub fn funcv(&mut self, x: &[f64]) -> [f64; 4] {
         let (mue, vsigma, vomega, vrho) = self.mapping(x);
-        
-        let x_sigma = [1.0, 1.0, self.xs, self.xs, self.xs, self.xs, self.xs, self.xs];
-        
+
         self.mue = mue;
         self.mup = self.mun - mue;
-        
         self.mu_b[0] = self.mun;
 
         // massas efetivas
         for i in 0..8 {
-            self.m_eff[i] = self.mb[i] - x_sigma[i] * vsigma;
+            self.m_eff[i] = self.mb[i] - Self::X_SIGMA[i] * vsigma;
         }
 
         // potenciais químicos de todas as outras partículas
@@ -284,7 +284,7 @@ impl HadronsMatter {
         let frho = self.equation_rho(vrho);
         let charge_neutral = self.charge_neutrality();
 
-        vec![fsigma, fomega, frho, charge_neutral]
+        [fsigma, fomega, frho, charge_neutral]
     }
 
     fn equation_sigma(&self, vsigma: f64) -> f64 {
@@ -309,7 +309,7 @@ impl HadronsMatter {
         }
         self.model.gr.powi(2) * sum_source - vrho
     }
-
+    
     fn charge_neutrality(&self) -> f64 {
         let charge_baryons: f64 = self.nb
             .iter()
@@ -333,33 +333,27 @@ impl HadronsMatter {
         let mut converged = false;
 
         for _ in 0..max_iterations {
-            // Estado congelado para Jacobiano consistente
-            let base_state = self.clone();
-
-            let mut eval_state = base_state.clone();
-            let f_val_vec = eval_state.funcv(x.as_slice());
-            let f_val = Vector4::from_column_slice(&f_val_vec);
+            let f_val_arr = self.funcv(x.as_slice());
+            let f_val = Vector4::from_column_slice(&f_val_arr);
             let f_norm = f_val.norm();
 
             if f_norm < tolerance {
-                *self = eval_state;
                 converged = true;
                 break;
             }
 
-            // Jacobiana por diferenças finitas
             let mut j_matrix = Matrix4::zeros();
+
             for i in 0..4 {
                 let h = 1e-8 * (x[i].abs() + 1e-2);
                 let mut x_temp = x;
                 x_temp[i] += h;
 
-                let mut temp_state = base_state.clone();
-                let f_temp_vec = temp_state.funcv(x_temp.as_slice());
-                let f_temp = Vector4::from_column_slice(&f_temp_vec);
+                let f_temp_arr = self.funcv(x_temp.as_slice());
+                let f_temp = Vector4::from_column_slice(&f_temp_arr);
 
-                let col = (f_temp - f_val) / h;
-                j_matrix.set_column(i, &col);
+                let column_derivative = (f_temp - f_val) / h;
+                j_matrix.set_column(i, &column_derivative);
             }
 
             let delta_x = match j_matrix.lu().solve(&(-f_val)) {
@@ -367,16 +361,13 @@ impl HadronsMatter {
                 None => break,
             };
 
-            // Backtracking line-search com estado congelado
             let mut alpha = 1.0;
             let mut step_accepted = false;
 
             for _ in 0..15 {
                 let x_try = x + alpha * delta_x;
-
-                let mut trial_state = base_state.clone();
-                let f_new_vec = trial_state.funcv(x_try.as_slice());
-                let f_new = Vector4::from_column_slice(&f_new_vec);
+                let f_new_arr = self.funcv(x_try.as_slice());
+                let f_new = Vector4::from_column_slice(&f_new_arr);
                 let f_new_norm = f_new.norm();
 
                 if f_new_norm.is_nan() {
@@ -386,7 +377,6 @@ impl HadronsMatter {
 
                 if f_new_norm < f_norm {
                     x = x_try;
-                    *self = trial_state;
                     step_accepted = true;
                     break;
                 }
@@ -396,9 +386,7 @@ impl HadronsMatter {
 
             if !step_accepted {
                 x += 0.001 * delta_x;
-                let mut forced_state = base_state.clone();
-                let _ = forced_state.funcv(x.as_slice());
-                *self = forced_state;
+                let _ = self.funcv(x.as_slice()); // mantém estado interno consistente com x
             }
         }
 
@@ -406,8 +394,10 @@ impl HadronsMatter {
             return None;
         }
 
-        let x_final = [x[0], x[1], x[2], x[3]];
+        // garante estado físico final consistente
+        let _ = self.funcv(x.as_slice());
 
+        let x_final = [x[0], x[1], x[2], x[3]];
         let (mue, vsigma, vomega, vrho) = self.mapping(&x_final);
         let (ener, press) = crate::core::eos::compute(self, mue, vsigma, vomega, vrho);
 
@@ -463,5 +453,4 @@ impl HadronsMatter {
             None
         }
     }
-
 }

@@ -24,7 +24,10 @@ pub fn compute(engine: &HadronsMatter, mue: f64, vsigma: f64, vomega: f64, vrho:
         if engine.charges_b[i] == 0.0 || engine.b == 0.0 {
             // --- Partículas Neutras (n, L0, S0, X0) ---
             // O AMM desdobra a partícula em 2 estados de spin (Up e Down)
-            for &kf in &[engine.kf_b_up[i][0], engine.kf_b_down[i][0]] {
+            for &kf in [engine.kf_b_up[i].first().copied(), engine.kf_b_down[i].first().copied()]
+                .iter()
+                .flatten()
+            {
                 if kf > 0.0 {
                     let m_spin = (ef.powi(2) - kf.powi(2)).max(0.0).sqrt();
                     let m_safe = m_spin.max(1e-15);
@@ -66,7 +69,7 @@ pub fn compute(engine: &HadronsMatter, mue: f64, vsigma: f64, vomega: f64, vrho:
 
         if engine.b == 0.0 {
             // Fórmula isotrópica para léptons se B=0 (com fator 2 para spin-up e spin-down)
-            let kf = engine.f_l[i][0];
+            let kf = engine.f_l[i].first().copied().unwrap_or(0.0);
             if kf > 0.0 {
                 let m_spin = (ef.powi(2) - kf.powi(2)).sqrt();
                 enerlep += 2.0 * (1.0 / (4.0 * PI2)) * (

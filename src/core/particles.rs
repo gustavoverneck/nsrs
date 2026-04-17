@@ -40,8 +40,8 @@ pub fn density_baryon_neutral(
     engine.ef_b[idx] = ef;
     
     // ZERA OS MOMENTOS PARA EVITAR "FANTASMAS" DO NEWTON-RAPHSON
-    engine.kf_b_up[idx][0] = 0.0;
-    engine.kf_b_down[idx][0] = 0.0;
+    engine.kf_b_up[idx].clear();
+    engine.kf_b_down[idx].clear();
     
     if ef <= 0.0 { return (0.0, 0.0); }
 
@@ -70,11 +70,11 @@ pub fn density_baryon_neutral(
             
             dens_total += kf.powi(3) / (6.0 * PI2);
             
-            // Grava o kf no array correto usando o índice do loop
-            if spin_idx == 0 { 
-                engine.kf_b_up[idx][0] = kf; 
-            } else { 
-                engine.kf_b_down[idx][0] = kf; 
+            // Grava o kf no buffer correto usando push()
+            if spin_idx == 0 {
+                engine.kf_b_up[idx].push(kf);
+            } else {
+                engine.kf_b_down[idx].push(kf);
             }
         }
     }
@@ -96,8 +96,8 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
     // ZERA OS MOMENTOS PARA EVITAR FANTASMAS
     engine.n_b_up[idx] = 0;
     engine.n_b_down[idx] = 0;
-    engine.kf_b_up[idx][0] = 0.0;
-    engine.kf_b_down[idx][0] = 0.0;
+    engine.kf_b_up[idx].clear();
+    engine.kf_b_down[idx].clear();
     
     if ef <= 0.0 { return (0.0, 0.0); }
 
@@ -110,8 +110,8 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
             let m_safe = m.abs().max(1e-15);
             let rhos = (m / (2.0 * PI2)) * (ef * kf - m.powi(2) * ((kf + ef) / m_safe).ln());
             
-            engine.kf_b_up[idx][0] = kf;
-            engine.kf_b_down[idx][0] = kf;
+            engine.kf_b_up[idx].push(kf);
+            engine.kf_b_down[idx].push(kf);
             engine.n_b_up[idx] = 1;
             engine.n_b_down[idx] = 1;
             
@@ -141,6 +141,9 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
     let mut n_up = 0;
     let mut n_down = 0;
 
+    engine.kf_b_up[idx].reserve(nu_max);
+    engine.kf_b_down[idx].reserve(nu_max);
+
     // --- Spin UP ---
     for nu in nu_start_up..nu_max {
         let m_landau = (m.powi(2) + 2.0 * q * b * nu as f64).sqrt();
@@ -150,7 +153,7 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
         if kf2 <= 0.0 { break; } 
         
         let kf = kf2.sqrt();
-        engine.kf_b_up[idx][n_up] = kf;
+            engine.kf_b_up[idx].push(kf);
         n_up += 1;
         
         let m_safe = m_eff_spin.abs().max(1e-15);
@@ -169,7 +172,7 @@ fn density_baryon_charged(engine: &mut HadronsMatter, idx: usize, vomega: f64, v
         if kf2 <= 0.0 { break; }
         
         let kf = kf2.sqrt();
-        engine.kf_b_down[idx][n_down] = kf;
+            engine.kf_b_down[idx].push(kf);
         n_down += 1;
         
         let m_safe = m_eff_spin.abs().max(1e-15);
@@ -190,7 +193,7 @@ pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
     
     // ZERA OS ESTADOS PARA EVITAR FANTASMAS
     engine.n_l[idx] = 0;
-    engine.f_l[idx][0] = 0.0;
+    engine.f_l[idx].clear();
     engine.ef_l[idx] = mue;
     
     if mue <= 0.0 { return (0.0, 0.0); }
@@ -211,7 +214,7 @@ pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
             let m_safe = m.abs().max(1e-15);
             let rhos_val = (m / (2.0 * PI2)) * (mue * kf - m.powi(2) * ((kf + mue) / m_safe).ln());
             
-            engine.f_l[idx][0] = kf;
+            engine.f_l[idx].push(kf);
             engine.n_l[idx] = 1;
             
             return (rhos_val, dens_val);
@@ -224,6 +227,8 @@ pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
         (nu_max_approx.floor() as usize + 1).min(engine.max_landau_limit) 
     } else { 0 };
 
+    engine.f_l[idx].reserve(nu_max);
+
     for nu in 0..nu_max {
         let m_landau_2 = m.powi(2) + 2.0 * q * b * nu as f64;
         let kf2 = mue.powi(2) - m_landau_2;
@@ -233,7 +238,7 @@ pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
         let kf = kf2.sqrt();
         let g = if nu == 0 { 1.0 } else { 2.0 }; 
 
-        engine.f_l[idx][nu] = kf;
+        engine.f_l[idx].push(kf);
 
         let factor = (g * q * b) / (2.0 * PI2);
         let m_safe = m_landau_2.sqrt().max(1e-15);

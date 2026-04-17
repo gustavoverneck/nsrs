@@ -3,8 +3,9 @@
 Análise científica completa dos dados NLEM gerados em output/nlem_log.
 
 Objetivos:
-- Consolidar EoS, M-R e populações para GM1/GM3 e topologias isotrópica/anisotrópica.
+- Consolidar EoS, M-R e populações para GM1/GM3.
 - Quantificar o efeito de log10(csi) na estrutura estelar.
+- Quantificar como o campo magnético efetivo H varia com csi no modelo Log.
 - Avaliar os limites de causalidade e estabilidade através da velocidade do som (c_s^2).
 - Mapear os limiares de surgimento (onset thresholds) das partículas.
 - Mapear a quantização de Landau para elétrons via mu_e e B(n).
@@ -58,6 +59,8 @@ MUE_TO_MEV_FACTOR = 1.0
 LOG_CSI_LABEL = r"$\log_{10}(\xi)$"
 MAX_VALID_MASS_MSUN = 3.0
 MAX_VALID_RADIUS_KM = 20.0
+H_COLOR = "tab:blue"
+HB_RATIO_COLOR = "tab:orange"
 
 
 @dataclass
@@ -300,22 +303,22 @@ def write_summary_csv(rows: Sequence[SummaryRow], out_csv: Path) -> None:
     with out_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow([
-            "model", "b_label", "b_value", "topology", "csi", "log_csi",
+            "model", "b_label", "b_value", "csi", "log_csi",
             "n_eos_points", "n_mr_points", "max_mass_msun", "radius_at_max_km",
             "central_nb_n0", "central_eps_mevfm3", "central_p_mevfm3", "central_meff",
             "central_emag_mevfm3", "cs2_min", "cs2_max", "eos_path",
         ])
         for r in rows:
             w.writerow([
-                r.model, r.b_label, r.b_value, r.topology, r.csi, r.log_csi,
+                r.model, r.b_label, r.b_value, r.csi, r.log_csi,
                 r.n_eos_points, r.n_mr_points, r.max_mass_msun, r.radius_at_max_km,
                 r.central_nb_n0, r.central_eps_mevfm3, r.central_p_mevfm3,
                 r.central_meff, r.central_emag_mevfm3, r.cs2_min, r.cs2_max, r.eos_path,
             ])
 
 
-def group_key(ds: Dataset) -> Tuple[str, str, str]:
-    return ds.model, ds.topology, ds.b_label
+def group_key(ds: Dataset) -> Tuple[str, str]:
+    return ds.model, ds.b_label
 
 
 def _subsample_sorted(items: Sequence[Dataset], max_items: int) -> List[Dataset]:
@@ -352,6 +355,76 @@ def _compute_electron_landau_nu_max(mu_e: np.ndarray, b_tesla: np.ndarray) -> np
     nu_vals = np.floor(numer / denom_landau[good])
     nu_max[target_idx] = np.maximum(0.0, nu_vals)
     return nu_max
+
+
+def _effective_h_log(bg: np.ndarray, csi: np.ndarray) -> np.ndarray:
+    """
+    Campo efetivo para o modelo Log (Soleng):
+    H = bg / (1 + bg^2 / (2*csi^2))
+    """
+    bg = np.asarray(bg, dtype=float)
+    csi = np.asarray(csi, dtype=float)
+    csi_safe = np.maximum(csi, 1e-300)
+    denom = 1.0 + (bg * bg) / (2.0 * csi_safe * csi_safe)
+    return bg / denom
+
+
+def plot_effective_h_vs_csi(
+    datasets: Sequence[Dataset],
+    out_dir: Path,
+    dpi: int,
+) -> None:
+    """
+    Plota H(csi) para o modelo Log usando a fórmula de Soleng,
+    agrupando por (model, B).
+    """
+    ensure_dir(out_dir)
+
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
+    for ds in datasets:
+        by_combo.setdefault((ds.model, ds.b_label), []).append(ds)
+
+    for (model, b_label), arr in by_combo.items():
+        if not arr:
+            continue
+
+        arr_sorted = sorted(arr, key=lambda d: d.log_csi)
+        csi = np.array([d.csi for d in arr_sorted], dtype=float)
+        log_csi = np.array([d.log_csi for d in arr_sorted], dtype=float)
+        bg = np.array([d.b_value for d in arr_sorted], dtype=float)
+
+        h_eff = _effective_h_log(bg, csi)
+        ratio = np.divide(h_eff, bg, out=np.zeros_like(h_eff), where=np.abs(bg) > 1e-300)
+
+        finite = np.isfinite(log_csi) & np.isfinite(h_eff) & np.isfinite(ratio)
+        if np.count_nonzero(finite) < 2:
+            continue
+
+        x = log_csi[finite]
+        y_h = h_eff[finite]
+        y_r = ratio[finite]
+
+        fig, ax1 = plt.subplots(figsize=(8, 6))
+        ax1.plot(x, y_h, color=H_COLOR, marker="o", ms=4, lw=1.4, label="H")
+        ax1.set_xlabel(LOG_CSI_LABEL)
+        ax1.set_ylabel("H efetivo [G]", color=H_COLOR)
+        ax1.set_yscale("log")
+        ax1.tick_params(axis="y", labelcolor=H_COLOR)
+        ax1.grid(alpha=0.25)
+
+        ax2 = ax1.twinx()
+        ax2.plot(x, y_r, color=HB_RATIO_COLOR, linestyle="--", lw=1.4, label="H/B")
+        ax2.set_ylabel("Razão H/B", color=HB_RATIO_COLOR)
+        ax2.tick_params(axis="y", labelcolor=HB_RATIO_COLOR)
+
+        lines_1, labels_1 = ax1.get_legend_handles_labels()
+        lines_2, labels_2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc="best", fontsize=9)
+
+        plt.title(f"Campo efetivo H(csi) | {model} | B={b_label} G")
+        fig.tight_layout()
+        fig.savefig(out_dir / f"h_vs_csi_{model}_B_{b_label}.png", dpi=dpi)
+        plt.close(fig)
 
 
 def _infer_mue_to_mev_factor(mu_e_raw: np.ndarray) -> float:
@@ -403,16 +476,16 @@ def plot_landau_levels(
 ) -> None:
     """
     Calcula e plota o número máximo de níveis de Landau ocupados por elétrons
-    em função da densidade bariônica para cada família (model, topology, B).
+    em função da densidade bariônica para cada família (model, B).
     """
     ensure_dir(out_dir)
 
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
     for key, arr in by_combo.items():
-        model, topology, b_label = key
+        model, b_label = key
         arr_sorted = sorted(arr, key=lambda d: d.log_csi)
         plot_set = arr_sorted
         if not plot_set:
@@ -432,13 +505,13 @@ def plot_landau_levels(
         if plotted:
             plt.xlabel(r"Densidade bariônica $n_B/n_0$")
             plt.ylabel(r"Nível máximo de Landau eletrônico $\nu_{\max}^e$")
-            plt.title(f"Quantização de Landau | {model} | {topology} | B={b_label} G")
+            plt.title(f"Quantização de Landau | {model} | B={b_label} G")
             plt.grid(alpha=0.3)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
             cbar = plt.colorbar(sm, ax=plt.gca())
             cbar.set_label(LOG_CSI_LABEL)
             plt.tight_layout()
-            plt.savefig(out_dir / f"landau_levels_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+            plt.savefig(out_dir / f"landau_levels_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
@@ -450,12 +523,12 @@ def plot_family_eos_mr(
 ) -> None:
     ensure_dir(out_dir)
 
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
     for key, arr in by_combo.items():
-        model, topology, b_label = key
+        model, b_label = key
         arr_sorted = sorted(arr, key=lambda d: d.log_csi)
         plot_set = _subsample_sorted(arr_sorted, max_curves)
         cmap_eos = plt.get_cmap("viridis")
@@ -474,14 +547,14 @@ def plot_family_eos_mr(
         
         plt.xlabel(r"$\epsilon$ [MeV/fm$^3$]")
         plt.ylabel(r"$P$ [MeV/fm$^3$]")
-        plt.title(f"EoS family | {model} | {topology} | B={b_label} G")
+        plt.title(f"EoS family | {model} | B={b_label} G")
         plt.grid(alpha=0.25)
         
         sm = plt.cm.ScalarMappable(cmap=cmap_eos, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
         cbar = plt.colorbar(sm, ax=plt.gca())
         cbar.set_label(LOG_CSI_LABEL)
         plt.tight_layout()
-        plt.savefig(out_dir / f"eos_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.savefig(out_dir / f"eos_family_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
         # --- M-R family ---
@@ -505,14 +578,14 @@ def plot_family_eos_mr(
             
         plt.xlabel("Radius [km]")
         plt.ylabel(r"Mass [$M_\odot$]")
-        plt.title(f"M-R family | {model} | {topology} | B={b_label} G")
+        plt.title(f"M-R family | {model} | B={b_label} G")
         plt.grid(alpha=0.25)
         
         sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
         cbar_mr = plt.colorbar(sm_mr, ax=plt.gca())
         cbar_mr.set_label(LOG_CSI_LABEL)
         plt.tight_layout()
-        plt.savefig(out_dir / f"mr_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.savefig(out_dir / f"mr_family_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
         # --- Speed of Sound (c_s^2) family ---
@@ -546,7 +619,7 @@ def plot_family_eos_mr(
         
         plt.xlabel(r"$\epsilon$ [MeV/fm$^3$]")
         plt.ylabel(r"$c_s^2$ (Unidades de $c=1$)")
-        plt.title(f"Speed of Sound | {model} | {topology} | B={b_label} G")
+        plt.title(f"Speed of Sound | {model} | B={b_label} G")
         plt.grid(alpha=0.25)
         plt.legend(loc='upper right', fontsize=9)
         
@@ -555,7 +628,7 @@ def plot_family_eos_mr(
         cbar_cs2.set_label(LOG_CSI_LABEL)
         
         plt.tight_layout()
-        plt.savefig(out_dir / f"cs2_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.savefig(out_dir / f"cs2_family_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
@@ -565,7 +638,7 @@ def plot_population_snapshots(
     dpi: int,
 ) -> None:
     ensure_dir(out_dir)
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
@@ -583,7 +656,7 @@ def plot_population_snapshots(
     ]
 
     for key, arr in by_combo.items():
-        model, topology, b_label = key
+        model, b_label = key
         arr_sorted = sorted(arr, key=lambda d: d.log_csi)
         if not arr_sorted:
             continue
@@ -612,9 +685,9 @@ def plot_population_snapshots(
         if handles:
             fig.legend(handles, labels, loc="upper center", ncol=5)
 
-        fig.suptitle(f"Population snapshots | {model} | {topology} | B={b_label} G", y=1.03)
+        fig.suptitle(f"Population snapshots | {model} | B={b_label} G", y=1.03)
         fig.tight_layout()
-        fig.savefig(out_dir / f"population_snapshots_{model}_{topology}_B_{b_label}.png", dpi=dpi, bbox_inches="tight")
+        fig.savefig(out_dir / f"population_snapshots_{model}_B_{b_label}.png", dpi=dpi, bbox_inches="tight")
         plt.close(fig)
 
 
@@ -637,7 +710,7 @@ def plot_population_thresholds(
     Foco nas partículas que 'nascem' em altas densidades (Múons e Hiperons).
     """
     ensure_dir(out_dir)
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
@@ -653,7 +726,7 @@ def plot_population_thresholds(
     ]
 
     for key, arr in by_combo.items():
-        model, topology, b_label = key
+        model, b_label = key
         arr_sorted = sorted(arr, key=lambda d: d.log_csi)
         if not arr_sorted:
             continue
@@ -683,24 +756,23 @@ def plot_population_thresholds(
         if plotted_any:
             plt.xlabel(LOG_CSI_LABEL)
             plt.ylabel(r"Onset Density ($n_B$) [fm$^{-3}$]")
-            plt.title(f"Particle Onset Thresholds | {model} | {topology} | B={b_label} G")
+            plt.title(f"Particle Onset Thresholds | {model} | B={b_label} G")
             plt.grid(alpha=0.3, linestyle='--')
             plt.legend(fontsize=9, loc='best')
             plt.tight_layout()
-            plt.savefig(out_dir / f"onset_thresholds_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+            plt.savefig(out_dir / f"onset_thresholds_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
 def _plot_metric_for_subset(
     rows: Sequence[SummaryRow],
     model: str,
-    topo: str,
     metric_name: str,
     y_label: str,
     out_path: Path,
     dpi: int,
 ) -> None:
-    subset = [r for r in rows if r.model == model and r.topology == topo]
+    subset = [r for r in rows if r.model == model]
     if not subset:
         return
 
@@ -719,7 +791,7 @@ def _plot_metric_for_subset(
 
     plt.xlabel(LOG_CSI_LABEL)
     plt.ylabel(y_label)
-    plt.title(f"{y_label} vs log10(csi) | {model} | {topo}")
+    plt.title(f"{y_label} vs log10(csi) | {model}")
     plt.grid(alpha=0.25)
     plt.legend(fontsize=8)
     plt.tight_layout()
@@ -731,7 +803,6 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
     ensure_dir(out_dir)
 
     models = sorted({r.model for r in rows})
-    topologies = sorted({r.topology for r in rows})
     
     metrics = [
         ("max_mass_msun", r"$M_{\max}$ [$M_\odot$]", "max_mass_vs_logcsi"),
@@ -744,23 +815,20 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
 
     for metric_name, y_label, prefix in metrics:
         for model in models:
-            for topo in topologies:
-                _plot_metric_for_subset(
-                    rows=rows,
-                    model=model,
-                    topo=topo,
-                    metric_name=metric_name,
-                    y_label=y_label,
-                    out_path=out_dir / f"{prefix}_{model}_{topo}.png",
-                    dpi=dpi,
-                )
+            _plot_metric_for_subset(
+                rows=rows,
+                model=model,
+                metric_name=metric_name,
+                y_label=y_label,
+                out_path=out_dir / f"{prefix}_{model}.png",
+                dpi=dpi,
+            )
 
 
 def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     ensure_dir(out_file.parent)
 
     models = sorted({r.model for r in rows})
-    tops = sorted({r.topology for r in rows})
 
     lines: List[str] = []
     lines.append("# NLEM neutron-star analysis report")
@@ -770,7 +838,6 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     lines.append("")
     lines.append(f"- Total datasets analyzed: **{len(rows)}**")
     lines.append(f"- Models: **{', '.join(models)}**")
-    lines.append(f"- Topologies: **{', '.join(tops)}**")
     lines.append("")
     
     lines.append("## Causality and Stability Diagnostics")
@@ -799,23 +866,22 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
         a, _b = np.polyfit(x[mask], y[mask], 1)
         return float(a)
 
-    lines.append("## Trend diagnostics by $(model, topology, B)$")
+    lines.append("## Trend diagnostics by $(model, B)$")
     lines.append("")
     lines.append("Linear slopes (first-order sensitivity):")
     lines.append("- $dM_{max}/d\\log_{10}(\\xi)$")
     lines.append("- $dR(M_{max})/d\\log_{10}(\\xi)$")
     lines.append("")
 
-    grouped: Dict[Tuple[str, str, str], List[SummaryRow]] = {}
+    grouped: Dict[Tuple[str, str], List[SummaryRow]] = {}
     for r in rows:
-        grouped.setdefault((r.model, r.topology, r.b_label), []).append(r)
+        grouped.setdefault((r.model, r.b_label), []).append(r)
 
-    for (model, topo, b_label), sub in sorted(
+    for (model, b_label), sub in sorted(
         grouped.items(),
         key=lambda kv: (
             kv[0][0],
-            kv[0][1],
-            _safe_float(kv[0][2]) if _safe_float(kv[0][2]) is not None else math.inf,
+            _safe_float(kv[0][1]) if _safe_float(kv[0][1]) is not None else math.inf,
         ),
     ):
         sub = sorted(sub, key=lambda x: x.log_csi)
@@ -831,7 +897,7 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
         r_min = float(np.nanmin(rvals)) if np.any(np.isfinite(rvals)) else math.nan
         r_max = float(np.nanmax(rvals)) if np.any(np.isfinite(rvals)) else math.nan
 
-        lines.append(f"### {model} | {topo} | B={b_label} G")
+        lines.append(f"### {model} | B={b_label} G")
         lines.append(f"- Samples: {len(sub)}")
         lines.append(f"- $M_{{max}}$ range: {m_min:.4f} to {m_max:.4f} $M_\\odot$")
         lines.append(f"- $R(M_{{max}})$ range: {r_min:.4f} to {r_max:.4f} km")
@@ -846,7 +912,6 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     lines.append("## Interpretation guide")
     lines.append("- Positive $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ tends to stiffen the effective sequence in your setup.")
     lines.append("- Negative $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ softens the sequence.")
-    lines.append("- Topology is fixed in this dataset layout; compare only $\xi$ and $B$ at fixed $(model, topology)$.")
     lines.append("- Use population thresholds to map how $\\xi$ delays or anticipates hyperon onset.")
 
     out_file.write_text("\n".join(lines), encoding="utf-8")
@@ -894,6 +959,10 @@ def main() -> None:
     landau_dir = args.output_root / "landau_levels"
     plot_landau_levels(datasets, landau_dir, dpi=args.dpi)
     print(f"[OK] Níveis de Quantização de Landau: {landau_dir}")
+
+    h_dir = args.output_root / "h_vs_csi"
+    plot_effective_h_vs_csi(datasets, h_dir, dpi=args.dpi)
+    print(f"[OK] Campo efetivo H(csi): {h_dir}")
 
     report_md = args.output_root / "scientific_report.md"
     write_scientific_report(summary_rows, report_md)

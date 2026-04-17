@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Análise científica completa dos dados NLEM gerados em output/limits.
+Análise científica completa dos dados NLEM gerados em output/nlem_log.
 
 Objetivos:
 - Consolidar EoS, M-R e populações para GM1/GM3 e topologias isotrópica/anisotrópica.
@@ -96,12 +96,12 @@ class SummaryRow:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Análise NLEM completa para dados em output/limits"
+        description="Análise NLEM completa para dados em output/nlem_log"
     )
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=Path("output/limits"),
+        default=Path("output/nlem_log"),
         help="Pasta raiz dos dados gerados",
     )
     parser.add_argument(
@@ -138,8 +138,8 @@ def _safe_float(text: str) -> Optional[float]:
 
 def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, str, float, float]]:
     rx = re.compile(
-        r".*/output/limits/(?P<model>GM\d+)/B_(?P<b>[^/]+)/(?:"
-        r"(?P<topology>isotropic|anisotropic)/)?csi_(?P<csi>[^/]+)/eos\.dat$"
+        r".*/output/(?:limits|nlem_log)/(?P<model>GM\d+)/B_(?P<b>[^/]+)/(?:"
+        r"(?P<topology>default|isotropic|anisotropic)/)?csi_(?P<csi>[^/]+)/eos\.dat$"
     )
     m = rx.match(path.resolve().as_posix())
     if not m:
@@ -147,7 +147,7 @@ def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, str,
 
     model = m.group("model")
     b_label = m.group("b")
-    topology = m.group("topology") or "isotropic"
+    topology = m.group("topology") or "default"
 
     b_value = _safe_float(b_label)
     csi = _safe_float(m.group("csi"))
@@ -846,7 +846,7 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     lines.append("## Interpretation guide")
     lines.append("- Positive $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ tends to stiffen the effective sequence in your setup.")
     lines.append("- Negative $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ softens the sequence.")
-    lines.append("- Compare isotropic vs anisotropic at fixed $(model, B)$ to isolate topology effects.")
+    lines.append("- Topology is fixed in this dataset layout; compare only $\xi$ and $B$ at fixed $(model, topology)$.")
     lines.append("- Use population thresholds to map how $\\xi$ delays or anticipates hyperon onset.")
 
     out_file.write_text("\n".join(lines), encoding="utf-8")

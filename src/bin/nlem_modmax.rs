@@ -10,7 +10,7 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let csi_vals = vec![0.0, 0.05, 0.1, 0.25, 0.5];
+    let csi_vals: Vec<f64> = (0..20).map(|i| i as f64 * 0.4 / 19.0).collect();
     
     let b_fields: Vec<f64> = if args.len() > 1 {
         args[1..]
@@ -26,7 +26,7 @@ fn main() {
     let num_points = csi_vals.len();
     let models = [("GM1", GM1)];//, ("GM3", GM3)];
     let topologies = [
-        // ("isotropic", MagneticTopology::Isotropic),
+        ("isotropic", MagneticTopology::Isotropic),
         ("anisotropic", MagneticTopology::Anisotropic),
     ];
 

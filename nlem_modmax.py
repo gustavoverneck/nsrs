@@ -56,6 +56,7 @@ COL_BDD = 20
 MUE_TO_MEV_FACTOR = 1.0
 
 LOG_CSI_LABEL = r"$\log_{10}(\xi)$"
+CSI_LABEL = r"$\xi$"
 MAX_VALID_MASS_MSUN = 3.0
 MAX_VALID_RADIUS_KM = 20.0
 
@@ -156,10 +157,11 @@ def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, str,
 
     b_value = _safe_float(b_label)
     csi = _safe_float(m.group("csi"))
-    if b_value is None or csi is None or csi <= 0:
+    if b_value is None or csi is None:
         return None
 
-    return model, b_label, b_value, topology, csi, math.log10(csi)
+    log_csi = math.log10(csi) if csi > 0.0 else math.nan
+    return model, b_label, b_value, topology, csi, log_csi
 
 
 def load_eos(path: Path) -> Optional[np.ndarray]:
@@ -204,7 +206,7 @@ def discover_datasets(input_root: Path) -> List[Dataset]:
             )
         )
 
-    datasets.sort(key=lambda d: (d.model, d.topology, d.b_value, d.log_csi))
+    datasets.sort(key=lambda d: (d.model, d.topology, d.b_value, d.csi))
     return datasets
 
 
@@ -531,7 +533,7 @@ def _plot_single_landau_curve(
     if not np.any(np.isfinite(nu_max)):
         return False
 
-    color = cmap((ds.log_csi - cmin) / denom)
+    color = cmap((ds.csi - cmin) / denom)
     plt.step(
         nb,
         nu_max,
@@ -560,13 +562,16 @@ def plot_landau_levels(
 
     for key, arr in by_combo.items():
         model, topology, b_label = key
-        arr_sorted = sorted(arr, key=lambda d: d.log_csi)
+        arr_sorted = sorted(arr, key=lambda d: d.csi)
         plot_set = arr_sorted
         if not plot_set:
             continue
 
-        cvals = np.array([d.log_csi for d in plot_set], dtype=float)
-        cmin, cmax = float(np.min(cvals)), float(np.max(cvals))
+        cvals = np.array([d.csi for d in plot_set], dtype=float)
+        finite_cvals = cvals[np.isfinite(cvals)]
+        if finite_cvals.size == 0:
+            continue
+        cmin, cmax = float(np.min(finite_cvals)), float(np.max(finite_cvals))
         denom = (cmax - cmin) if (cmax - cmin) > 1e-12 else 1.0
         cmap = plt.get_cmap("plasma")
 
@@ -583,7 +588,7 @@ def plot_landau_levels(
             plt.grid(alpha=0.3)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
             cbar = plt.colorbar(sm, ax=plt.gca())
-            cbar.set_label(LOG_CSI_LABEL)
+            cbar.set_label(CSI_LABEL)
             plt.tight_layout()
             plt.savefig(out_dir / f"landau_levels_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
@@ -603,20 +608,23 @@ def plot_family_eos_mr(
 
     for key, arr in by_combo.items():
         model, topology, b_label = key
-        arr_sorted = sorted(arr, key=lambda d: d.log_csi)
+        arr_sorted = sorted(arr, key=lambda d: d.csi)
         plot_set = _subsample_sorted(arr_sorted, max_curves)
         cmap_eos = plt.get_cmap("viridis")
         cmap_mr = plt.get_cmap("plasma")
         cmap_cs2 = plt.get_cmap("cool")
 
-        cvals = np.array([d.log_csi for d in plot_set], dtype=float)
-        cmin, cmax = float(np.min(cvals)), float(np.max(cvals))
+        cvals = np.array([d.csi for d in plot_set], dtype=float)
+        finite_cvals = cvals[np.isfinite(cvals)]
+        if finite_cvals.size == 0:
+            continue
+        cmin, cmax = float(np.min(finite_cvals)), float(np.max(finite_cvals))
         denom = (cmax - cmin) if (cmax - cmin) > 1e-12 else 1.0
 
         # --- EoS family ---
         plt.figure(figsize=(8, 6))
         for d in plot_set:
-            color = cmap_eos((d.log_csi - cmin) / denom)
+            color = cmap_eos((d.csi - cmin) / denom)
             plt.plot(d.data[:, COL_EPS], d.data[:, COL_P], color=color, alpha=0.8, lw=1.0)
         
         plt.xlabel(r"$\epsilon$ [MeV/fm$^3$]")
@@ -626,7 +634,7 @@ def plot_family_eos_mr(
         
         sm = plt.cm.ScalarMappable(cmap=cmap_eos, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
         cbar = plt.colorbar(sm, ax=plt.gca())
-        cbar.set_label(LOG_CSI_LABEL)
+        cbar.set_label(CSI_LABEL)
         plt.tight_layout()
         plt.savefig(out_dir / f"eos_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
@@ -647,7 +655,7 @@ def plot_family_eos_mr(
             p_valid = p_central[mask]
             
             sort_idx = np.argsort(p_valid)
-            color = cmap_mr((d.log_csi - cmin) / denom)
+            color = cmap_mr((d.csi - cmin) / denom)
             plt.plot(r_valid[sort_idx], m_valid[sort_idx], color=color, alpha=0.8, lw=1.0)
             
         plt.xlabel("Radius [km]")
@@ -657,7 +665,7 @@ def plot_family_eos_mr(
         
         sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
         cbar_mr = plt.colorbar(sm_mr, ax=plt.gca())
-        cbar_mr.set_label(LOG_CSI_LABEL)
+        cbar_mr.set_label(CSI_LABEL)
         plt.tight_layout()
         plt.savefig(out_dir / f"mr_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
@@ -684,7 +692,7 @@ def plot_family_eos_mr(
                     cs2 = np.zeros_like(de)
                     cs2[good] = dp[good] / de[good]
                     
-                    color = cmap_cs2((d.log_csi - cmin) / denom)
+                    color = cmap_cs2((d.csi - cmin) / denom)
                     plt.plot(eps_sorted[:-1][good], cs2[good], color=color, alpha=0.8, lw=1.0)
                     
         plt.axhline(1.0, color='red', linestyle='--', alpha=0.7, label='Causalidade ($c_s^2 = 1$)')
@@ -699,7 +707,7 @@ def plot_family_eos_mr(
         
         sm_cs2 = plt.cm.ScalarMappable(cmap=cmap_cs2, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
         cbar_cs2 = plt.colorbar(sm_cs2, ax=plt.gca())
-        cbar_cs2.set_label(LOG_CSI_LABEL)
+        cbar_cs2.set_label(CSI_LABEL)
         
         plt.tight_layout()
         plt.savefig(out_dir / f"cs2_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
@@ -731,7 +739,7 @@ def plot_population_snapshots(
 
     for key, arr in by_combo.items():
         model, topology, b_label = key
-        arr_sorted = sorted(arr, key=lambda d: d.log_csi)
+        arr_sorted = sorted(arr, key=lambda d: d.csi)
         if not arr_sorted:
             continue
 
@@ -750,7 +758,7 @@ def plot_population_snapshots(
                     y = ds.data[:, col]
                     ax.plot(x, y, lw=1.1, label=label)
 
-            ax.set_title(f"log10(csi)={ds.log_csi:.3f}")
+            ax.set_title(f"csi={ds.csi:.3f}")
             ax.set_xlabel(r"$n_B/n_0$")
             ax.set_ylabel(r"$n_i$ [fm$^{-3}$]")
             ax.grid(alpha=0.25)
@@ -778,9 +786,9 @@ def plot_population_thresholds(
     datasets: Sequence[Dataset],
     out_dir: Path,
     dpi: int,
-) -> None:
+) -> None:  
     """
-    Plota a densidade bariônica de surgimento (onset) das partículas em função de log10(csi).
+    Plota a densidade bariônica de surgimento (onset) das partículas em função de csi.
     Foco nas partículas que 'nascem' em altas densidades (Múons e Hiperons).
     """
     ensure_dir(out_dir)
@@ -801,11 +809,11 @@ def plot_population_thresholds(
 
     for key, arr in by_combo.items():
         model, topology, b_label = key
-        arr_sorted = sorted(arr, key=lambda d: d.log_csi)
+        arr_sorted = sorted(arr, key=lambda d: d.csi)
         if not arr_sorted:
             continue
 
-        x_vals = [d.log_csi for d in arr_sorted]
+        x_vals = [d.csi for d in arr_sorted]
         
         plt.figure(figsize=(8, 6))
         plotted_any = False
@@ -814,7 +822,7 @@ def plot_population_thresholds(
             y_vals = []
             for ds in arr_sorted:
                 if ds.data.shape[1] > col:
-                    # Avalia o threshold para cada valor de log(csi)
+                    # Avalia o threshold para cada valor de csi
                     onset = find_onset_threshold(ds.data[:, COL_NB], ds.data[:, col])
                     y_vals.append(onset)
                 else:
@@ -828,7 +836,7 @@ def plot_population_thresholds(
                 plotted_any = True
 
         if plotted_any:
-            plt.xlabel(LOG_CSI_LABEL)
+            plt.xlabel(CSI_LABEL)
             plt.ylabel(r"Onset Density ($n_B$) [fm$^{-3}$]")
             plt.title(f"Particle Onset Thresholds | {model} | {topology} | B={b_label} G")
             plt.grid(alpha=0.3, linestyle='--')
@@ -854,10 +862,10 @@ def _plot_metric_for_subset(
 
     bvals = sorted({r.b_value for r in subset})
     plt.figure(figsize=(8, 6))
-    x_label = LOG_CSI_LABEL if use_log_csi else r"$\xi$"
+    x_label = LOG_CSI_LABEL if use_log_csi else CSI_LABEL
 
     for b in bvals:
-        part = sorted([r for r in subset if r.b_value == b], key=lambda x: x.log_csi)
+        part = sorted([r for r in subset if r.b_value == b], key=lambda x: x.csi)
         if use_log_csi:
             x = np.array([r.log_csi for r in part], dtype=float)
         else:
@@ -875,6 +883,13 @@ def _plot_metric_for_subset(
         plt.title(f"{y_label} vs log10(csi) | {model} | {topo}")
     else:
         plt.title(f"{y_label} vs csi | {model} | {topo}")
+
+    # Para max_mass e radius_at_max, evita eixo com offset/diferença
+    # e mantém escala padrão absoluta.
+    if metric_name in {"max_mass_msun", "radius_at_max_km"}:
+        ax = plt.gca()
+        ax.ticklabel_format(axis="y", style="plain", useOffset=False)
+
     plt.grid(alpha=0.25)
     plt.legend(fontsize=8)
     plt.tight_layout()

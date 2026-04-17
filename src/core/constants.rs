@@ -61,3 +61,5 @@ pub const BDD_ALPHAA: f64 = 3.0;
 
 pub const RESULTS_SIZE: usize = 21;
 pub const DATA_SIZE: usize = RESULTS_SIZE + 2;
+
+pub const MAX_LANDAU_LIMIT: usize = 20_000;

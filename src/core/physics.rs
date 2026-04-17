@@ -17,8 +17,8 @@ pub enum NlemModel {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MagneticTopology {
-    Isotropic,   // Campo caótico (P_mag = 1/3 eps_mag) -> Obrigatório para TOV 1D
-    Anisotropic, // Campo alinhado (P_mag = eps_mag) -> Para solvers 2D futuros
+    Isotropic,   // (P_mag = 1/3 eps_mag)
+    Anisotropic, // (P_mag = eps_mag)
 }
 
 impl NlemModel {

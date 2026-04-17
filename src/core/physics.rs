@@ -169,7 +169,7 @@ impl HadronsMatter {
             nlem: NlemModel::Maxwell,
             topology: MagneticTopology::Isotropic,
             bg,
-            b,
+            b: bg,
             m_nuc,
             qe,
             ml,
@@ -258,44 +258,27 @@ impl HadronsMatter {
     // Função de resíduo (chamada pelo solver numérico)
     pub fn funcv(&mut self, x: &[f64]) -> Vec<f64> {
         let (mue, vsigma, vomega, vrho) = self.mapping(x);
-
+        
         let x_sigma = [1.0, 1.0, self.xs, self.xs, self.xs, self.xs, self.xs, self.xs];
-
+        
         self.mue = mue;
         self.mup = self.mun - mue;
-
+        
         self.mu_b[0] = self.mun;
 
-        // 1) Massas efetivas
+        // massas efetivas
         for i in 0..8 {
             self.m_eff[i] = self.mb[i] - x_sigma[i] * vsigma;
         }
 
-        // 1b) Potenciais químicos dos outros bárions
+        // potenciais químicos de todas as outras partículas
         for i in 1..8 {
             self.mu_b[i] = self.mu_b[0] - self.charges_b[i] * mue;
         }
 
-        // 2) Atualização dinâmica do campo magnético local
-        let nb_total: f64 = self.nb.iter().sum();
-        let nbtd = nb_total * (self.m_nuc / 197.32).powi(3); // fm^-3
-
-        let bsurf = 1e11; // Tesla
-        let btsl = self.bg * 1e-4; // Gauss -> Tesla
-        let bdd = bsurf + btsl * (1.0 - (-BDD_BETAA * (nbtd / N0).powf(BDD_ALPHAA)).exp());
-
-        let bdd_nlem = self.nlem.effective_bg(bdd);
-        
-        let bdd_nlem_gauss = bdd_nlem * 1e4;
-        let b0 = bdd_nlem_gauss / BCE_G; 
-        
-        // Atualiza o engine com as unidades naturais (MeV^2 ou fm^-2) do projeto
-        self.b = b0 * BCE;
-
-        // 3) Densidades com B local atualizado
+        // calcular densidades
         crate::core::particles::calculate_all_densities(self, vomega, vrho);
 
-        // 4) Equações de campo
         let fsigma = self.equation_sigma(vsigma);
         let fomega = self.equation_omega(vomega);
         let frho = self.equation_rho(vrho);

@@ -47,6 +47,10 @@ pub fn integrate_star(
     eps_array: &[f64], 
     p_array: &[f64]
 ) -> Option<(f64, f64, f64)> {
+    // Validar tamanho mínimo dos arrays para interpolação Akima (precisa de pelo menos 5 pontos)
+    if eps_array.len() < 5 || p_array.len() < 5 {
+        return None;
+    }
     
     let eps_tov: Vec<f64> = eps_array.iter().map(|&e| e * MEV_FM3_TO_MSUN_KM3).collect();
     let p_tov: Vec<f64> = p_array.iter().map(|&p| p * MEV_FM3_TO_MSUN_KM3).collect();
@@ -73,6 +77,11 @@ pub fn integrate_star(
         let (k2_p, k2_m) = tov_derivatives(r + dr / 2.0, p + k1_p * dr / 2.0, m + k1_m * dr / 2.0, &p_tov, &eps_tov, &spline, &mut accel);
         let (k3_p, k3_m) = tov_derivatives(r + dr / 2.0, p + k2_p * dr / 2.0, m + k2_m * dr / 2.0, &p_tov, &eps_tov, &spline, &mut accel);
         let (k4_p, k4_m) = tov_derivatives(r + dr, p + k3_p * dr, m + k3_m * dr, &p_tov, &eps_tov, &spline, &mut accel);
+
+        // Check if any derivative calculation failed
+        if !k1_p.is_finite() || !k1_m.is_finite() {
+            break;
+        }
 
         p += (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p) * dr / 6.0;
         m += (k1_m + 2.0 * k2_m + 2.0 * k3_m + k4_m) * dr / 6.0;

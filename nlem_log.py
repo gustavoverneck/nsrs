@@ -71,10 +71,11 @@ MR_PLOT_MAX_MASS_MSUN = 2.5
 H_COLOR = "tab:blue"
 HB_RATIO_COLOR = "tab:orange"
 LEGEND_LOC_UPPER_RIGHT = "upper right"
+LEGEND_LOC_UPPER_LEFT = "upper left"
 G_C2_KM_PER_MSUN = 1.4766
 TARGET_CANONICAL_MASS_MSUN = 1.4
 HYPERON_COLUMNS = (COL_NL0, COL_NSM, COL_NS0, COL_NSP, COL_NXM, COL_NX0)
-N0_DENSITY_FM3 = 0.153
+OBSERVATIONAL_CONSTRAINTS_PATH = Path("input/observations/neutron_star_constraints.csv")
 
 
 @dataclass
@@ -112,6 +113,20 @@ class SummaryRow:
     cs2_min: float
     cs2_max: float
     eos_path: str
+
+
+@dataclass
+class ObservationConstraint:
+    kind: str
+    label: str
+    source: str
+    mass_msun: float
+    mass_err_minus: float
+    mass_err_plus: float
+    radius_km: float
+    radius_err_minus: float
+    radius_err_plus: float
+    notes: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -443,6 +458,80 @@ def _threshold_percent(nb_value: float) -> float:
     if not np.isfinite(nb_value) or nb_value <= 0.0:
         return math.nan
     return float(nb_value)
+
+
+def load_observational_constraints(csv_path: Path = OBSERVATIONAL_CONSTRAINTS_PATH) -> List[ObservationConstraint]:
+    if not csv_path.exists():
+        return []
+
+    constraints: List[ObservationConstraint] = []
+    with csv_path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                constraints.append(
+                    ObservationConstraint(
+                        kind=row.get("kind", "").strip(),
+                        label=row.get("label", "").strip(),
+                        source=row.get("source", "").strip(),
+                        mass_msun=float(row.get("mass_msun", "nan") or "nan"),
+                        mass_err_minus=float(row.get("mass_err_minus", "nan") or "nan"),
+                        mass_err_plus=float(row.get("mass_err_plus", "nan") or "nan"),
+                        radius_km=float(row.get("radius_km", "nan") or "nan"),
+                        radius_err_minus=float(row.get("radius_err_minus", "nan") or "nan"),
+                        radius_err_plus=float(row.get("radius_err_plus", "nan") or "nan"),
+                        notes=row.get("notes", "").strip(),
+                    )
+                )
+            except ValueError:
+                continue
+    return constraints
+
+
+def _observation_style(kind: str) -> Tuple[str, str, str]:
+    if kind == "radius_constraint":
+        return "tab:green", "D", "R1.4 constraint"
+    if kind == "nicer_point":
+        return "tab:purple", "o", "NICER"
+    return "tab:gray", "s", "Obs."
+
+
+def overlay_observational_constraints(ax: Axes, constraints: Sequence[ObservationConstraint]) -> List[Line2D]:
+    handles: List[Line2D] = []
+    for obs in constraints:
+        color, marker, _short = _observation_style(obs.kind)
+        has_mass = np.isfinite(obs.mass_msun)
+        has_radius = np.isfinite(obs.radius_km)
+        if not (has_mass and has_radius):
+            continue
+
+        xerr = None
+        if np.isfinite(obs.mass_err_minus) or np.isfinite(obs.mass_err_plus):
+            xerr = np.array([[0.0 if not np.isfinite(obs.mass_err_minus) else obs.mass_err_minus], [0.0 if not np.isfinite(obs.mass_err_plus) else obs.mass_err_plus]])
+        yerr = None
+        if np.isfinite(obs.radius_err_minus) or np.isfinite(obs.radius_err_plus):
+            yerr = np.array([[0.0 if not np.isfinite(obs.radius_err_minus) else obs.radius_err_minus], [0.0 if not np.isfinite(obs.radius_err_plus) else obs.radius_err_plus]])
+
+        ax.errorbar(
+            obs.radius_km,
+            obs.mass_msun,
+            xerr=yerr,
+            yerr=xerr,
+            fmt=marker,
+            ms=7,
+            mfc="white",
+            mec=color,
+            ecolor=color,
+            elinewidth=1.2,
+            capsize=3,
+            linestyle="none",
+            zorder=5,
+        )
+        handles.append(
+            Line2D([0], [0], color=color, marker=marker, linestyle="none", markersize=7, markerfacecolor="white", markeredgecolor=color, label=f"{obs.label} ({obs.source})")
+        )
+
+    return handles
 
 
 def _compute_electron_landau_nu_max(mu_e: np.ndarray, b_tesla: np.ndarray) -> np.ndarray:
@@ -917,6 +1006,7 @@ def _plot_mr_family_panel(
     span = (cmax - cmin) if (cmax - cmin) > 1e-12 else 1.0
 
     plt.figure(figsize=(8, 6))
+    ax = plt.gca()
     for d in plot_set:
         m = d.data[:, -2]
         r = d.data[:, -1]
@@ -940,21 +1030,28 @@ def _plot_mr_family_panel(
             color = color_lookup[d.log_csi]
         else:
             color = _log_csi_color(d.log_csi, cmap_mr, cmin, span)
-        plt.plot(r_valid, m_valid, color=color, alpha=0.8, lw=1.0)
+        ax.plot(r_valid, m_valid, color=color, alpha=0.8, lw=1.0)
 
-    plt.xlabel("Radius [km]")
-    plt.ylabel(r"Mass [$M_\odot$]")
-    plt.title(f"M-R family | {model} | B={b_label} G")
-    plt.xlim(MR_PLOT_MIN_RADIUS_KM, MR_PLOT_MAX_RADIUS_KM)
-    plt.ylim(MR_PLOT_MIN_MASS_MSUN, MR_PLOT_MAX_MASS_MSUN)
-    plt.grid(alpha=0.25)
+    obs_handles = overlay_observational_constraints(ax, load_observational_constraints())
+
+    ax.set_xlabel("Radius [km]")
+    ax.set_ylabel(r"Mass [$M_\odot$]")
+    ax.set_title(f"M-R family | {model} | B={b_label} G")
+    ax.set_xlim(MR_PLOT_MIN_RADIUS_KM, MR_PLOT_MAX_RADIUS_KM)
+    ax.set_ylim(MR_PLOT_MIN_MASS_MSUN, MR_PLOT_MAX_MASS_MSUN)
+    ax.grid(alpha=0.25)
 
     if fixed_colors and color_lookup is not None:
-        plt.legend(handles=_fixed_color_handles(color_lookup), fontsize=8, title="csi", loc="best")
+        model_legend = ax.legend(handles=_fixed_color_handles(color_lookup), fontsize=8, title="csi", loc=LEGEND_LOC_UPPER_LEFT)
+        ax.add_artist(model_legend)
+        if obs_handles:
+            ax.legend(handles=obs_handles, fontsize=7, loc=LEGEND_LOC_UPPER_LEFT, title="Observações")
     elif show_colorbar:
         sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
-        cbar_mr = plt.colorbar(sm_mr, ax=plt.gca())
+        cbar_mr = plt.colorbar(sm_mr, ax=ax)
         cbar_mr.set_label(LOG_CSI_LABEL)
+        if obs_handles:
+            ax.legend(handles=obs_handles, fontsize=7, loc=LEGEND_LOC_UPPER_LEFT, title="Observações")
     plt.tight_layout()
     plt.savefig(out_dir / f"mr_family_{model}_B_{b_label}.png", dpi=dpi)
     plt.close()
@@ -1348,7 +1445,7 @@ def _plot_population_overlay_family(
         _style_axis(ax, NB_DENSITY_LABEL, POPULATION_DENSITY_LABEL, f"Population overlay | {model} | B={b_label} G")
 
         species_handles = [Line2D([0], [0], color=species_colors[label], lw=1.6, label=label) for _, label in species]
-        legend_species = ax.legend(handles=species_handles, loc="upper left", fontsize=8, ncol=2, title="Espécies")
+        legend_species = ax.legend(handles=species_handles, loc=LEGEND_LOC_UPPER_LEFT, fontsize=8, ncol=2, title="Espécies")
         ax.add_artist(legend_species)
         ax.legend(handles=csi_handles, loc="upper right", fontsize=8, title="csi", ncol=1)
     else:
@@ -1380,7 +1477,7 @@ def _plot_population_overlay_family(
         _style_axis(ax, NB_DENSITY_LABEL, POPULATION_DENSITY_LABEL, f"Population overlay | {model} | B={b_label} G")
 
         species_handles = [Line2D([0], [0], color="black", linestyle=species_styles[label], lw=1.6, label=label) for _, label in species]
-        legend_species = ax.legend(handles=species_handles, loc="upper left", fontsize=8, ncol=2, title="Espécies")
+        legend_species = ax.legend(handles=species_handles, loc=LEGEND_LOC_UPPER_LEFT, fontsize=8, ncol=2, title="Espécies")
         ax.add_artist(legend_species)
         if show_colorbar:
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
@@ -1591,7 +1688,7 @@ def _report_slope_for(sub: Sequence[SummaryRow], metric: str) -> float:
     mask = np.isfinite(x) & np.isfinite(y)
     if np.count_nonzero(mask) < 2:
         return math.nan
-    a, _b = np.polyfit(x[mask], y[mask], 1)
+    a, _b = np.polyfit(x[mask], y[mask], deg=1, full=False)
     return float(a)
 
 

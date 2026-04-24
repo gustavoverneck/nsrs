@@ -10,7 +10,12 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let csi_vals: Vec<f64> = (0..=10).map(|i| i as f64 * 0.05).collect();
+    let csi_vals: Vec<f64> = (1..=5)
+        .flat_map(|exp| {
+            let base = 10_f64.powi(-(6 - exp));
+            (1..=9).map(move |i| i as f64 * base)
+        })
+        .collect();
     
     let b_fields: Vec<f64> = if args.len() > 1 {
         args[1..]

@@ -7,6 +7,7 @@ use crate::core::constants::{
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
+use rgsl::Pow;
 use rgsl::exponential::exp;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -35,10 +36,7 @@ impl NlemModel {
             },
             
             NlemModel::Log(csi) => {
-                // Modelo de Soleng Padrão: bg / (1 + bg^2 / 2*csi^2)
-                // O sinal de '+' garante que nunca haverá divisão por zero!
-                let denom = 1.0 + bg.powi(2) / (2.0 * csi.powi(2));
-                bg / denom
+                bg * (1.0 + bg.powi(2) / (2.0 * csi.powi(2)))
             }
         }
     }

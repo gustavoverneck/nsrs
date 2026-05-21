@@ -9,3 +9,4 @@ pub mod io_utils;
 pub mod plotting;
 pub mod quarks;
 pub mod hybrid;
+pub mod darkphotons;

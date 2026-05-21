@@ -1,6 +1,7 @@
 use crate::core::constants::RESULTS_SIZE;
 // src/core/solver.rs
 use crate::core::physics::HadronsMatter;
+use crate::core::darkphotons::DarkPhotonsMatter;
 use crate::core::quarks::QuarksMatter;
 use crate::core::hybrid::HybridMatter;
 use rayon::prelude::*;
@@ -10,6 +11,7 @@ pub enum EngineMode {
     Hadrons(HadronsMatter),
     Quarks(QuarksMatter),
     Hybrid(HybridMatter),
+    DarkPhotons(DarkPhotonsMatter),
 }
 
 pub struct Solver {
@@ -23,7 +25,7 @@ impl Solver {
 
     pub fn solve(&mut self) -> Vec<[f64; RESULTS_SIZE]> {
         // Obtém limites e metadados conforme o modo da engine
-        let (mun_inf, mun_sup, n, bg_val) = match &self.engine {
+        let (mun_inf, mun_sup, n, _bg_val) = match &self.engine {
             EngineMode::Hadrons(h) => (h.mun_inf, h.mun_sup, h.n_points, h.bg),
             EngineMode::Quarks(q) => (q.mun_inf, q.mun_sup, q.n_points, q.bg),
             EngineMode::Hybrid(hyb) => (
@@ -32,6 +34,7 @@ impl Solver {
                 hyb.hadrons.n_points,
                 hyb.hadrons.bg,
             ),
+            EngineMode::DarkPhotons(d) => (d.mun_inf, d.mun_sup, d.n_points, 0.0),
         };
 
         let initial_dmub = (mun_sup - mun_inf) / (n - 1) as f64;
@@ -51,6 +54,7 @@ impl Solver {
                 // Para Quarks, transformamos o resultado em tupla com estado dummy
                 EngineMode::Quarks(q_engine) => q_engine.solve_point(mun).map(|result| ([0.0; 4], result)),
                 EngineMode::Hybrid(hyb_engine) => hyb_engine.solve_point(mun, &last_x),
+                EngineMode::DarkPhotons(d_engine) => d_engine.solve_point(mun, &last_x),
             };
 
             if let Some((x_converged, point_result)) = point_data {

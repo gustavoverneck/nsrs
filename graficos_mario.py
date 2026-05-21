@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description="Geração de gráficos M-R para GM1/GM3")
 	parser.add_argument("--b-root", type=Path, default=Path("output/b"), help="Raiz dos dados sem csi")
 	parser.add_argument("--modmax-root", type=Path, default=Path("output/modmax"), help="Raiz dos dados MODMAX")
-	parser.add_argument("--output-dir", type=Path, default=Path("results/graficos_mario"))
+	parser.add_argument("--output-dir", type=Path, default=Path("results/modmax_06-05"))
 	parser.add_argument("--dpi", type=int, default=180)
 	return parser.parse_args()
 
@@ -183,8 +183,8 @@ def _build_curve_sem_csi(b_root: Path, model: str, b_target: float, label: str) 
 def _resolve_modmax_eos_path(modmax_root: Path, model: str, b_value: float, gamma: float) -> Optional[Path]:
 	b_label = _sci_folder_label(b_value, zero_label="0.00e0")
 	b_dir = modmax_root / model / f"B_{b_label}"
-	csi_label = _sci_folder_label(gamma, zero_label="0.00e0")
-	direct = b_dir / "anisotropic" / f"csi_{csi_label}" / EOS_FILENAME
+	gamma_label = _sci_folder_label(gamma, zero_label="0.00e0")
+	direct = b_dir / "anisotropic" / f"gamma_{gamma_label}" / EOS_FILENAME
 	if direct.exists():
 		return direct
 
@@ -193,9 +193,9 @@ def _resolve_modmax_eos_path(modmax_root: Path, model: str, b_value: float, gamm
 		return None
 
 	for child in anisotropic.iterdir():
-		if not child.is_dir() or not child.name.startswith("csi_"):
+		if not child.is_dir() or not child.name.startswith("gamma_"):
 			continue
-		val = _safe_float(child.name[4:])
+		val = _safe_float(child.name[6:])
 		if val is None:
 			continue
 		if abs(val - gamma) < EPS:

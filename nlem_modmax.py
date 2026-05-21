@@ -24,6 +24,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
 
 # ----------------------------
@@ -55,10 +56,12 @@ COL_BDD = 20
 # se o mu_e parece normalizado e converte por 939.0 para MeV.
 MUE_TO_MEV_FACTOR = 1.0
 
-LOG_CSI_LABEL = r"$\log_{10}(\xi)$"
-CSI_LABEL = r"$\xi$"
+LOG_CSI_LABEL = r"$\log_{10}(\gamma)$"
+CSI_LABEL = r"$\gamma$"
+HBARC_MEV_FM = 197.3269804
 MAX_VALID_MASS_MSUN = 3.0
 MAX_VALID_RADIUS_KM = 20.0
+COMPARISON_MR_TARGETS = [1e-22, 1e-20, 1e-15, 1e-10, 1e-5, 1e-1]
 
 
 @dataclass
@@ -98,8 +101,7 @@ class SummaryRow:
     landau_nu_max: float
     landau_nu_p95: float
     eos_path: str
-
-
+    
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Análise NLEM completa para dados em output/modmax"
@@ -117,15 +119,21 @@ def parse_args() -> argparse.Namespace:
         help="Pasta de saída para tabelas/figuras/relatório",
     )
     parser.add_argument(
+        "--baseline-root",
+        type=Path,
+        default=Path("output/b"),
+        help="Raiz dos dados baseline sem csi (B=0.0)",
+    )
+    parser.add_argument(
         "--max-curves-per-family",
         type=int,
-        default=40,
+        default=1000,
         help="Máximo de curvas por figura de família (evita poluição visual)",
     )
     parser.add_argument(
         "--dpi",
         type=int,
-        default=150,
+        default=600,
         help="Resolução dos gráficos",
     )
     return parser.parse_args()
@@ -279,6 +287,37 @@ def valid_mr_mask(mass_col: np.ndarray, radius_col: np.ndarray) -> np.ndarray:
         & (mass_col <= MAX_VALID_MASS_MSUN)
         & (radius_col <= MAX_VALID_RADIUS_KM)
     )
+
+
+def _load_mr_from_eos(path: Path) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    try:
+        arr = np.genfromtxt(path, comments="#")
+    except Exception:
+        return None
+
+    if arr is None or np.size(arr) == 0:
+        return None
+
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+
+    if arr.shape[1] < 5:
+        return None
+
+    mass = arr[:, -2].astype(float)
+    radius = arr[:, -1].astype(float)
+    mask = valid_mr_mask(mass, radius)
+    if not np.any(mask):
+        return None
+
+    return radius[mask], mass[mask]
+
+
+def _load_baseline_b0_curve(baseline_root: Path, model: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    eos_path = baseline_root / model / "B_0.00e0" / "default" / "eos.dat"
+    if not eos_path.exists():
+        return None
+    return _load_mr_from_eos(eos_path)
 
 
 def summarize_dataset(ds: Dataset) -> SummaryRow:
@@ -615,26 +654,38 @@ def plot_family_eos_mr(
         cmap_cs2 = plt.get_cmap("cool")
 
         cvals = np.array([d.csi for d in plot_set], dtype=float)
-        finite_cvals = cvals[np.isfinite(cvals)]
+        finite_cvals = cvals[np.isfinite(cvals) & (cvals > 0.0)]
         if finite_cvals.size == 0:
             continue
         cmin, cmax = float(np.min(finite_cvals)), float(np.max(finite_cvals))
-        denom = (cmax - cmin) if (cmax - cmin) > 1e-12 else 1.0
+        norm = mcolors.LogNorm(vmin=max(cmin, 1e-300), vmax=cmax)
+
+        def _color_value(value: float):
+            return norm(value if value > 0.0 else cmin)
 
         # --- EoS family ---
         plt.figure(figsize=(8, 6))
         for d in plot_set:
-            color = cmap_eos((d.csi - cmin) / denom)
-            plt.plot(d.data[:, COL_EPS], d.data[:, COL_P], color=color, alpha=0.8, lw=1.0)
+            color = cmap_eos(_color_value(d.csi))
+            eps = d.data[:, COL_EPS]
+            p = d.data[:, COL_P]
+            mask = np.isfinite(eps) & np.isfinite(p) & (eps > 0.0) & (p > 0.0)
+            if np.count_nonzero(mask) < 2:
+                continue
+            eps_fm4 = eps[mask] / HBARC_MEV_FM
+            p_fm4 = p[mask] / HBARC_MEV_FM
+            plt.plot(eps_fm4, p_fm4, color=color, alpha=0.8, lw=1.0)
         
-        plt.xlabel(r"$\epsilon$ [MeV/fm$^3$]")
-        plt.ylabel(r"$P$ [MeV/fm$^3$]")
+        plt.xlabel(r"$\epsilon$ [fm$^{-4}$]")
+        plt.ylabel(r"$P$ [fm$^{-4}$]")
         plt.title(f"EoS family | {model} | {topology} | B={b_label} G")
+        plt.xlim(0, 7)
+        plt.ylim(0, 4)
         plt.grid(alpha=0.25)
         
-        sm = plt.cm.ScalarMappable(cmap=cmap_eos, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
+        sm = plt.cm.ScalarMappable(cmap=cmap_eos, norm=norm)
         cbar = plt.colorbar(sm, ax=plt.gca())
-        cbar.set_label(CSI_LABEL)
+        cbar.set_label(LOG_CSI_LABEL)
         plt.tight_layout()
         plt.savefig(out_dir / f"eos_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
@@ -655,17 +706,19 @@ def plot_family_eos_mr(
             p_valid = p_central[mask]
             
             sort_idx = np.argsort(p_valid)
-            color = cmap_mr((d.csi - cmin) / denom)
+            color = cmap_mr(_color_value(d.csi))
             plt.plot(r_valid[sort_idx], m_valid[sort_idx], color=color, alpha=0.8, lw=1.0)
             
         plt.xlabel("Radius [km]")
         plt.ylabel(r"Mass [$M_\odot$]")
         plt.title(f"M-R family | {model} | {topology} | B={b_label} G")
+        plt.xlim(9, 14.5)
+        plt.ylim(1.0, 2.25)
         plt.grid(alpha=0.25)
         
-        sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
+        sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=norm)
         cbar_mr = plt.colorbar(sm_mr, ax=plt.gca())
-        cbar_mr.set_label(CSI_LABEL)
+        cbar_mr.set_label(LOG_CSI_LABEL)
         plt.tight_layout()
         plt.savefig(out_dir / f"mr_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
@@ -692,7 +745,7 @@ def plot_family_eos_mr(
                     cs2 = np.zeros_like(de)
                     cs2[good] = dp[good] / de[good]
                     
-                    color = cmap_cs2((d.csi - cmin) / denom)
+                    color = cmap_cs2(_color_value(d.csi))
                     plt.plot(eps_sorted[:-1][good], cs2[good], color=color, alpha=0.8, lw=1.0)
                     
         plt.axhline(1.0, color='red', linestyle='--', alpha=0.7, label='Causalidade ($c_s^2 = 1$)')
@@ -705,12 +758,177 @@ def plot_family_eos_mr(
         plt.grid(alpha=0.25)
         plt.legend(loc='upper right', fontsize=9)
         
-        sm_cs2 = plt.cm.ScalarMappable(cmap=cmap_cs2, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
+        sm_cs2 = plt.cm.ScalarMappable(cmap=cmap_cs2, norm=norm)
         cbar_cs2 = plt.colorbar(sm_cs2, ax=plt.gca())
-        cbar_cs2.set_label(CSI_LABEL)
+        cbar_cs2.set_label(LOG_CSI_LABEL)
         
         plt.tight_layout()
         plt.savefig(out_dir / f"cs2_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.close()
+
+
+def _select_nearest_mr_targets(arr_sorted: Sequence[Dataset], targets: Sequence[float]) -> List[Tuple[Dataset, float]]:
+    selected: List[Tuple[Dataset, float]] = []
+    used_ids: set[int] = set()
+
+    for target in targets:
+        chosen = min(arr_sorted, key=lambda d, target=target: abs(d.csi - target))
+        chosen_id = id(chosen)
+        if chosen_id in used_ids:
+            continue
+        used_ids.add(chosen_id)
+        selected.append((chosen, target))
+
+    return selected
+
+
+def plot_mr_specific_targets(
+    datasets: Sequence[Dataset],
+    out_dir: Path,
+    baseline_root: Path,
+    targets: Sequence[float],
+    dpi: int,
+) -> None:
+    ensure_dir(out_dir)
+    comparison_dir = out_dir / "mr_specific"
+    ensure_dir(comparison_dir)
+
+    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    for ds in datasets:
+        by_combo.setdefault(group_key(ds), []).append(ds)
+
+    cmap = plt.get_cmap("tab10")
+
+    for key, arr in by_combo.items():
+        model, topology, b_label = key
+        arr_sorted = sorted(arr, key=lambda d: d.csi)
+        if not arr_sorted:
+            continue
+
+        baseline_mr = _load_baseline_b0_curve(baseline_root, model)
+        # initialize zoom center variables (will be set if baseline exists)
+        _zoom_center_r = None
+        _zoom_center_m = None
+
+        selected = _select_nearest_mr_targets(arr_sorted, targets)
+        if not selected:
+            selected = []
+
+        plt.figure(figsize=(8, 6))
+        plotted_curves: List[Tuple[np.ndarray, np.ndarray, str, Tuple[float, float, float, float]]] = []
+
+        # prepare colormap for gamma-based coloring (like family plots)
+        csi_values = [d.csi for d, _ in selected]
+        if csi_values:
+            cmin = min(csi_values)
+            cmax = max(csi_values)
+        else:
+            cmin = 1e-25
+            cmax = 1e-1
+        
+        if cmin > 0:
+            norm = mcolors.LogNorm(vmin=max(cmin, 1e-300), vmax=cmax)
+        else:
+            norm = mcolors.Normalize(vmin=0, vmax=1)
+        cmap_colors = plt.get_cmap("viridis")
+
+        if baseline_mr is not None:
+            baseline_radius, baseline_mass = baseline_mr
+            baseline_label = r"$B=0.0$ G"
+            baseline_color = (0.0, 0.0, 0.0, 0.95)
+            plt.plot(
+                baseline_radius,
+                baseline_mass,
+                color=baseline_color,
+                alpha=0.95,
+                lw=1.8,
+                label=baseline_label,
+            )
+            plotted_curves.append((baseline_radius, baseline_mass, baseline_label, baseline_color))
+            # compute center of zoom at the maximum-mass point of the B=0 curve
+            try:
+                if getattr(baseline_mass, "size", 0) > 0:
+                    max_idx = int(np.nanargmax(baseline_mass))
+                    _zoom_center_r = float(baseline_radius[max_idx])
+                    _zoom_center_m = float(baseline_mass[max_idx])
+                else:
+                    _zoom_center_r = None
+                    _zoom_center_m = None
+            except Exception:
+                _zoom_center_r = None
+                _zoom_center_m = None
+
+        for idx, (d, target) in enumerate(selected):
+            m = d.data[:, -2]
+            r = d.data[:, -1]
+            p_central = d.data[:, COL_P]
+
+            mask = valid_mr_mask(m, r)
+            if np.count_nonzero(mask) < 3:
+                continue
+
+            m_valid = m[mask]
+            r_valid = r[mask]
+            p_valid = p_central[mask]
+            sort_idx = np.argsort(p_valid)
+            color = cmap_colors(norm(d.csi))
+            curve_label = rf"$\gamma={d.csi:.2e}$"
+            plt.plot(
+                r_valid[sort_idx],
+                m_valid[sort_idx],
+                color=color,
+                alpha=0.9,
+                lw=1.5,
+                linestyle="--",
+                label=curve_label,
+            )
+            plotted_curves.append((r_valid[sort_idx], m_valid[sort_idx], curve_label, color))
+
+        plt.xlabel("Radius [km]")
+        plt.ylabel(r"Mass [$M_\odot$]")
+        plt.title(f"MR comparison | {model} | {topology} | B={b_label} G")
+        plt.xlim(8, 14.5)
+        plt.ylim(1.0, 2.25)
+        plt.grid(alpha=0.25)
+        plt.axhline(1.6, color='gray', linestyle=':', linewidth=1.5, alpha=0.6)
+        plt.legend(fontsize=8)
+
+        ax = plt.gca()
+        axins = inset_axes(ax, width="42%", height="42%", loc="lower left", borderpad=3.0)
+        for x_curve, y_curve, _label, color in plotted_curves:
+            axins.scatter(x_curve, y_curve, color=color, alpha=0.8, s=20, edgecolors='none')
+        # center inset on baseline B=0 maximum if available, otherwise keep default window
+        # fetch computed zoom center if available
+        try:
+            if '_zoom_center_r' in locals() or '_zoom_center_r' in globals():
+                center_r = _zoom_center_r
+                center_m = _zoom_center_m
+            else:
+                center_r = None
+                center_m = None
+        except Exception:
+            center_r = None
+            center_m = None
+
+        if center_r is not None and center_m is not None:
+            x_span = ax.get_xlim()[1] - ax.get_xlim()[0]
+            y_span = ax.get_ylim()[1] - ax.get_ylim()[0]
+            # high-magnification zoom: 3% of full axes span
+            dx = 0.03 * x_span
+            dy = 0.03 * y_span
+            # shift center up so the max appears near the bottom
+            y_offset = +0.5 * dy
+            axins.set_xlim(center_r - dx, center_r + dx)
+            axins.set_ylim(center_m - dy + y_offset, center_m + dy + y_offset)
+        else:
+            axins.set_xlim(11.2, 14.5)
+            axins.set_ylim(1.75, 2.25)
+        axins.grid(alpha=0.2)
+        axins.tick_params(axis='both', which='major', labelsize=8)
+        # draw connection lines from zoom window to inset
+        mark_inset(ax, axins, loc1=2, loc2=4, fc="none", ec="gray", lw=1.5, alpha=0.7)
+        plt.tight_layout()
+        plt.savefig(comparison_dir / f"mr_specific_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
@@ -813,7 +1031,7 @@ def plot_population_thresholds(
         if not arr_sorted:
             continue
 
-        x_vals = [d.csi for d in arr_sorted]
+        x_vals = np.array([d.csi for d in arr_sorted], dtype=float)
         
         plt.figure(figsize=(8, 6))
         plotted_any = False
@@ -829,10 +1047,10 @@ def plot_population_thresholds(
                     y_vals.append(math.nan)
 
             y_arr = np.array(y_vals)
-            mask = np.isfinite(y_arr)
+            mask = np.isfinite(y_arr) & (x_vals > 0.0)
             
             if np.count_nonzero(mask) > 0:
-                plt.plot(np.array(x_vals)[mask], y_arr[mask], marker='o', ms=4, lw=1.5, label=label)
+                plt.plot(x_vals[mask], y_arr[mask], marker='o', ms=4, lw=1.5, label=label)
                 plotted_any = True
 
         if plotted_any:
@@ -840,6 +1058,7 @@ def plot_population_thresholds(
             plt.ylabel(r"Onset Density ($n_B$) [fm$^{-3}$]")
             plt.title(f"Particle Onset Thresholds | {model} | {topology} | B={b_label} G")
             plt.grid(alpha=0.3, linestyle='--')
+            plt.xscale("log")
             plt.legend(fontsize=9, loc='best')
             plt.tight_layout()
             plt.savefig(out_dir / f"onset_thresholds_{model}_{topology}_B_{b_label}.png", dpi=dpi)
@@ -872,6 +1091,8 @@ def _plot_metric_for_subset(
             x = np.array([r.csi for r in part], dtype=float)
         y = np.array([getattr(r, metric_name) for r in part], dtype=float)
         mask = np.isfinite(x) & np.isfinite(y)
+        if not use_log_csi:
+            mask &= x > 0.0
         
         if np.count_nonzero(mask) < 1:
             continue
@@ -883,6 +1104,7 @@ def _plot_metric_for_subset(
         plt.title(f"{y_label} vs log10(csi) | {model} | {topo}")
     else:
         plt.title(f"{y_label} vs csi | {model} | {topo}")
+        plt.xscale("log")
 
     # Para max_mass e radius_at_max, evita eixo com offset/diferença
     # e mantém escala padrão absoluta.
@@ -1093,6 +1315,16 @@ def main() -> None:
         dpi=args.dpi,
     )
     print(f"[OK] Famílias EoS/MR e Velocidade do Som (cs2): {families_dir}")
+
+    comparison_dir = args.output_root / "comparison"
+    plot_mr_specific_targets(
+        datasets,
+        comparison_dir,
+        baseline_root=args.baseline_root,
+        targets=COMPARISON_MR_TARGETS,
+        dpi=args.dpi,
+    )
+    print(f"[OK] Comparação M-R para valores específicos: {comparison_dir / 'mr_specific'}")
 
     pops_dir = args.output_root / "populations"
     plot_population_snapshots(datasets, pops_dir, dpi=args.dpi)

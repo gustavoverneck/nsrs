@@ -35,6 +35,24 @@ except ImportError:
 COL_NB = 0
 COL_EPS = 1
 COL_P = 2
+COL_NE = 3
+COL_NMU = 4
+COL_NN = 5
+COL_NP = 6
+COL_NL0 = 7
+COL_NSM = 8
+COL_NS0 = 9
+COL_NSP = 10
+COL_NXM = 11
+COL_NX0 = 12
+COL_VSIGMA = 13
+COL_VOMEGA = 14
+COL_VRHO = 15
+COL_MEFF = 16
+COL_MUN = 17
+COL_MUE = 18
+COL_EMAG = 19
+COL_BDD = 20
 
 MAX_VALID_MASS_MSUN = 3.0
 MAX_VALID_RADIUS_KM = 20.0
@@ -310,7 +328,121 @@ def _subsample_sorted_by_value(values: Sequence[float], max_items: int) -> List[
 	return [vals[i] for i in idx]
 
 
-def plot_b_trends(rows: Sequence[BSummaryRow], b_datasets: Sequence[BDataset], out_dir: Path, dpi: int) -> None:
+
+def plot_all_variables_vs_logb(rows: Sequence[BSummaryRow], out_dir: Path, dpi: int) -> None:
+	"""Plot all summary variables vs log10(B)."""
+	ensure_dir(out_dir)
+	models = sorted({r.model for r in rows})
+	metrics = [
+		("max_mass_msun", Y_LABEL_MAXM, "max_mass_msun"),
+		("radius_at_max_km", Y_LABEL_MAXR, "radius_at_max_km"),
+		("central_nb_n0", r"$n_{B,\,c}$ [n0]", "central_nb_n0"),
+		("central_eps_mevfm3", r"$\epsilon_c$ [MeV/fm$^3$]", "central_eps_mevfm3"),
+		("central_p_mevfm3", r"$P_c$ [MeV/fm$^3$]", "central_p_mevfm3"),
+		("n_eos_points", r"$N_{\mathrm{EOS}}$", "n_eos_points"),
+		("n_mr_points", r"$N_{\mathrm{MR}}$", "n_mr_points"),
+	]
+
+	for model in models:
+		sub = [r for r in rows if r.model == model and np.isfinite(r.log_b_value)]
+		if not sub:
+			continue
+		sub = sorted(sub, key=lambda x: x.log_b_value)
+		x = np.array([r.log_b_value for r in sub], dtype=float)
+
+		for attr, y_label, suffix in metrics:
+			y = np.array([getattr(r, attr) for r in sub], dtype=float)
+			mask = np.isfinite(x) & np.isfinite(y)
+			if np.count_nonzero(mask) < 2:
+				continue
+
+			plt.figure(figsize=(8, 6))
+			plt.plot(x[mask], y[mask], marker="o", ms=3, lw=1.2, label=LABEL_NO_CSI)
+			plt.xlabel(X_LABEL_LOG_B)
+			plt.ylabel(y_label)
+			plt.title(f"{suffix} vs log10(B) | {model} | sem csi")
+			plt.grid(alpha=0.25)
+			plt.legend(fontsize=9)
+			plt.tight_layout()
+			plt.savefig(out_dir / f"{suffix}_vs_logB_{model}.png", dpi=dpi)
+			plt.close()
+
+
+def plot_all_core_variables_vs_logb(
+	b_datasets: Sequence[BDataset],
+	out_dir: Path,
+	dpi: int,
+) -> None:  # noqa: C901
+	"""Plot all core variables (columns 0..20) at max-mass point vs log10(B)."""
+	ensure_dir(out_dir)
+	models = sorted({d.model for d in b_datasets})
+	variables = [
+		(COL_NB, r"$n/n_0$", "nb_over_n0"),
+		(COL_EPS, r"$\epsilon_{tot}$ [MeV/fm$^3$]", "eps_total"),
+		(COL_P, r"$P_{tot}$ [MeV/fm$^3$]", "p_total"),
+		(COL_NE, r"$n_e$ [fm$^{-3}$]", "ne"),
+		(COL_NMU, r"$n_\mu$ [fm$^{-3}$]", "nmu"),
+		(COL_NN, r"$n_n$ [fm$^{-3}$]", "nn"),
+		(COL_NP, r"$n_p$ [fm$^{-3}$]", "np"),
+		(COL_NL0, r"$n_{\Lambda^0}$ [fm$^{-3}$]", "nL0"),
+		(COL_NSM, r"$n_{\Sigma^-}$ [fm$^{-3}$]", "nSm"),
+		(COL_NS0, r"$n_{\Sigma^0}$ [fm$^{-3}$]", "nS0"),
+		(COL_NSP, r"$n_{\Sigma^+}$ [fm$^{-3}$]", "nSp"),
+		(COL_NXM, r"$n_{\Xi^-}$ [fm$^{-3}$]", "nXm"),
+		(COL_NX0, r"$n_{\Xi^0}$ [fm$^{-3}$]", "nX0"),
+		(COL_VSIGMA, r"$\sigma$ [MeV]", "sigma"),
+		(COL_VOMEGA, r"$\omega$ [MeV]", "omega"),
+		(COL_VRHO, r"$\rho$ [MeV]", "rho"),
+		(COL_MEFF, r"$m^*/m_N$", "mstar_over_mn"),
+		(COL_MUN, r"$\mu_n$", "mu_n"),
+		(COL_MUE, r"$\mu_e$", "mu_e"),
+		(COL_EMAG, r"$\epsilon_B$ [MeV/fm$^3$]", "emag"),
+		(COL_BDD, r"$B(n)$ [T]", "b_local"),
+	]
+
+	for model in models:
+		sub = [d for d in b_datasets if d.model == model and d.b_value > 0]
+		if not sub:
+			continue
+		sub = sorted(sub, key=lambda d: d.b_value)
+		x = np.array([math.log10(d.b_value) for d in sub], dtype=float)
+
+		for col, y_label, suffix in variables:
+			y_vals: List[float] = []
+			for d in sub:
+				arr = d.data
+				if arr.shape[1] <= col:
+					y_vals.append(math.nan)
+					continue
+				mass_col = arr[:, -2]
+				radius_col = arr[:, -1]
+				mr_mask = valid_mr_mask(mass_col, radius_col)
+				if not np.any(mr_mask):
+					y_vals.append(math.nan)
+					continue
+				valid_idx = np.nonzero(mr_mask)[0]
+				local = int(np.argmax(mass_col[mr_mask]))
+				i_max = int(valid_idx[local])
+				y_vals.append(float(arr[i_max, col]))
+
+			y = np.array(y_vals, dtype=float)
+			mask = np.isfinite(x) & np.isfinite(y)
+			if np.count_nonzero(mask) < 2:
+				continue
+
+			plt.figure(figsize=(8, 6))
+			plt.plot(x[mask], y[mask], marker="o", ms=3, lw=1.2, label=LABEL_NO_CSI)
+			plt.xlabel(X_LABEL_LOG_B)
+			plt.ylabel(y_label)
+			plt.title(f"{suffix} vs log10(B) | {model} | sem csi")
+			plt.grid(alpha=0.25)
+			plt.legend(fontsize=9)
+			plt.tight_layout()
+			plt.savefig(out_dir / f"{suffix}_vs_logB_{model}.png", dpi=dpi)
+			plt.close()
+
+
+def plot_b_trends(rows: Sequence[BSummaryRow], b_datasets: Sequence[BDataset], out_dir: Path, dpi: int) -> None:  # noqa: C901
 	ensure_dir(out_dir)
 	models = sorted({r.model for r in rows})
 
@@ -964,6 +1096,42 @@ def _extrema_row(items: Sequence[Tuple[float, float]]) -> Tuple[Tuple[float, flo
 	return min(valid, key=lambda p: p[1]), max(valid, key=lambda p: p[1])
 
 
+def _report_gap_between(
+	items: Sequence[float],
+	start: float,
+	end: float,
+) -> Tuple[List[float], bool]:
+	"""Return (values_in_range, has_gap) for (start, end)."""
+	vals = sorted(v for v in items if np.isfinite(v))
+	in_range = [v for v in vals if start < v < end]
+	has_gap = len(in_range) == 0
+	return in_range, has_gap
+
+
+def _append_gap_section(
+	lines: List[str],
+	no_csi: Sequence[BSummaryRow],
+	with_csi: Sequence[NlemSummaryRow],
+) -> None:
+	b_vals_no = [r.b_value for r in no_csi if r.b_value > 0]
+	b_vals_nlem = [r.b_value for r in with_csi if r.b_value > 0]
+	in_range_no, gap_no = _report_gap_between(b_vals_no, 1e16, 1e17)
+	in_range_nlem, gap_nlem = _report_gap_between(b_vals_nlem, 1e16, 1e17)
+
+	lines.append("### Cobertura de B entre 1e16 e 1e17")
+	lines.append(f"- Sem csi: {len(in_range_no)} pontos no intervalo (1e16, 1e17)")
+	if in_range_no:
+		lines.append(f"  - valores: {', '.join(f'{v:.2e}' for v in in_range_no)}")
+	if gap_no:
+		lines.append("  - gap identificado (nenhum valor intermediário)")
+	lines.append(f"- Com csi: {len(in_range_nlem)} pontos no intervalo (1e16, 1e17)")
+	if in_range_nlem:
+		lines.append(f"  - valores: {', '.join(f'{v:.2e}' for v in in_range_nlem)}")
+	if gap_nlem:
+		lines.append("  - gap identificado (nenhum valor intermediário)")
+	lines.append("")
+
+
 def plot_3d_surface_m_r_vs_b(
 	b_rows: Sequence[BSummaryRow],
 	nlem_rows: Sequence[NlemSummaryRow],
@@ -1064,15 +1232,15 @@ def plot_3d_surface_interactive(
 				y=m_vals_no,
 				z=r_vals_no,
 				mode='markers',
-				marker=dict(  # type: ignore[call-overload]
-					size=6,
-					color=log_b_vals,
-					colorscale='Viridis',
-					showscale=True,
-					colorbar=dict(title=r'log₁₀(B)<br>[log10(G)]'),  # type: ignore[call-overload]
-					line=dict(width=0.5, color='black'),  # type: ignore[call-overload]
-					opacity=0.8
-				),
+				marker={
+					'size': 6,
+					'color': log_b_vals,
+					'colorscale': 'Viridis',
+					'showscale': True,
+					'colorbar': {'title': r'log₁₀(B)<br>[log10(G)]'},
+					'line': {'width': 0.5, 'color': 'black'},
+					'opacity': 0.8,
+				},
 				text=[f"B={b:.2e} G<br>M={m:.3f} M☉<br>R={r:.2f} km<br>log₁₀(B)={lb:.2f}" 
 				      for b, m, r, lb in zip(b_vals_no, m_vals_no, r_vals_no, log_b_vals)],
 				hoverinfo='text'
@@ -1080,12 +1248,12 @@ def plot_3d_surface_interactive(
 			
 			fig.update_layout(  # type: ignore[union-attr]
 				title=f'Massa vs Raio vs Campo Magnético | {model} | sem CSI',
-				scene=dict(  # type: ignore[call-overload]
-					xaxis_title='B [G]',
-					yaxis_title='M_max [M☉]',
-					zaxis_title='R(M_max) [km]',
-					xaxis=dict(type='log'),  # type: ignore[call-overload]
-				),
+				scene={
+					'xaxis_title': 'B [G]',
+					'yaxis_title': 'M_max [M☉]',
+					'zaxis_title': 'R(M_max) [km]',
+					'xaxis': {'type': 'log'},
+				},
 				width=1000,
 				height=800,
 				hovermode='closest'
@@ -1109,15 +1277,15 @@ def plot_3d_surface_interactive(
 				y=m_vals,
 				z=r_vals,
 				mode='markers',
-				marker=dict(  # type: ignore[call-overload]
-					size=6,
-					color=log_csi_vals,
-					colorscale='Plasma',
-					showscale=True,
-					colorbar=dict(title=r'log₁₀(ξ)<br>[log10]'),  # type: ignore[call-overload]
-					line=dict(width=0.5, color='black'),  # type: ignore[call-overload]
-					opacity=0.8
-				),
+				marker={
+					'size': 6,
+					'color': log_csi_vals,
+					'colorscale': 'Plasma',
+					'showscale': True,
+					'colorbar': {'title': r'log₁₀(ξ)<br>[log10]'},
+					'line': {'width': 0.5, 'color': 'black'},
+					'opacity': 0.8,
+				},
 				text=[f"B={b:.2e} G<br>ξ={csi:.2e}<br>M={m:.3f} M☉<br>R={r:.2f} km<br>log₁₀(ξ)={lc:.2f}" 
 				      for b, csi, m, r, lc in zip(b_vals, 10**log_csi_vals, m_vals, r_vals, log_csi_vals)],
 				hoverinfo='text'
@@ -1125,12 +1293,12 @@ def plot_3d_surface_interactive(
 			
 			fig.update_layout(  # type: ignore[union-attr]
 				title=f'Massa vs Raio vs Campo Magnético | {model} | com CSI',
-				scene=dict(  # type: ignore[call-overload]
-					xaxis_title='B [G]',
-					yaxis_title='M_max [M☉]',
-					zaxis_title='R(M_max) [km]',
-					xaxis=dict(type='log'),  # type: ignore[call-overload]
-				),
+				scene={
+					'xaxis_title': 'B [G]',
+					'yaxis_title': 'M_max [M☉]',
+					'zaxis_title': 'R(M_max) [km]',
+					'xaxis': {'type': 'log'},
+				},
 				width=1000,
 				height=800,
 				hovermode='closest'
@@ -1171,6 +1339,8 @@ def write_extrema_report(
 		lines.append(f"- min $R(M_{{max}})$: B={rn_no[0]:.4e} G, R={rn_no[1]:.6f} km")
 		lines.append(f"- max $R(M_{{max}})$: B={rx_no[0]:.4e} G, R={rx_no[1]:.6f} km")
 		lines.append("")
+
+		_append_gap_section(lines, no_csi, with_csi)
 
 		lines.append("### Com csi (NLEM)")
 		lines.append(f"- min $M_{{max}}$: B={mn_csi[0]:.4e} G, $M_{{max}}$={mn_csi[1]:.6f}")
@@ -1217,6 +1387,16 @@ def main() -> None:
 
 	plot_b_trends(b_rows, b_datasets, args.output_root / "trends", dpi=args.dpi)
 	print(f"[OK] tendências sem csi: {args.output_root / 'trends'}")
+
+	plot_all_variables_vs_logb(b_rows, args.output_root / "trends" / "all_variables", dpi=args.dpi)
+	print(f"[OK] variáveis vs logB: {args.output_root / 'trends' / 'all_variables'}")
+
+	plot_all_core_variables_vs_logb(
+		b_datasets,
+		args.output_root / "trends" / "all_core_variables",
+		dpi=args.dpi,
+	)
+	print(f"[OK] variáveis do core vs logB: {args.output_root / 'trends' / 'all_core_variables'}")
 
 	nlem_rows = load_nlem_summary_rows(args.nlem_summary_csv)
 	if not nlem_rows:

@@ -135,6 +135,11 @@ impl DarkPhotonsMatter {
         self
     }
 
+    pub fn with_dark_parameters(mut self, ) -> Self {
+        
+        self
+    }
+
     // Mapeamento das variáveis (vindo do solver)
     pub fn mapping(&self, x: &[f64]) -> (f64, f64, f64, f64) {
         let mue = x[0];
@@ -350,14 +355,19 @@ pub fn calculate_all_densities(engine: &mut DarkPhotonsMatter, vomega: f64, vrho
     engine.nbt = engine.nb.iter().sum();
 }
 
-fn density_baryon(engine: &mut DarkPhotonsMatter, idx: usize, vomega: f64, vrho: f64) -> (f64, f64) {
+pub fn density_baryon(engine: &mut DarkPhotonsMatter, idx: usize, vomega: f64, vrho: f64) -> (f64, f64) {
     let m = engine.m_eff[idx];
+    let charge = engine.charges_b[idx]; 
     
     let ef = engine.mu_b[idx] 
              - (engine.xv_v[idx] * vomega) 
-             - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]); 
-    
+             - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]);
+
     engine.ef_b[idx] = ef;
+
+    // LIMPEZA: Garante que não haja lixo de iterações anteriores
+    engine.kf_b_up[idx].clear();
+    engine.kf_b_down[idx].clear();
     
     if ef <= 0.0 { return (0.0, 0.0); }
 
@@ -365,19 +375,31 @@ fn density_baryon(engine: &mut DarkPhotonsMatter, idx: usize, vomega: f64, vrho:
     let kf2 = ef.powi(2) - m.powi(2);
     if kf2 > 0.0 {
         let kf = kf2.sqrt();
+        
+        // Como B=0, os dois estados de spin (up e down) têm o mesmo kf
+        engine.kf_b_up[idx].push(kf);
+        engine.kf_b_down[idx].push(kf);
+        
         let dens = kf.powi(3) / (3.0 * PI2);
         let m_safe = m.abs().max(1e-15);
         let rhos = (m / (2.0 * PI2)) * (ef * kf - m.powi(2) * ((kf + ef) / m_safe).ln());
         
         return (rhos, dens);
     }
-    return (0.0, 0.0);
-
+    
+    (0.0, 0.0)
 }
+
 
 pub fn density_lepton(engine: &mut DarkPhotonsMatter, idx: usize) -> (f64, f64) {
     let mue = engine.mue;      
-       
+    
+    // Salva a energia efetiva para o compute_eos
+    engine.ef_l[idx] = mue;
+    
+    // LIMPEZA: Evita lixo de iterações anteriores no solver
+    engine.f_l[idx].clear();
+
     if mue <= 0.0 { return (0.0, 0.0); }
 
     let m = engine.ml[idx];
@@ -385,13 +407,18 @@ pub fn density_lepton(engine: &mut DarkPhotonsMatter, idx: usize) -> (f64, f64) 
     let kf2 = mue.powi(2) - m.powi(2);
     if kf2 > 0.0 {
         let kf = kf2.sqrt();
+        
+        // SALVANDO O kf PARA A EoS: Sem isso, a energia leptônica dá 0
+        engine.f_l[idx].push(kf);
+        
         let dens_val = kf.powi(3) / (3.0 * PI2);
         let m_safe = m.abs().max(1e-15);
         let rhos_val = (m / (2.0 * PI2)) * (mue * kf - m.powi(2) * ((kf + mue) / m_safe).ln());
         
         return (rhos_val, dens_val);
     }
-    return (0.0, 0.0)
+    
+    (0.0, 0.0)
 }
 
 pub fn compute_eos(engine: &DarkPhotonsMatter, mue: f64, vsigma: f64, vomega: f64, vrho: f64) -> (f64, f64) {

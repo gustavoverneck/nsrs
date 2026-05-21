@@ -6,6 +6,7 @@ pub use core::constants;
 pub use core::io_utils::{read_eos_file, write_eos_with_mr};
 pub use core::model::{GM1, GM3};
 pub use core::physics::{HadronsMatter, MagneticTopology, NlemModel};
+pub use core::darkphotons::DarkPhotonsMatter;
 pub use core::quarks::QuarksMatter;
 pub use core::hybrid::HybridMatter;
 pub use core::plotting::Artist;

@@ -6,7 +6,7 @@ Este arquivo reúne os modelos físicos e as equações utilizadas no NSRS.
 
 A matéria bariônica é descrita pela Hadrodinâmica Quântica (QHD), dentro da aproximação de Campo Médio Relativístico (RMF), onde os graus de liberdade fundamentais são os férmions que compõem o octeto completo de bárions, $b = (n, p, \Lambda^0, \Sigma^-, \Sigma^0, \Sigma^+, \Xi^-, \Xi^0)$, e os léptons, $\ell = (e^-, \mu^-)$, necessários para satisfazer o equilíbrio beta e a neutralidade de carga. Estes bárions interagem via acoplamento mínimo com campos mesônicos clássicos: o escalar $\sigma$, o vetorial $\omega^\mu$ e o isovetorial $\rho^\mu$.
 
-A Lagrangiana da QHD, $\mathcal{L}_{QHD}$, é construída como a soma das Lagrangianas individuais para bárions ($\mathcal{L}_{\text{baryons}}$), mésons ($\mathcal{L}_{\text{mesons}}$), léptons ($\mathcal{L}_{\text{leptons}}$) e o campo eletromagnético ($\mathcal{L}_{\text{EM}}$):
+A Lagrangiana da QHD é construída como a soma das Lagrangianas individuais para bárions, mésons, léptons e o campo eletromagnético:
 
 $$
 \mathcal{L}_{QHD} = \mathcal{L}_{\text{baryons}} + \mathcal{L}_{\text{mesons}} + \mathcal{L}_{\text{leptons}} + \mathcal{L}_{\text{EM}}
@@ -20,7 +20,7 @@ $$
 \mathcal{L}_{\text{baryons}} = \sum_{b} \bar{\psi}_b \left[ \gamma_\mu \left(i \partial^\mu + e_b A^\mu - g_{\omega,b} \omega^\mu - g_{\rho,b} I_{3} \rho^\mu\right) - M^*_b \right] \psi_b
 $$
 
-onde $\psi_b$ e $\bar{\psi}_b$ representam o spinor de Dirac e seu adjunto para um dado bárion $b$, enquanto $\gamma_\mu$ denota as matrizes de Dirac padrão e $A^\mu$ é o potencial vetor eletromagnético. A carga elétrica do bárion é dada por $e_b$, e $I_3$ representa a terceira componente do operador de isospin para cada bárion específico. A massa efetiva do bárion, $M_{b}^{\ast}$, é dinamicamente modificada pelo campo escalar $\sigma$ e definida como $M_{b}^{\ast} \equiv m_{b} - g_{\sigma,b}\sigma$, onde $m_{b}$ representa a massa nua do bárion. Finalmente, os parâmetros $g_{\sigma,b}$, $g_{\omega,b}$ e $g_{\rho,b}$ denotam as constantes de acoplamento específicas do bárion com os campos escalar ($\sigma$), vetorial ($\omega$) e isovetorial ($\rho$), respectivamente.
+onde $\psi_b \text{ e } \bar{\psi}_b$ representam o spinor de Dirac e seu adjunto para um dado bárion $b$, enquanto $\gamma_\mu$ denota as matrizes de Dirac padrão e $A^\mu$ é o potencial vetor eletromagnético. A carga elétrica do bárion é dada por $e_b$, e $I_3$ representa a terceira componente do operador de isospin para cada bárion específico. A massa efetiva do bárion, $M_{b}^{\ast}$, é dinamicamente modificada pelo campo escalar $\sigma$ e definida como $M_{b}^{\ast} \equiv m_{b} - g_{\sigma,b}\sigma$, onde $m_{b}$ representa a massa nua do bárion. Finalmente, os parâmetros $g_{\sigma,b}$, $g_{\omega,b}$ e $g_{\rho,b}$ denotam as constantes de acoplamento específicas do bárion com os campos escalar ($\sigma$), vetorial ($\omega$) e isovetorial ($\rho$), respectivamente.
 
 ### Setor Mesônico
 

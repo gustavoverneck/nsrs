@@ -14,7 +14,7 @@ $$
 
 ### Setor Bariônico
 
-As contribuições bariônicas ditam a dinâmica do octeto completo de bárions acoplado aos campos mesônicos e eletromagnético, descrita pela seguinte densidade de Lagrangiana:
+As contribuições bariônicas ditam a dinâmica do octeto completo de bárions acoplado aos campos mesônicos e eletromagnético, descrita pela seguinte densidade Lagrangiana:
 
 $$
 \mathcal{L}_{\text{baryons}} = \sum_{b} \bar{\psi}_b [ \gamma_\mu (i \partial^\mu + e_b A^\mu - g_{\omega,b} \omega^\mu - g_{\rho,b} I_{3} \rho^\mu) - M^*_b ] \psi_b

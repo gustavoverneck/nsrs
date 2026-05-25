@@ -70,18 +70,19 @@ impl Solver {
 
                     if de > 0.0 {
                         let cs2 = dp / de;
-                        if cs2 < 1e-6 {
+                        if cs2 < 1e-10 {
                             // println!(
                             //     "EoS instável (dp/de = {:.2e}) em mun = {:.4}. Encerrando.",
                             //     cs2, mun
                             // );
                             break;
                         }
-                        if cs2 > 1.1 {
+                        if cs2 > 1.0 {
                             // println!(
                             //     "Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}",
                             //     cs2, mun
                             // );
+                            break;
                         }
                     }
                 }
@@ -99,17 +100,8 @@ impl Solver {
                 // Falha na convergência: reduz o passo e tenta novamente a partir do último sucesso
                 dmub *= 0.5;
                 if dmub < min_dmub {
-                    // println!(
-                    //     "Limite atingido: não foi possível avançar após mun = {:.4} (passo mínimo).",
-                    //     last_mun
-                    // );
                     break;
                 }
-                // println!(
-                //     "Dificuldade de convergência em mun = {:.4}. Reduzindo passo para {:.1e}",
-                //     mun, dmub
-                // );
-                // Retrocede para o último ponto bem-sucedido e tenta com passo menor
                 mun = if results.is_empty() {
                     mun_inf
                 } else {

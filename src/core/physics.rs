@@ -7,8 +7,7 @@ use crate::core::constants::{
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
-use rgsl::Pow;
-use rgsl::exponential::exp;
+// use standard f64 methods instead of rgsl
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NlemModel {
@@ -32,7 +31,7 @@ impl NlemModel {
             
             NlemModel::Modmax(csi) => {
                 // Fórmula: bg * exp(-csi)
-                bg * exp(-csi)
+                bg * (-csi).exp()
             },
             
             NlemModel::Log(csi) => {
@@ -49,7 +48,7 @@ impl NlemModel {
             
             NlemModel::Modmax(csi) => {
                 // ε_MM = ε_Max * e^(-csi)
-                ebsi_maxwell * exp(-csi)
+                ebsi_maxwell * (-csi).exp()
             },
             
             NlemModel::Log(csi) => {

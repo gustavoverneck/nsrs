@@ -70,10 +70,21 @@ fn main() {
 
 			let eps: Vec<f64> = results.iter().map(|r| r[1]).collect();
 			let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
-			let (masses, radii, central_p_list) = generate_mr_curve(&eps, &p_arr, false);
+			let rho_arr: Vec<f64> = results.iter().map(|r| r[0]).collect();
+			let (masses, radii, b_masses, central_p_list) =
+				generate_mr_curve(&eps, &p_arr, &rho_arr, false);
 
 			let eos_filename = format!("{}/eos.dat", dir_path);
-			if write_eos_with_mr(results, &masses, &radii, &central_p_list, &eos_filename).is_err() {
+			if write_eos_with_mr(
+				results,
+				&masses,
+				&radii,
+				&b_masses,
+				&central_p_list,
+				&eos_filename,
+			)
+			.is_err()
+			{
 				continue;
 			}
 		}

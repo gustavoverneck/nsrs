@@ -42,11 +42,11 @@ fn main() {
         let mut solver_q = Solver::new(EngineMode::Quarks(quark_engine));
         let res_q = solver_q.solve();
         
-        let (eps_q, p_q) = extract_eos_filtered(&res_q);
+        let (eps_q, p_q, rho_q) = extract_eos_filtered(&res_q);
         
         // Garante que o TOV só rode se houver matéria física
         if eps_q.len() > 10 {
-            let (m_q, r_q, _) = generate_mr_curve(&eps_q, &p_q, false);
+            let (m_q, r_q, _b_q, _) = generate_mr_curve(&eps_q, &p_q, &rho_q, false);
             let label = format!("B = {:.2}", bag);
             
             artist_mr_bag = artist_mr_bag.add_curve(&r_q, &m_q, &label);
@@ -93,10 +93,10 @@ fn main() {
 
         let mut solver_q = Solver::new(EngineMode::Quarks(quark_engine));
         let res_q = solver_q.solve();
-        let (eps_q, p_q) = extract_eos_filtered(&res_q);
+        let (eps_q, p_q, rho_q) = extract_eos_filtered(&res_q);
         
         if eps_q.len() > 10 {
-            let (m_q, r_q, _) = generate_mr_curve(&eps_q, &p_q, true);
+            let (m_q, r_q, _b_q, _) = generate_mr_curve(&eps_q, &p_q, &rho_q, true);
             let label = format!("gv = {:.1}", gv);
             
             // A mágica acontece aqui: pegamos a cor direto do ColorScale
@@ -116,15 +116,17 @@ fn main() {
 /// Função auxiliar para extrair Eps e P dos resultados do solver.
 /// Diferente do hybrid.rs, filtramos as energias e pressões > 0 
 /// para garantir que o TOV não falhe ao lidar com o vácuo autoligado das Strange Stars.
-fn extract_eos_filtered(results: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>) {
+fn extract_eos_filtered(results: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut eps = Vec::new();
     let mut p = Vec::new();
+    let mut rho = Vec::new();
     for r in results {
         // Apenas pressões e densidades estritamente positivas entram no TOV
         if r[1] > 0.0 && r[2] > 0.0 {
             eps.push(r[1]);
             p.push(r[2]);
+            rho.push(r[0]);
         }
     }
-    (eps, p)
+    (eps, p, rho)
 }

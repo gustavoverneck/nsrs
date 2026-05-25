@@ -155,6 +155,7 @@ fn main() {
                 let reader = BufReader::new(file);
                 let mut eps_vec = Vec::new();
                 let mut p_vec = Vec::new();
+                let mut rho_vec = Vec::new();
 
                 // NOVO: vetores de população
                 let mut n_over_n0 = Vec::new();
@@ -179,9 +180,11 @@ fn main() {
                     if parts.len() > 2 {
                         let eps = parts[1];
                         let p = parts[2];
+                        let rho = parts.get(0).copied().unwrap_or(0.0);
                         if eps > 0.0 && p > 0.0 {
                             eps_vec.push(eps);
                             p_vec.push(p);
+                            rho_vec.push(rho);
                         }
                     }
 
@@ -202,7 +205,8 @@ fn main() {
                 }
 
                 if eps_vec.len() > 10 {
-                    let (masses, radii, _central_p_list) = generate_mr_curve(&eps_vec, &p_vec, false);
+                    let (masses, radii, _b_masses, _central_p_list) =
+                        generate_mr_curve(&eps_vec, &p_vec, &rho_vec, false);
                     let label = format!("{} ({})", b_string, label_suffix);
 
                     artist_eos = artist_eos.add_curve(&eps_vec, &p_vec, &label);

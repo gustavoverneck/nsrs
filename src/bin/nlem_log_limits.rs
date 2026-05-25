@@ -123,7 +123,9 @@ fn test_magnetic_field_no_nlem(
             return Err("Insufficient data points for interpolation");
         }
 
-        let (masses, radii, _) = generate_mr_curve(&eps, &p_arr, false);
+        let rho_arr: Vec<f64> = results_eos.iter().map(|r| r[0]).collect();
+        let (masses, radii, b_masses, central_p_list) =
+            generate_mr_curve(&eps, &p_arr, &rho_arr, false);
 
         if masses.is_empty() || radii.is_empty() {
             return Err("Empty M-R curve");
@@ -145,7 +147,14 @@ fn test_magnetic_field_no_nlem(
         let base_dir = format!("output/nlem_log_limits/{}/B_{}/no_nlem", model_name, b_string);
         let _ = fs::create_dir_all(&base_dir);
         let eos_filename = format!("{}/eos.dat", base_dir);
-        let _ = write_eos_with_mr(&results_eos, &masses, &radii, &[], &eos_filename);
+        let _ = write_eos_with_mr(
+            &results_eos,
+            &masses,
+            &radii,
+            &b_masses,
+            &central_p_list,
+            &eos_filename,
+        );
 
         Ok((max_mass, max_radius))
     })() {
@@ -235,6 +244,7 @@ fn test_magnetic_field(
 
             let eps: Vec<f64> = results_eos.iter().map(|r| r[1]).collect();
             let p_arr: Vec<f64> = results_eos.iter().map(|r| r[2]).collect();
+            let rho_arr: Vec<f64> = results_eos.iter().map(|r| r[0]).collect();
 
             if eps.is_empty() || p_arr.is_empty() {
                 return Err("Empty eps or p_arr");
@@ -245,7 +255,8 @@ fn test_magnetic_field(
                 return Err("Insufficient data points for interpolation");
             }
 
-            let (masses, radii, _) = generate_mr_curve(&eps, &p_arr, false);
+            let (masses, radii, b_masses, central_p_list) =
+                generate_mr_curve(&eps, &p_arr, &rho_arr, false);
 
             if masses.is_empty() || radii.is_empty() {
                 return Err("Empty M-R curve");
@@ -268,7 +279,14 @@ fn test_magnetic_field(
             let dir_path = format!("{}/csi_{:.2e}", base_dir, csi);
             let _ = fs::create_dir_all(&dir_path);
             let eos_filename = format!("{}/eos.dat", dir_path);
-            let _ = write_eos_with_mr(&results_eos, &masses, &radii, &[], &eos_filename);
+            let _ = write_eos_with_mr(
+                &results_eos,
+                &masses,
+                &radii,
+                &b_masses,
+                &central_p_list,
+                &eos_filename,
+            );
 
             Ok((max_mass, max_radius))
         })() {

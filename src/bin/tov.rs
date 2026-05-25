@@ -18,12 +18,12 @@ fn main() {
 
     // 2. Lê os dados da EoS (Densidade de Energia e Pressão)
     match read_eos_file(eos_path) {
-        Ok((eps, p)) => {
+        Ok((eps, p, rho)) => {
             println!("EoS lida com sucesso. Pontos carregados: {}", eps.len());
             println!("Integrando equações TOV...");
 
             // 3. Gera a curva Massa-Raio
-            let (masses, radii, _) = generate_mr_curve(&eps, &p, false);
+            let (masses, radii, _b_masses, _) = generate_mr_curve(&eps, &p, &rho, false);
 
             if masses.is_empty() || radii.is_empty() {
                 eprintln!("Erro: A curva M-R retornou vazia. Verifique se as pressões da EoS suportam uma estrela.");

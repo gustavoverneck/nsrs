@@ -22,23 +22,23 @@ fn main() {
     println!("Resolvendo EoS Hadrônica (GM1)...");
     let mut solver_h = Solver::new(EngineMode::Hadrons(hadron_engine.clone()));
     let res_h = solver_h.solve();
-    let (eps_h, p_h) = extract_eos(&res_h);
-    let (m_h, r_h, _) = generate_mr_curve(&eps_h, &p_h, true);
+    let (eps_h, p_h, rho_h) = extract_eos(&res_h);
+    let (m_h, r_h, _b_h, _) = generate_mr_curve(&eps_h, &p_h, &rho_h, true);
 
     // 3. Resolve a Estrela de Quarks Pura (MIT Bag)
     println!("Resolvendo EoS de Quarks (MIT Bag)...");
     let mut solver_q = Solver::new(EngineMode::Quarks(quark_engine.clone()));
     let res_q = solver_q.solve();
-    let (eps_q, p_q) = extract_eos(&res_q);
-    let (m_q, r_q, _) = generate_mr_curve(&eps_q, &p_q, true);
+    let (eps_q, p_q, rho_q) = extract_eos(&res_q);
+    let (m_q, r_q, _b_q, _) = generate_mr_curve(&eps_q, &p_q, &rho_q, true);
 
     // 4. Resolve a Estrela Híbrida (Maxwell Construction)
     println!("Resolvendo EoS Híbrida (Maxwell)...");
     let hybrid_engine = HybridMatter::new(hadron_engine, quark_engine);
     let mut solver_hyb = Solver::new(EngineMode::Hybrid(hybrid_engine));
     let res_hyb = solver_hyb.solve();
-    let (eps_hyb, p_hyb) = extract_eos(&res_hyb);
-    let (m_hyb, r_hyb, _) = generate_mr_curve(&eps_hyb, &p_hyb, true);
+    let (eps_hyb, p_hyb, rho_hyb) = extract_eos(&res_hyb);
+    let (m_hyb, r_hyb, _b_hyb, _) = generate_mr_curve(&eps_hyb, &p_hyb, &rho_hyb, true);
 
     // 5. Geração do Gráfico de Comparação M-R
     println!("Gerando gráficos de comparação...");
@@ -68,8 +68,9 @@ fn main() {
 }
 
 /// Função auxiliar para extrair Eps e P dos resultados do solver
-fn extract_eos(results: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>) {
+fn extract_eos(results: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let eps = results.iter().map(|r| r[1]).collect();
     let p = results.iter().map(|r| r[2]).collect();
-    (eps, p)
+    let rho = results.iter().map(|r| r[0]).collect();
+    (eps, p, rho)
 }

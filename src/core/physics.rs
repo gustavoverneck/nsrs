@@ -7,7 +7,6 @@ use crate::core::constants::{
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
-// use standard f64 methods instead of rgsl
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NlemModel {

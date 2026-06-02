@@ -97,7 +97,10 @@ def read_mr_from_eos(path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     if not masses:
         return None
 
-    return np.asarray(masses, dtype=float), np.asarray(radii, dtype=float)
+    mass_arr = np.asarray(masses, dtype=float)
+    radius_arr = np.asarray(radii, dtype=float)
+    order = np.argsort(radius_arr)
+    return mass_arr[order], radius_arr[order]
 
 
 def compute_metrics(
@@ -315,10 +318,88 @@ def plot_mr_all(out_path: str, hadrons_path: str, base_dir: str, rows: List[Metr
 
     plt.xlabel("Radius (km)")
     plt.ylabel("Mass (M_sun)")
+    plt.xlim(8.0, 16.0)
+    plt.ylim(0.0, 2.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
     plt.close()
     return True
+
+
+def plot_pairwise_scores(out_path: str, rows: List[Metrics], top_frac: float) -> None:
+    eps = np.array([m.epsilon for m in rows])
+    mx = np.array([m.m_x for m in rows])
+    gd = np.array([m.g_d for m in rows])
+    nchi = np.array([m.n_chi for m in rows])
+    score = np.array([m.score for m in rows])
+
+    n_top = max(1, int(len(rows) * top_frac))
+    top_mask = np.zeros(len(rows), dtype=bool)
+    top_mask[:n_top] = True
+
+    params = {
+        "epsilon": eps,
+        "m_x": mx,
+        "g_d": gd,
+        "n_chi": nchi,
+    }
+    pairs = [
+        ("epsilon", "m_x"),
+        ("epsilon", "g_d"),
+        ("epsilon", "n_chi"),
+        ("m_x", "g_d"),
+        ("m_x", "n_chi"),
+        ("g_d", "n_chi"),
+    ]
+
+    fig, axs = plt.subplots(2, 3, figsize=(11.0, 6.0))
+    mappable = None
+
+    for ax, (x_name, y_name) in zip(axs.ravel(), pairs):
+        x = params[x_name]
+        y = params[y_name]
+        mappable = ax.scatter(x, y, c=score, cmap="viridis", s=12, alpha=0.6)
+        ax.scatter(
+            x[top_mask],
+            y[top_mask],
+            facecolors="none",
+            edgecolors="#d62728",
+            s=36,
+            linewidths=0.8,
+        )
+        if x_name == "epsilon":
+            ax.set_xscale("log")
+        if y_name == "epsilon":
+            ax.set_yscale("log")
+        ax.set_xlabel(x_name)
+        ax.set_ylabel(y_name)
+
+    if mappable is not None:
+        fig.colorbar(mappable, ax=axs.ravel().tolist(), label="score", shrink=0.9)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+
+def write_optimal_ranges(out_path: str, rows: List[Metrics], top_frac: float) -> None:
+    n_top = max(1, int(len(rows) * top_frac))
+    top = rows[:n_top]
+
+    eps = np.array([m.epsilon for m in top])
+    mx = np.array([m.m_x for m in top])
+    gd = np.array([m.g_d for m in top])
+    nchi = np.array([m.n_chi for m in top])
+    score = np.array([m.score for m in top])
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("Optimal ranges from top {:.1f}% (by score)\n".format(top_frac * 100.0))
+        f.write("count={}\n\n".format(len(top)))
+        f.write("epsilon: min={:.3e} max={:.3e} mean={:.3e}\n".format(eps.min(), eps.max(), eps.mean()))
+        f.write("m_x:     min={:.3e} max={:.3e} mean={:.3e}\n".format(mx.min(), mx.max(), mx.mean()))
+        f.write("g_d:     min={:.3e} max={:.3e} mean={:.3e}\n".format(gd.min(), gd.max(), gd.mean()))
+        f.write("n_chi:   min={:.3e} max={:.3e} mean={:.3e}\n".format(nchi.min(), nchi.max(), nchi.mean()))
+        f.write("\nscore:  min={:.3e} max={:.3e} mean={:.3e}\n".format(score.min(), score.max(), score.mean()))
 
 
 def main() -> None:
@@ -328,6 +409,7 @@ def main() -> None:
     parser.add_argument("--min-overlap", type=int, default=30)
     parser.add_argument("--max-rms", type=float, default=0.5)
     parser.add_argument("--max-invalid", type=float, default=0.02)
+    parser.add_argument("--top-frac", type=float, default=0.1)
     parser.add_argument("--log-scale", action="store_true")
     parser.add_argument("--linear-scale", action="store_true")
     parser.add_argument("--no-plots", action="store_true")
@@ -355,6 +437,7 @@ def main() -> None:
 
     analysis_csv = os.path.join(out_dir, "analysis.csv")
     write_analysis_csv(analysis_csv, rows_sorted)
+    write_optimal_ranges(os.path.join(out_dir, "optimal_ranges.txt"), rows_sorted, args.top_frac)
 
     print("Best parameters:")
     print(
@@ -382,6 +465,11 @@ def main() -> None:
             use_log,
         )
         plot_score_scatter(os.path.join(out_dir, "score_scatter.png"), rows_sorted)
+        plot_pairwise_scores(
+            os.path.join(out_dir, "pairwise_score.png"),
+            rows_sorted,
+            args.top_frac,
+        )
         mr_written = plot_mr_all(
             os.path.join(out_dir, "mr_all.png"),
             hadrons_path,

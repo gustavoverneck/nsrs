@@ -7,6 +7,7 @@ edition = "2024"
 argmin = "0.11.0"
 argmin-math = { version = "0.5.1", features = ["ndarray_v0_15"] }
 csv = "1.4.0"
+indicatif = "0.17.9"
 nalgebra = "0.34.1"
 ndarray = "0.17.2"
 ode_solvers = "0.6.1"

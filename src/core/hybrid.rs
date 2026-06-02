@@ -7,11 +7,21 @@ use crate::core::quarks::QuarksMatter;
 pub struct HybridMatter {
     pub hadrons: HadronsMatter,
     pub quarks: QuarksMatter,
+    pub eos_output: Option<String>,
 }
 
 impl HybridMatter {
     pub fn new(hadrons: HadronsMatter, quarks: QuarksMatter) -> Self {
-        Self { hadrons, quarks }
+        Self {
+            hadrons,
+            quarks,
+            eos_output: None,
+        }
+    }
+
+    pub fn with_eos_output<P: Into<String>>(mut self, path: P) -> Self {
+        self.eos_output = Some(path.into());
+        self
     }
 
     /// Resolve o ponto híbrido comparando as pressões (Construção de Maxwell).

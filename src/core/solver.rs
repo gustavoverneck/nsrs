@@ -1,6 +1,9 @@
-use crate::core::constants::RESULTS_SIZE;
+use crate::core::constants::{RESULTS_SIZE, N0};
 // src/core/solver.rs
 use crate::core::physics::HadronsMatter;
+use crate::core::tov_solver::generate_mr_curve;
+use crate::core::io_utils::write_eos_with_mr;
+use indicatif::{ProgressBar, ProgressStyle};
 use crate::core::darkphotons::DarkPhotonsMatter;
 use crate::core::quarks::QuarksMatter;
 use crate::core::hybrid::HybridMatter;
@@ -62,6 +65,11 @@ impl Solver {
                 last_x = x_converged;
                 last_mun = mun;
 
+                // Para a integração se a densidade bariônica ultrapassar 15 N0.
+                if point_result[0] * N0 > 11.0 * N0 {
+                    break;
+                }
+
                 // Verificação de estabilidade (dp/de)
                 if !results.is_empty() {
                     let prev = results.last().unwrap();
@@ -70,14 +78,14 @@ impl Solver {
 
                     if de > 0.0 {
                         let cs2 = dp / de;
-                        if cs2 < 1e-10 {
+                        if cs2 < 1e-15 {
                             // println!(
                             //     "EoS instável (dp/de = {:.2e}) em mun = {:.4}. Encerrando.",
                             //     cs2, mun
                             // );
                             break;
                         }
-                        if cs2 > 1.0 {
+                        if cs2 > 1.1 {
                             // println!(
                             //     "Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}",
                             //     cs2, mun
@@ -110,11 +118,34 @@ impl Solver {
             }
         }
 
+        let output_path = match &self.engine {
+            EngineMode::Hadrons(h) => h.eos_output.clone(),
+            EngineMode::Quarks(q) => q.eos_output.clone(),
+            EngineMode::Hybrid(h) => h.eos_output.clone(),
+            EngineMode::DarkPhotons(d) => d.eos_output.clone(),
+        };
+
+        if let Some(path) = output_path {
+            let eps_arr: Vec<f64> = results.iter().map(|r| r[1]).collect();
+            let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
+            let rho_arr: Vec<f64> = results.iter().map(|r| r[0]).collect();
+            let (masses, radii, b_masses, pc_list) =
+                generate_mr_curve(&eps_arr, &p_arr, &rho_arr, false);
+            let _ = write_eos_with_mr(&results, &masses, &radii, &b_masses, &pc_list, &path);
+            return Vec::new();
+        }
+
         results
     }
 
     /// Resolve múltiplas EoS de forma paralela usando Rayon.
     pub fn solve_parallel(engines: Vec<EngineMode>, num_threads: usize) -> Vec<Vec<[f64; RESULTS_SIZE]>> {
+        let pb = ProgressBar::new(engines.len() as u64);
+        let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_bar());
+        pb.set_style(style);
+        pb.set_message("Solving EOS");
+
         // 1. Criamos um construtor de pool de threads personalizado
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
@@ -122,15 +153,20 @@ impl Solver {
             .expect("Falha ao criar o ThreadPool do Rayon");
 
         // 2. Executamos o processamento paralelo dentro deste pool específico
-        pool.install(|| {
+        let results = pool.install(|| {
             engines
                 .into_par_iter()
                 .map(|engine| {
                     let mut solver = Solver::new(engine);
-                    solver.solve()
+                    let result = solver.solve();
+                    pb.inc(1);
+                    result
                 })
                 .collect()
-        })
+        });
+
+        pb.finish_and_clear();
+        results
     }
 
     /// Exporta os resultados da EoS para um arquivo formatado.

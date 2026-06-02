@@ -3,7 +3,7 @@
 
 use crate::core::constants::{
     AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA,
-    M_NUCLEON, MB, ML, N0, QE, RESULTS_SIZE, MAX_LANDAU_LIMIT
+    M_NUCLEON, MB, ML, N0, QE, RESULTS_SIZE, MAX_LANDAU_LIMIT, HBAR_C
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
@@ -130,6 +130,8 @@ pub struct HadronsMatter {
     pub max_landau_limit: usize,
 
     pub isospin_factor: [f64; 8],
+
+    pub eos_output: Option<String>,
 }
 
 impl HadronsMatter {
@@ -211,6 +213,7 @@ impl HadronsMatter {
             max_landau_limit: MAX_LANDAU_LIMIT,
 
             isospin_factor: isospin_factor,
+            eos_output: None,
         }
     }
     /// Define a topologia das linhas de campo magnético
@@ -242,6 +245,11 @@ impl HadronsMatter {
 
     pub fn with_points(mut self, n: usize) -> Self {
         self.n_points = n;
+        self
+    }
+
+    pub fn with_eos_output<P: Into<String>>(mut self, path: P) -> Self {
+        self.eos_output = Some(path.into());
         self
     }
 
@@ -398,9 +406,9 @@ impl HadronsMatter {
         let (ener, press) = crate::core::eos::compute(self, mue, vsigma, vomega, vrho);
 
         let nb_total = self.nb.iter().sum::<f64>();
-        let nbtd = nb_total * (self.m_nuc / 197.32).powi(3);
+        let nbtd = nb_total * (self.m_nuc / HBAR_C).powi(3);
 
-        let factor_mev_fm3 = self.m_nuc * (self.m_nuc / 197.32).powi(3);
+        let factor_mev_fm3 = self.m_nuc * (self.m_nuc / HBAR_C).powi(3);
         let ener_conv = ener * factor_mev_fm3;
         let press_conv = press * factor_mev_fm3;
 

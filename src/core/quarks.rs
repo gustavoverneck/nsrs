@@ -43,6 +43,8 @@ pub struct QuarksMatter {
     pub mun_sup: f64,      // Agora em unidades normalizadas (ex: 2.5)
     pub n_points: usize,
 
+    pub eos_output: Option<String>,
+
     // Variáveis para o Newton-Raphson interno
     pub last_mue: f64,
     pub last_v0: f64,
@@ -62,6 +64,7 @@ impl QuarksMatter {
             mun_inf: 1.0, 
             mun_sup: 2.5,
             n_points: 1201,
+            eos_output: None,
             last_mue: 10.0, 
             last_v0: 0.0,   
         }
@@ -80,6 +83,11 @@ impl QuarksMatter {
 
     pub fn with_points(mut self, n: usize) -> Self {
         self.n_points = n;
+        self
+    }
+
+    pub fn with_eos_output<P: Into<String>>(mut self, path: P) -> Self {
+        self.eos_output = Some(path.into());
         self
     }
 

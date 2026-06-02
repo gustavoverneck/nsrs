@@ -1,96 +1,113 @@
-// src/bin/b.rs
+// src/bin/darkphotons.rs
 
-use nsrs::{
-    generate_mr_curve, write_eos_with_mr, Artist, DarkPhotonsMatter, EngineMode, GM1, GM3,
-    Solver,
-};
+use nsrs::{DarkPhotonsMatter, EngineMode, GM1, GM3, HadronsMatter, Solver};
 use std::fs;
+use std::io::Write;
 
 fn main() {
-	let models = [("GM1", GM1), ("GM3", GM3)];
+    let models = [("GM1", GM1)];
+    let b_field = 1e17;
 
-    let mut engines: Vec<EngineMode> = Vec::with_capacity(models.len());
-    let mut model_names: Vec<&str> = Vec::with_capacity(models.len());
+    let eps_values = linspace(1e-6, 1e-3, 10);
+    let m_x_values = linspace(0.01, 0.11, 10);
+    let g_d_values = linspace(0.35, 1.12, 10);
+    let n_chi_values = linspace(0.0, 0.1, 10);
 
     for (model_name, model) in models {
-        let motor = DarkPhotonsMatter::new(model)
+        let base_dir = format!("output/darkphotons_scan/{}", model_name);
+        if fs::create_dir_all(&base_dir).is_err() {
+            continue;
+        }
+
+        let summary_path = format!("{}/summary.csv", base_dir);
+        let mut summary = match fs::File::create(&summary_path) {
+            Ok(file) => file,
+            Err(_) => continue,
+        };
+        let _ = writeln!(summary, "label,epsilon,m_x,g_d,n_chi,eos_file");
+
+        let hadrons_filename = "eos_hadrons.dat";
+        let hadrons_path = format!("{}/{}", base_dir, hadrons_filename);
+        let hadrons_motor = HadronsMatter::new(model, b_field)
             .with_limits(0.01, 2.0)
-            .with_points(1200);
-        engines.push(EngineMode::DarkPhotons(motor));
-        model_names.push(model_name);
-    }
+            .with_points(1200)
+            .with_eos_output(&hadrons_path);
+        let mut hadrons_solver = Solver::new(EngineMode::Hadrons(hadrons_motor));
+        let _ = hadrons_solver.solve();
+        let _ = writeln!(summary, "hadrons,,,,,{}", hadrons_filename);
 
-    let all_results = Solver::solve_parallel(engines, 2);
-
-    for (idx, results) in all_results.iter().enumerate() {
-        let model_name = model_names[idx];
-        let dir_path = format!("output/darkphotons/{}", model_name);
-        if fs::create_dir_all(&dir_path).is_err() {
-            continue;
+        let mut engines = Vec::new();
+        for epsilon in &eps_values {
+            for m_x in &m_x_values {
+                for g_d in &g_d_values {
+                    for n_chi in &n_chi_values {
+                        let eos_filename = format!(
+                            "eos_eps_{}_mx_{}_gd_{}_nchi_{}.dat",
+                            format_sci(*epsilon),
+                            format_sci(*m_x),
+                            format_fixed(*g_d, 3),
+                            format_sci(*n_chi)
+                        );
+                        let eos_path = format!("{}/{}", base_dir, eos_filename);
+                        let dark_motor = DarkPhotonsMatter::new(model, b_field)
+                            .with_limits(0.01, 2.0)
+                            .with_points(1200)
+                            .with_epsilon(*epsilon)
+                            .with_m_x(*m_x)
+                            .with_g_d(*g_d)
+                            .with_n_chi(*n_chi)
+                            .with_eos_output(&eos_path);
+                        engines.push(EngineMode::DarkPhotons(dark_motor));
+                        let _ = writeln!(
+                            summary,
+                            "darkphotons,{:.6e},{:.6e},{:.6e},{:.6e},{}",
+                            epsilon,
+                            m_x,
+                            g_d,
+                            n_chi,
+                            eos_filename
+                        );
+                    }
+                }
+            }
         }
 
-        let eps: Vec<f64> = results.iter().map(|r| r[1]).collect();
-        let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
-        let rho_arr: Vec<f64> = results.iter().map(|r| r[0]).collect();
-        let (masses, radii, b_masses, central_p_list) = generate_mr_curve(&eps, &p_arr, &rho_arr, false);
-
-        let eos_filename = format!("{}/eos.dat", dir_path);
-        if write_eos_with_mr(
-            results,
-            &masses,
-            &radii,
-            &b_masses,
-            &central_p_list,
-            &eos_filename,
-        )
-        .is_err()
-        {
-            continue;
-        }
-
-        let eos_plot = format!("{}/eos.svg", dir_path);
-        let mr_plot = format!("{}/mr.svg", dir_path);
-        let be_vs_m_plot = format!("{}/be_vs_m.svg", dir_path);
-        let m_vs_pc_plot = format!("{}/m_vs_pc.svg", dir_path);
-
-        let _ = Artist::new(&eos_plot, "Equation of State")
-            .with_x_label("Energy Density ε [MeV/fm³]")
-            .with_y_label("Pressure P [MeV/fm³]")
-            .add_curve(&eps, &p_arr, model_name)
-            .plot();
-
-        let _ = Artist::new(&mr_plot, "Mass-Radius Relation")
-            .with_x_label("Radius [km]")
-            .with_y_label("Mass [M⊙]")
-            .add_curve(&radii, &masses, model_name)
-            .autoscale()
-            .plot();
-
-        let n_ratio = masses.len().min(b_masses.len());
-        let m_for_be: Vec<f64> = masses.iter().copied().take(n_ratio).collect();
-        let binding_energy: Vec<f64> = b_masses
-            .iter()
-            .zip(masses.iter())
-            .take(n_ratio)
-            .map(|(&mb, &m)| mb - m)
-            .collect();
-
-        let _ = Artist::new(&be_vs_m_plot, "Gravitational Binding Energy")
-            .with_x_label("Gravitational Mass M [M⊙]")
-            .with_y_label("Binding Energy (Mb - M) [M⊙]")
-            .add_curve(&m_for_be, &binding_energy, model_name)
-            .plot();
-
-        let n_pc = masses.len().min(central_p_list.len());
-        let pc_filtered: Vec<f64> = central_p_list.iter().copied().take(n_pc).collect();
-        let m_for_pc: Vec<f64> = masses.iter().copied().take(n_pc).collect();
-
-        let _ = Artist::new(&m_vs_pc_plot, "Stability Curve")
-            .with_x_label("Central Pressure Pc [MeV/fm³]")
-            .with_y_label("Gravitational Mass [M⊙]")
-            .add_curve(&pc_filtered, &m_for_pc, model_name)
-            .plot();
+        let _ = Solver::solve_parallel(engines, 16);
     }
 
-    println!("\nProcesso concluído! Dados salvos em output/darkphotons/");
+    println!("\nProcesso concluido! Dados salvos em output/darkphotons_scan/");
+}
+
+fn logspace(start: f64, end: f64, n: usize) -> Vec<f64> {
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![start];
+    }
+    let log_start = start.ln();
+    let log_end = end.ln();
+    let step = (log_end - log_start) / (n as f64 - 1.0);
+    (0..n)
+        .map(|i| (log_start + step * i as f64).exp())
+        .collect()
+}
+
+fn format_sci(value: f64) -> String {
+    format!("{:.2e}", value).replace('+', "")
+}
+
+fn format_fixed(value: f64, decimals: usize) -> String {
+    format!("{:.*}", decimals, value)
+}
+
+fn linspace(start: f64, end: f64, n: usize) -> Vec<f64> {
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![start];
+    }
+    let step = (end - start) / (n as f64 - 1.0);
+    (0..n).map(|i| start + step * i as f64).collect()
 }

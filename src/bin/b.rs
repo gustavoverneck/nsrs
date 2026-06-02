@@ -40,7 +40,7 @@ fn main() {
 	let b_max = 3.0e18;
 
 	let b_fields = build_b_fields(total_points, b_min, b_max);
-	let models = [("GM1", GM1), ("GM3", GM3)];
+	let models = [("GM1", GM1)];
 
 	for (model_name, model_params) in models {
 		let engines: Vec<EngineMode> = b_fields
@@ -48,7 +48,7 @@ fn main() {
 			.map(|&b_field| {
 				let motor = HadronsMatter::new(model_params, b_field)
 					.with_limits(0.01, 2.0)
-					.with_points(2000);
+					.with_points(1201);
 				EngineMode::Hadrons(motor)
 			})
 			.collect();

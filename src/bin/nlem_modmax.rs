@@ -10,9 +10,10 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let csi_vals: Vec<f64> = (1..=5)
+    // gera valores de 1e-25 .. 9e-1 (mantissas 1..9 por década)
+    let csi_vals: Vec<f64> = (-10..=-1)
         .flat_map(|exp| {
-            let base = 10_f64.powi(-(6 - exp));
+            let base = 10_f64.powi(exp);
             (1..=9).map(move |i| i as f64 * base)
         })
         .collect();
@@ -48,7 +49,7 @@ fn main() {
                             .with_topology(topology_mode)
                             .with_nlem(NlemModel::Modmax(csi))
                             .with_limits(0.02, 2.0)
-                            .with_points(1000);
+                            .with_points(1201);
 
                         EngineMode::Hadrons(motor)
                     })

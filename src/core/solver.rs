@@ -144,7 +144,7 @@ impl Solver {
         let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
             .unwrap_or_else(|_| ProgressStyle::default_bar());
         pb.set_style(style);
-        pb.set_message("Solving EOS");
+        pb.set_message("NSRS");
 
         // 1. Criamos um construtor de pool de threads personalizado
         let pool = rayon::ThreadPoolBuilder::new()

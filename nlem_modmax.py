@@ -3,7 +3,7 @@
 Análise científica completa dos dados NLEM gerados em output/modmax.
 
 Objetivos:
-- Consolidar EoS, M-R e populações para GM1/GM3 e topologias isotrópica/anisotrópica.
+- Consolidar EoS, M-R e populações para GM1/GM3.
 - Quantificar o efeito de log10(csi) na estrutura estelar.
 - Avaliar os limites de causalidade e estabilidade através da velocidade do som (c_s^2).
 - Mapear os limiares de surgimento (onset thresholds) das partículas.
@@ -16,10 +16,13 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-import re
+import os
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -67,6 +70,31 @@ HBARC_MEV_FM = 197.3269804
 MAX_VALID_MASS_MSUN = 3.0
 MAX_VALID_RADIUS_KM = 20.0
 COMPARISON_MR_TARGETS = [1e-22, 1e-20, 1e-15, 1e-10, 1e-5, 1e-1]
+MR_XLIM_BY_MODEL = {
+    "GM3": (9.0, 15.0),
+}
+DEFAULT_MR_XLIM = (10.0, 16.5)
+PARTICLE_SPECIES = [
+    (COL_NE, r"$e^-$"),
+    (COL_NMU, r"$\mu^-$"),
+    (COL_NN, r"$n$"),
+    (COL_NP, r"$p$"),
+    (COL_NL0, r"$\Lambda^0$"),
+    (COL_NSM, r"$\Sigma^-$"),
+    (COL_NS0, r"$\Sigma^0$"),
+    (COL_NSP, r"$\Sigma^+$"),
+    (COL_NXM, r"$\Xi^-$"),
+    (COL_NX0, r"$\Xi^0$"),
+]
+THRESHOLD_SPECIES = [
+    (COL_NMU, r"$\mu^-$"),
+    (COL_NL0, r"$\Lambda^0$"),
+    (COL_NSM, r"$\Sigma^-$"),
+    (COL_NS0, r"$\Sigma^0$"),
+    (COL_NSP, r"$\Sigma^+$"),
+    (COL_NXM, r"$\Xi^-$"),
+    (COL_NX0, r"$\Xi^0$"),
+]
 
 
 @dataclass
@@ -74,9 +102,9 @@ class Dataset:
     model: str
     b_label: str
     b_value: float
-    topology: str
     csi: float
     log_csi: float
+    is_baseline: bool
     file_path: Path
     data: np.ndarray
 
@@ -86,9 +114,9 @@ class SummaryRow:
     model: str
     b_label: str
     b_value: float
-    topology: str
     csi: float
     log_csi: float
+    is_baseline: bool
     n_eos_points: int
     n_mr_points: int
     max_mass_msun: float
@@ -106,7 +134,7 @@ class SummaryRow:
     landau_nu_max: float
     landau_nu_p95: float
     eos_path: str
-    
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Análise NLEM completa para dados em output/modmax"
@@ -126,8 +154,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--baseline-root",
         type=Path,
-        default=Path("output/b"),
-        help="Raiz dos dados baseline sem csi (B=0.0)",
+        default=Path("output/modmax"),
+        help="Raiz dos dados baseline eos_baseline.dat",
     )
     parser.add_argument(
         "--max-curves-per-family",
@@ -151,45 +179,99 @@ def ensure_dir(path: Path) -> None:
 def _safe_float(text: str) -> Optional[float]:
     try:
         return float(text)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
 
 
-def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, str, float, float]]:
-    rx = re.compile(
-        r".*/output/modmax/(?P<model>GM\d+)/B_(?P<b>[^/]+)/(?:"
-        r"(?P<topology>isotropic|anisotropic)/)?csi_(?P<csi>[^/]+)/eos\.dat$"
-    )
-    m = rx.match(path.resolve().as_posix())
-    if not m:
+def _latex_sci(value: float, precision: int = 2) -> str:
+    """Format numbers for plot labels as mantissa times power of ten."""
+    if not np.isfinite(value):
+        return r"\mathrm{nan}"
+    if value == 0.0:
+        return "0"
+
+    exponent = int(math.floor(math.log10(abs(value))))
+    mantissa = value / (10.0 ** exponent)
+    return rf"{mantissa:.{precision}f}\times10^{{{exponent}}}"
+
+
+def _b_plot_label(b_value: float, *, precision: int = 2) -> str:
+    return rf"$B={_latex_sci(b_value, precision)}\,\mathrm{{G}}$"
+
+
+def _gamma_plot_label(csi: float, *, precision: int = 2) -> str:
+    return rf"$\gamma={_latex_sci(csi, precision)}$"
+
+
+def _has_columns(arr: np.ndarray, last_col: int) -> bool:
+    return arr.ndim == 2 and arr.shape[1] > last_col
+
+
+def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, float, float, bool]]:
+    """
+    Extract metadata from the actual output/modmax layout:
+
+        output/modmax/GM1/B_1.00e16/eos_csi_1.00e-3.dat
+        output/modmax/GM1/B_1.00e16/eos_baseline.dat
+
+    The parser intentionally uses only Path components and the filename. It
+    does not inspect or regex-match the absolute path.
+    """
+    if path.suffix != ".dat":
+        return None
+    if path.parent.parent == path.parent:
         return None
 
-    model = m.group("model")
-    b_label = m.group("b")
-    topology = m.group("topology") or "isotropic"
+    model = path.parent.parent.name
+    b_dir = path.parent.name
+    if not model.startswith("GM") or not b_dir.startswith("B_"):
+        return None
 
+    b_label = b_dir.removeprefix("B_")
     b_value = _safe_float(b_label)
-    csi = _safe_float(m.group("csi"))
-    if b_value is None or csi is None:
+    if b_value is None:
+        return None
+
+    is_baseline = path.name == "eos_baseline.dat"
+    if is_baseline:
+        csi = math.nan
+        log_csi = math.nan
+        return model, b_label, b_value, csi, log_csi, True
+
+    prefix = "eos_csi_"
+    if not (path.name.startswith(prefix) and path.suffix == ".dat"):
+        return None
+
+    gamma_text = path.stem.removeprefix(prefix)
+    csi = _safe_float(gamma_text)
+    if csi is None:
         return None
 
     log_csi = math.log10(csi) if csi > 0.0 else math.nan
-    return model, b_label, b_value, topology, csi, log_csi
+    return model, b_label, b_value, csi, log_csi, False
 
 
 def load_eos(path: Path) -> Optional[np.ndarray]:
     try:
-        arr = np.genfromtxt(path, comments="#")
-    except Exception:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            arr = np.genfromtxt(path, comments="#", invalid_raise=False)
+    except (OSError, ValueError):
         return None
 
     if arr is None or np.size(arr) == 0:
         return None
 
+    arr = np.asarray(arr, dtype=float)
+    if arr.ndim == 0:
+        return None
+
     if arr.ndim == 1:
+        if arr.size == 0:
+            return None
         arr = arr.reshape(1, -1)
 
-    if arr.shape[1] < 22:
+    if arr.ndim != 2 or arr.shape[1] <= COL_BDD:
         return None
 
     return arr
@@ -197,29 +279,34 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
 
 def discover_datasets(input_root: Path) -> List[Dataset]:
     datasets: List[Dataset] = []
-    for eos_file in input_root.rglob("eos.dat"):
-        meta = parse_metadata_from_path(eos_file)
+
+    for data_file in input_root.rglob("*.dat"):
+        if not data_file.is_file():
+            continue
+
+        meta = parse_metadata_from_path(data_file)
         if meta is None:
             continue
-        loaded = load_eos(eos_file)
+
+        loaded = load_eos(data_file)
         if loaded is None:
             continue
 
-        model, b_label, b_value, topology, csi, log_csi = meta
+        model, b_label, b_value, csi, log_csi, is_baseline = meta
         datasets.append(
             Dataset(
                 model=model,
                 b_label=b_label,
                 b_value=b_value,
-                topology=topology,
                 csi=csi,
                 log_csi=log_csi,
-                file_path=eos_file,
+                is_baseline=is_baseline,
+                file_path=data_file,
                 data=loaded,
             )
         )
 
-    datasets.sort(key=lambda d: (d.model, d.topology, d.b_value, d.csi))
+    datasets.sort(key=lambda d: (d.model, d.b_value, d.is_baseline, d.csi if np.isfinite(d.csi) else math.inf))
     return datasets
 
 
@@ -294,19 +381,13 @@ def valid_mr_mask(mass_col: np.ndarray, radius_col: np.ndarray) -> np.ndarray:
     )
 
 
+def mr_xlim_for_model(model: str) -> Tuple[float, float]:
+    return MR_XLIM_BY_MODEL.get(model, DEFAULT_MR_XLIM)
+
+
 def _load_mr_from_eos(path: Path) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    try:
-        arr = np.genfromtxt(path, comments="#")
-    except Exception:
-        return None
-
-    if arr is None or np.size(arr) == 0:
-        return None
-
-    if arr.ndim == 1:
-        arr = arr.reshape(1, -1)
-
-    if arr.shape[1] <= COL_MR_RADIUS:
+    arr = load_eos(path)
+    if arr is None or not _has_columns(arr, COL_MR_RADIUS):
         return None
 
     mass = arr[:, COL_MR_MASS].astype(float)
@@ -317,26 +398,47 @@ def _load_mr_from_eos(path: Path) -> Optional[Tuple[np.ndarray, np.ndarray]]:
 
     return radius[mask], mass[mask]
 
-
-def _load_baseline_b0_curve(baseline_root: Path, model: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    eos_path = baseline_root / model / "B_0.00e0" / "default" / "eos.dat"
-    if not eos_path.exists():
+def _load_baseline_curve(
+    baseline_root: Path,
+    model: str,
+    b_label: str,
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Carrega a curva eos_baseline.dat correspondente ao par (modelo, B).
+    """
+    model_dir = baseline_root / model
+    if not model_dir.exists() or not model_dir.is_dir():
         return None
-    return _load_mr_from_eos(eos_path)
+
+    b_dir_name = f"B_{b_label}"
+    exact_path = model_dir / b_dir_name / "eos_baseline.dat"
+    if exact_path.exists():
+        curve = _load_mr_from_eos(exact_path)
+        if curve is not None:
+            return curve
+
+    for eos_path in sorted(model_dir.rglob("eos_baseline.dat")):
+        if eos_path.parent.name != b_dir_name:
+            continue
+        curve = _load_mr_from_eos(eos_path)
+        if curve is not None:
+            return curve
+
+    return None
 
 
 def summarize_dataset(ds: Dataset) -> SummaryRow:
     arr = ds.data
 
-    if arr.shape[1] <= COL_MR_RADIUS:
+    if not _has_columns(arr, COL_MR_RADIUS):
         return SummaryRow(
             model=ds.model,
             b_label=ds.b_label,
             b_value=ds.b_value,
-            topology=ds.topology,
             csi=ds.csi,
             log_csi=ds.log_csi,
-            n_eos_points=int(arr.shape[0]),
+            is_baseline=ds.is_baseline,
+            n_eos_points=int(arr.shape[0]) if arr.ndim == 2 else 0,
             n_mr_points=0,
             max_mass_msun=math.nan,
             radius_at_max_km=math.nan,
@@ -360,7 +462,7 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
     mr_mask = valid_mr_mask(mass_col, radius_col)
 
     n_mr_points = int(np.count_nonzero(mr_mask))
-    n_eos_points = int(arr.shape[0])
+    n_eos_points = arr.shape[0]
 
     if n_mr_points > 0:
         mr_indices = np.nonzero(mr_mask)[0]
@@ -372,8 +474,8 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
         central_nb = float(arr[i_max, COL_NB])
         central_eps = float(arr[i_max, COL_EPS])
         central_p = float(arr[i_max, COL_P])
-        central_meff = float(arr[i_max, COL_MEFF]) if arr.shape[1] > COL_MEFF else math.nan
-        central_emag = float(arr[i_max, COL_EMAG]) if arr.shape[1] > COL_EMAG else math.nan
+        central_meff = float(arr[i_max, COL_MEFF]) if _has_columns(arr, COL_MEFF) else math.nan
+        central_emag = float(arr[i_max, COL_EMAG]) if _has_columns(arr, COL_EMAG) else math.nan
     else:
         max_mass = math.nan
         r_at_max = math.nan
@@ -387,7 +489,7 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
         arr[:, COL_EPS], arr[:, COL_P]
     )
 
-    if arr.shape[1] > COL_BDD:
+    if _has_columns(arr, COL_BDD):
         mu_e_raw = arr[:, COL_MUE]
         mu_factor = _infer_mue_to_mev_factor(mu_e_raw)
         mu_e = mu_e_raw * mu_factor
@@ -408,9 +510,9 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
         model=ds.model,
         b_label=ds.b_label,
         b_value=ds.b_value,
-        topology=ds.topology,
         csi=ds.csi,
         log_csi=ds.log_csi,
+        is_baseline=ds.is_baseline,
         n_eos_points=n_eos_points,
         n_mr_points=n_mr_points,
         max_mass_msun=max_mass,
@@ -436,7 +538,7 @@ def write_summary_csv(rows: Sequence[SummaryRow], out_csv: Path) -> None:
     with out_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow([
-            "model", "b_label", "b_value", "topology", "csi", "log_csi",
+            "model", "b_label", "b_value", "csi", "log_csi", "is_baseline",
             "n_eos_points", "n_mr_points", "max_mass_msun", "radius_at_max_km",
             "central_nb_n0", "central_eps_mevfm3", "central_p_mevfm3", "central_meff",
             "central_emag_mevfm3", "cs2_min", "cs2_max", "cs2_p95",
@@ -445,7 +547,7 @@ def write_summary_csv(rows: Sequence[SummaryRow], out_csv: Path) -> None:
         ])
         for r in rows:
             w.writerow([
-                r.model, r.b_label, r.b_value, r.topology, r.csi, r.log_csi,
+                r.model, r.b_label, r.b_value, r.csi, r.log_csi, r.is_baseline,
                 r.n_eos_points, r.n_mr_points, r.max_mass_msun, r.radius_at_max_km,
                 r.central_nb_n0, r.central_eps_mevfm3, r.central_p_mevfm3,
                 r.central_meff, r.central_emag_mevfm3, r.cs2_min, r.cs2_max, r.cs2_p95,
@@ -470,31 +572,32 @@ def _linear_slope_r2(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
 
 def write_group_stats_csv(rows: Sequence[SummaryRow], out_csv: Path) -> None:
     """
-    Estatísticas agregadas por (model, topology, B), incluindo sensibilidade
+    Estatísticas agregadas por (model, B), incluindo sensibilidade
     a log10(csi) e qualidade de ajuste linear (R²).
     """
     ensure_dir(out_csv.parent)
 
-    grouped: Dict[Tuple[str, str, str], List[SummaryRow]] = {}
+    grouped: Dict[Tuple[str, str], List[SummaryRow]] = {}
     for r in rows:
-        grouped.setdefault((r.model, r.topology, r.b_label), []).append(r)
+        if r.is_baseline or not np.isfinite(r.log_csi):
+            continue
+        grouped.setdefault((r.model, r.b_label), []).append(r)
 
     with out_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow([
-            "model", "topology", "b_label", "n_samples",
+            "model", "b_label", "n_samples",
             "mass_slope", "mass_r2", "radius_slope", "radius_r2",
             "cs2max_slope", "cs2max_r2", "landau_max_slope", "landau_max_r2",
             "mean_cs2_frac_negative", "mean_cs2_frac_superluminal",
             "median_landau_nu_max", "median_landau_nu_p95",
         ])
 
-        for (model, topo, b_label), sub in sorted(
+        for (model, b_label), sub in sorted(
             grouped.items(),
             key=lambda kv: (
                 kv[0][0],
-                kv[0][1],
-                _safe_float(kv[0][2]) if _safe_float(kv[0][2]) is not None else math.inf,
+                _safe_float(kv[0][1]) if _safe_float(kv[0][1]) is not None else math.inf,
             ),
         ):
             sub = sorted(sub, key=lambda x: x.log_csi)
@@ -516,7 +619,6 @@ def write_group_stats_csv(rows: Sequence[SummaryRow], out_csv: Path) -> None:
 
             w.writerow([
                 model,
-                topo,
                 b_label,
                 len(sub),
                 mass_slope,
@@ -534,8 +636,8 @@ def write_group_stats_csv(rows: Sequence[SummaryRow], out_csv: Path) -> None:
             ])
 
 
-def group_key(ds: Dataset) -> Tuple[str, str, str]:
-    return ds.model, ds.topology, ds.b_label
+def group_key(ds: Dataset) -> Tuple[str, str]:
+    return ds.model, ds.b_label
 
 
 def _subsample_sorted(items: Sequence[Dataset], max_items: int) -> List[Dataset]:
@@ -592,7 +694,7 @@ def _plot_single_landau_curve(
     cmin: float,
     denom: float,
 ) -> bool:
-    if ds.data.shape[1] <= COL_BDD:
+    if not _has_columns(ds.data, COL_BDD):
         return False
 
     nb = ds.data[:, COL_NB]
@@ -623,18 +725,20 @@ def plot_landau_levels(
 ) -> None:
     """
     Calcula e plota o número máximo de níveis de Landau ocupados por elétrons
-    em função da densidade bariônica para cada família (model, topology, B).
+    em função da densidade bariônica para cada família (model, B).
     """
     ensure_dir(out_dir)
 
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
     for key, arr in by_combo.items():
-        model, topology, b_label = key
+        model, b_label = key
+        b_value = _safe_float(b_label)
+        b_text = _b_plot_label(b_value) if b_value is not None else rf"$B={b_label}\,\mathrm{{G}}$"
         arr_sorted = sorted(arr, key=lambda d: d.csi)
-        plot_set = arr_sorted
+        plot_set = [d for d in arr_sorted if not d.is_baseline and np.isfinite(d.csi)]
         if not plot_set:
             continue
 
@@ -655,13 +759,13 @@ def plot_landau_levels(
         if plotted:
             plt.xlabel(r"Densidade bariônica $n_B/n_0$")
             plt.ylabel(r"Nível máximo de Landau eletrônico $\nu_{\max}^e$")
-            plt.title(f"Quantização de Landau | {model} | {topology} | B={b_label} G")
+            plt.title(f"Quantização de Landau | {model} | {b_text}")
             plt.grid(alpha=0.3)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=cmin, vmax=cmax))
             cbar = plt.colorbar(sm, ax=plt.gca())
             cbar.set_label(CSI_LABEL)
             plt.tight_layout()
-            plt.savefig(out_dir / f"landau_levels_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+            plt.savefig(out_dir / f"landau_levels_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
@@ -673,24 +777,29 @@ def plot_family_eos_mr(
 ) -> None:
     ensure_dir(out_dir)
 
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
     for key, arr in by_combo.items():
-        model, topology, b_label = key
+        model, b_label = key
+        b_value = _safe_float(b_label)
+        b_text = _b_plot_label(b_value) if b_value is not None else rf"$B={b_label}\,\mathrm{{G}}$"
         arr_sorted = sorted(arr, key=lambda d: d.csi)
-        plot_set = _subsample_sorted(arr_sorted, max_curves)
+        baseline_set = [d for d in arr_sorted if d.is_baseline]
+        csi_set = [d for d in arr_sorted if not d.is_baseline and np.isfinite(d.csi)]
+        plot_set = baseline_set[:1] + _subsample_sorted(csi_set, max_curves)
         cmap_eos = plt.get_cmap("viridis")
         cmap_mr = plt.get_cmap("plasma")
         cmap_cs2 = plt.get_cmap("cool")
 
-        cvals = np.array([d.csi for d in plot_set], dtype=float)
+        cvals = np.array([d.csi for d in csi_set], dtype=float)
         finite_cvals = cvals[np.isfinite(cvals) & (cvals > 0.0)]
         if finite_cvals.size == 0:
             continue
         cmin, cmax = float(np.min(finite_cvals)), float(np.max(finite_cvals))
-        norm = mcolors.LogNorm(vmin=max(cmin, 1e-300), vmax=cmax)
+        vmax = cmax if cmax > cmin else cmin * 10.0
+        norm = mcolors.LogNorm(vmin=max(cmin, 1e-300), vmax=vmax)
 
         def _color_value(value: float):
             return norm(value if value > 0.0 else cmin)
@@ -698,7 +807,7 @@ def plot_family_eos_mr(
         # --- EoS family ---
         plt.figure(figsize=(8, 6))
         for d in plot_set:
-            color = cmap_eos(_color_value(d.csi))
+            color = "black" if d.is_baseline else cmap_eos(_color_value(d.csi))
             eps = d.data[:, COL_EPS]
             p = d.data[:, COL_P]
             mask = np.isfinite(eps) & np.isfinite(p) & (eps > 0.0) & (p > 0.0)
@@ -707,25 +816,25 @@ def plot_family_eos_mr(
             eps_fm4 = eps[mask] / HBARC_MEV_FM
             p_fm4 = p[mask] / HBARC_MEV_FM
             plt.plot(eps_fm4, p_fm4, color=color, alpha=0.55, lw=2.2)
-        
+
         plt.xlabel(r"$\epsilon$ [fm$^{-4}$]")
         plt.ylabel(r"$P$ [fm$^{-4}$]")
-        plt.title(f"EoS family | {model} | {topology} | B={b_label} G")
+        plt.title(f"EoS family | {model} | {b_text}")
         plt.xlim(0, 7)
         plt.ylim(0, 4)
         plt.grid(alpha=0.25)
-        
+
         sm = plt.cm.ScalarMappable(cmap=cmap_eos, norm=norm)
         cbar = plt.colorbar(sm, ax=plt.gca())
         cbar.set_label(LOG_CSI_LABEL)
         plt.tight_layout()
-        plt.savefig(out_dir / f"eos_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.savefig(out_dir / f"eos_family_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
         # --- M-R family ---
         plt.figure(figsize=(8, 6))
         for d in plot_set:
-            if d.data.shape[1] <= COL_MR_RADIUS:
+            if not _has_columns(d.data, COL_MR_RADIUS):
                 continue
 
             m = d.data[:, COL_MR_MASS]
@@ -735,70 +844,70 @@ def plot_family_eos_mr(
             mask = valid_mr_mask(m, r)
             if np.count_nonzero(mask) < 3:
                 continue
-                
+
             m_valid = m[mask]
             r_valid = r[mask]
             p_valid = p_central[mask]
-            
+
             sort_idx = np.argsort(p_valid)
-            color = cmap_mr(_color_value(d.csi))
+            color = "black" if d.is_baseline else cmap_mr(_color_value(d.csi))
             plt.plot(r_valid[sort_idx], m_valid[sort_idx], color=color, alpha=0.55, lw=2.2)
-            
+
         plt.xlabel("Radius [km]")
         plt.ylabel(r"Mass [$M_\odot$]")
-        plt.title(f"M-R family | {model} | {topology} | B={b_label} G")
-        plt.xlim(10, 16.5)
+        plt.title(f"M-R family | {model} | {b_text}")
+        plt.xlim(*mr_xlim_for_model(model))
         plt.ylim(1.0, 2.25)
         plt.grid(alpha=0.25)
-        
+
         sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=norm)
         cbar_mr = plt.colorbar(sm_mr, ax=plt.gca())
         cbar_mr.set_label(LOG_CSI_LABEL)
         plt.tight_layout()
-        plt.savefig(out_dir / f"mr_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.savefig(out_dir / f"mr_family_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
         # --- Speed of Sound (c_s^2) family ---
         plt.figure(figsize=(8, 6))
         for d in plot_set:
+            color = "black" if d.is_baseline else cmap_cs2(_color_value(d.csi))
             eps = d.data[:, COL_EPS]
             p = d.data[:, COL_P]
             mask = np.isfinite(eps) & np.isfinite(p)
             eps_val = eps[mask]
             p_val = p[mask]
-            
+
             if eps_val.size > 2:
                 idx = np.argsort(eps_val)
                 eps_sorted = eps_val[idx]
                 p_sorted = p_val[idx]
-                
+
                 de = np.diff(eps_sorted)
                 dp = np.diff(p_sorted)
-                
+
                 good = de > 1e-14
                 if np.any(good):
                     cs2 = np.zeros_like(de)
                     cs2[good] = dp[good] / de[good]
-                    
-                    color = cmap_cs2(_color_value(d.csi))
+
                     plt.plot(eps_sorted[:-1][good], cs2[good], color=color, alpha=0.55, lw=2.0)
-                    
+
         plt.axhline(1.0, color='red', linestyle='--', alpha=0.7, label='Causalidade ($c_s^2 = 1$)')
         plt.axhline(0.0, color='black', linestyle='--', alpha=0.7, label='Estabilidade ($c_s^2 = 0$)')
         plt.axhline(1/3, color='gray', linestyle=':', alpha=0.7, label='Limite Conforme ($c_s^2 = 1/3$)')
-        
+
         plt.xlabel(r"$\epsilon$ [MeV/fm$^3$]")
         plt.ylabel(r"$c_s^2$ (Unidades de $c=1$)")
-        plt.title(f"Speed of Sound | {model} | {topology} | B={b_label} G")
+        plt.title(f"Speed of Sound | {model} | {b_text}")
         plt.grid(alpha=0.25)
         plt.legend(loc='upper right', fontsize=9)
-        
+
         sm_cs2 = plt.cm.ScalarMappable(cmap=cmap_cs2, norm=norm)
         cbar_cs2 = plt.colorbar(sm_cs2, ax=plt.gca())
         cbar_cs2.set_label(LOG_CSI_LABEL)
-        
+
         plt.tight_layout()
-        plt.savefig(out_dir / f"cs2_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.savefig(out_dir / f"cs2_family_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
@@ -828,19 +937,22 @@ def plot_mr_specific_targets(
     comparison_dir = out_dir / "mr_specific"
     ensure_dir(comparison_dir)
 
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
-    cmap = plt.get_cmap("tab10")
-
     for key, arr in by_combo.items():
-        model, topology, b_label = key
-        arr_sorted = sorted(arr, key=lambda d: d.csi)
+        model, b_label = key
+        b_value = _safe_float(b_label)
+        b_text = _b_plot_label(b_value) if b_value is not None else rf"$B={b_label}\,\mathrm{{G}}$"
+        arr_sorted = sorted(
+            [d for d in arr if not d.is_baseline and np.isfinite(d.csi)],
+            key=lambda d: d.csi,
+        )
         if not arr_sorted:
             continue
 
-        baseline_mr = _load_baseline_b0_curve(baseline_root, model)
+        baseline_mr = _load_baseline_curve(baseline_root, model, b_label)
         # initialize zoom center variables (will be set if baseline exists)
         _zoom_center_r = None
         _zoom_center_m = None
@@ -853,23 +965,24 @@ def plot_mr_specific_targets(
         plotted_curves: List[Tuple[np.ndarray, np.ndarray, str, Tuple[float, float, float, float]]] = []
 
         # prepare colormap for gamma-based coloring (like family plots)
-        csi_values = [d.csi for d, _ in selected]
+        csi_values = [d.csi for d, _ in selected if np.isfinite(d.csi) and d.csi > 0.0]
         if csi_values:
             cmin = min(csi_values)
             cmax = max(csi_values)
         else:
             cmin = 1e-25
             cmax = 1e-1
-        
+
         if cmin > 0:
-            norm = mcolors.LogNorm(vmin=max(cmin, 1e-300), vmax=cmax)
+            vmax = cmax if cmax > cmin else cmin * 10.0
+            norm = mcolors.LogNorm(vmin=max(cmin, 1e-300), vmax=vmax)
         else:
             norm = mcolors.Normalize(vmin=0, vmax=1)
         cmap_colors = plt.get_cmap("viridis")
 
         if baseline_mr is not None:
             baseline_radius, baseline_mass = baseline_mr
-            baseline_label = r"$B=0.0$ G"
+            baseline_label = r"$B=0\,\mathrm{G}$"
             baseline_color = (0.0, 0.0, 0.0, 0.95)
             plt.plot(
                 baseline_radius,
@@ -894,7 +1007,7 @@ def plot_mr_specific_targets(
                 _zoom_center_m = None
 
         for idx, (d, target) in enumerate(selected):
-            if d.data.shape[1] <= COL_MR_RADIUS:
+            if not _has_columns(d.data, COL_MR_RADIUS):
                 continue
 
             m = d.data[:, COL_MR_MASS]
@@ -910,7 +1023,7 @@ def plot_mr_specific_targets(
             p_valid = p_central[mask]
             sort_idx = np.argsort(p_valid)
             color = cmap_colors(norm(d.csi))
-            curve_label = rf"$\gamma={d.csi:.2e}$"
+            curve_label = _gamma_plot_label(d.csi)
             plt.plot(
                 r_valid[sort_idx],
                 m_valid[sort_idx],
@@ -924,8 +1037,8 @@ def plot_mr_specific_targets(
 
         plt.xlabel("Radius [km]")
         plt.ylabel(r"Mass [$M_\odot$]")
-        plt.title(f"MR comparison | {model} | {topology} | B={b_label} G")
-        plt.xlim(10, 16.5)
+        plt.title(f"MR comparison | {model} | {b_text}")
+        plt.xlim(*mr_xlim_for_model(model))
         plt.ylim(1.0, 2.25)
         plt.grid(alpha=0.25)
         plt.axhline(1.6, color='gray', linestyle=':', linewidth=1.5, alpha=0.6)
@@ -949,8 +1062,10 @@ def plot_mr_specific_targets(
             center_m = None
 
         if center_r is not None and center_m is not None:
-            x_span = ax.get_xlim()[1] - ax.get_xlim()[0]
-            y_span = ax.get_ylim()[1] - ax.get_ylim()[0]
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+            x_span = xlim[1] - xlim[0]
+            y_span = ylim[1] - ylim[0]
             # high-magnification zoom: 3% of full axes span
             dx = 0.03 * x_span
             dy = 0.03 * y_span
@@ -965,8 +1080,8 @@ def plot_mr_specific_targets(
         axins.tick_params(axis='both', which='major', labelsize=8)
         # draw connection lines from zoom window to inset
         mark_inset(ax, axins, loc1=2, loc2=4, fc="none", ec="gray", lw=1.5, alpha=0.7)
-        plt.tight_layout()
-        plt.savefig(comparison_dir / f"mr_specific_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+        plt.subplots_adjust(left=0.12, right=0.96, bottom=0.12, top=0.92)
+        plt.savefig(comparison_dir / f"mr_specific_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
@@ -976,25 +1091,14 @@ def plot_population_snapshots(
     dpi: int,
 ) -> None:
     ensure_dir(out_dir)
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
-    species = [
-        (COL_NE, "e-"),
-        (COL_NMU, "mu-"),
-        (COL_NN, "n"),
-        (COL_NP, "p"),
-        (COL_NL0, "Lambda0"),
-        (COL_NSM, "Sigma-"),
-        (COL_NS0, "Sigma0"),
-        (COL_NSP, "Sigma+"),
-        (COL_NXM, "Xi-"),
-        (COL_NX0, "Xi0"),
-    ]
-
     for key, arr in by_combo.items():
-        model, topology, b_label = key
+        model, b_label = key
+        b_value = _safe_float(b_label)
+        b_text = _b_plot_label(b_value) if b_value is not None else rf"$B={b_label}\,\mathrm{{G}}$"
         arr_sorted = sorted(arr, key=lambda d: d.csi)
         if not arr_sorted:
             continue
@@ -1009,12 +1113,12 @@ def plot_population_snapshots(
             ax = axs[0, j]
             x = ds.data[:, COL_NB]
 
-            for col, label in species:
-                if ds.data.shape[1] > col:
+            for col, label in PARTICLE_SPECIES:
+                if _has_columns(ds.data, col):
                     y = ds.data[:, col]
                     ax.plot(x, y, lw=2.0, alpha=0.6, label=label)
 
-            ax.set_title(f"csi={ds.csi:.3f}")
+            ax.set_title("baseline" if ds.is_baseline else _gamma_plot_label(ds.csi))
             ax.set_xlabel(r"$n_B/n_0$")
             ax.set_ylabel(r"$n_i$ [fm$^{-3}$]")
             ax.grid(alpha=0.25)
@@ -1023,9 +1127,9 @@ def plot_population_snapshots(
         if handles:
             fig.legend(handles, labels, loc="upper center", ncol=5)
 
-        fig.suptitle(f"Population snapshots | {model} | {topology} | B={b_label} G", y=1.03)
+        fig.suptitle(f"Population snapshots | {model} | {b_text}", y=1.03)
         fig.tight_layout()
-        fig.savefig(out_dir / f"population_snapshots_{model}_{topology}_B_{b_label}.png", dpi=dpi, bbox_inches="tight")
+        fig.savefig(out_dir / f"population_snapshots_{model}_B_{b_label}.png", dpi=dpi, bbox_inches="tight")
         plt.close(fig)
 
 
@@ -1042,42 +1146,37 @@ def plot_population_thresholds(
     datasets: Sequence[Dataset],
     out_dir: Path,
     dpi: int,
-) -> None:  
+) -> None:
     """
     Plota a densidade bariônica de surgimento (onset) das partículas em função de csi.
     Foco nas partículas que 'nascem' em altas densidades (Múons e Hiperons).
     """
     ensure_dir(out_dir)
-    by_combo: Dict[Tuple[str, str, str], List[Dataset]] = {}
+    by_combo: Dict[Tuple[str, str], List[Dataset]] = {}
     for ds in datasets:
         by_combo.setdefault(group_key(ds), []).append(ds)
 
     # Excluímos n, p, e- porque já existem desde o início (crosta/baixa densidade)
-    species_to_track = [
-        (COL_NMU, "mu-"),
-        (COL_NL0, "Lambda0"),
-        (COL_NSM, "Sigma-"),
-        (COL_NS0, "Sigma0"),
-        (COL_NSP, "Sigma+"),
-        (COL_NXM, "Xi-"),
-        (COL_NX0, "Xi0"),
-    ]
-
     for key, arr in by_combo.items():
-        model, topology, b_label = key
-        arr_sorted = sorted(arr, key=lambda d: d.csi)
+        model, b_label = key
+        b_value = _safe_float(b_label)
+        b_text = _b_plot_label(b_value) if b_value is not None else rf"$B={b_label}\,\mathrm{{G}}$"
+        arr_sorted = sorted(
+            [d for d in arr if not d.is_baseline and np.isfinite(d.csi)],
+            key=lambda d: d.csi,
+        )
         if not arr_sorted:
             continue
 
         x_vals = np.array([d.csi for d in arr_sorted], dtype=float)
-        
+
         plt.figure(figsize=(8, 6))
         plotted_any = False
 
-        for col, label in species_to_track:
+        for col, label in THRESHOLD_SPECIES:
             y_vals = []
             for ds in arr_sorted:
-                if ds.data.shape[1] > col:
+                if _has_columns(ds.data, col):
                     # Avalia o threshold para cada valor de csi
                     onset = find_onset_threshold(ds.data[:, COL_NB], ds.data[:, col])
                     y_vals.append(onset)
@@ -1086,7 +1185,7 @@ def plot_population_thresholds(
 
             y_arr = np.array(y_vals)
             mask = np.isfinite(y_arr) & (x_vals > 0.0)
-            
+
             if np.count_nonzero(mask) > 0:
                 plt.plot(x_vals[mask], y_arr[mask], marker='o', ms=4, lw=2.2, alpha=0.65, label=label)
                 plotted_any = True
@@ -1094,26 +1193,25 @@ def plot_population_thresholds(
         if plotted_any:
             plt.xlabel(CSI_LABEL)
             plt.ylabel(r"Onset Density ($n_B$) [fm$^{-3}$]")
-            plt.title(f"Particle Onset Thresholds | {model} | {topology} | B={b_label} G")
+            plt.title(f"Particle Onset Thresholds | {model} | {b_text}")
             plt.grid(alpha=0.3, linestyle='--')
             plt.xscale("log")
             plt.legend(fontsize=9, loc='best')
             plt.tight_layout()
-            plt.savefig(out_dir / f"onset_thresholds_{model}_{topology}_B_{b_label}.png", dpi=dpi)
+            plt.savefig(out_dir / f"onset_thresholds_{model}_B_{b_label}.png", dpi=dpi)
         plt.close()
 
 
 def _plot_metric_for_subset(
     rows: Sequence[SummaryRow],
     model: str,
-    topo: str,
     metric_name: str,
     y_label: str,
     use_log_csi: bool,
     out_path: Path,
     dpi: int,
 ) -> None:
-    subset = [r for r in rows if r.model == model and r.topology == topo]
+    subset = [r for r in rows if r.model == model and not r.is_baseline]
     if not subset:
         return
 
@@ -1131,17 +1229,25 @@ def _plot_metric_for_subset(
         mask = np.isfinite(x) & np.isfinite(y)
         if not use_log_csi:
             mask &= x > 0.0
-        
+
         if np.count_nonzero(mask) < 1:
             continue
-        plt.plot(x[mask], y[mask], marker="o", ms=3, lw=2.0, alpha=0.65, label=f"B={part[0].b_label} G")
+        plt.plot(
+            x[mask],
+            y[mask],
+            marker="o",
+            ms=3,
+            lw=2.0,
+            alpha=0.65,
+            label=_b_plot_label(part[0].b_value),
+        )
 
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     if use_log_csi:
-        plt.title(f"{y_label} vs log10(csi) | {model} | {topo}")
+        plt.title(f"{y_label} vs log10(csi) | {model}")
     else:
-        plt.title(f"{y_label} vs csi | {model} | {topo}")
+        plt.title(f"{y_label} vs csi | {model}")
         plt.xscale("log")
 
     # Para max_mass e radius_at_max, evita eixo com offset/diferença
@@ -1160,13 +1266,12 @@ def _plot_metric_for_subset(
 def _plot_delta_from_first_for_subset(
     rows: Sequence[SummaryRow],
     model: str,
-    topo: str,
     metric_name: str,
     y_label: str,
     out_path: Path,
     dpi: int,
 ) -> None:
-    subset = [r for r in rows if r.model == model and r.topology == topo]
+    subset = [r for r in rows if r.model == model and not r.is_baseline]
     if not subset:
         return
 
@@ -1185,13 +1290,21 @@ def _plot_delta_from_first_for_subset(
         y_valid = y[mask]
         y0 = y_valid[0]
         y_delta = y_valid - y0
-        plt.plot(x_valid, y_delta, marker="o", ms=3, lw=2.0, alpha=0.65, label=f"B={part[0].b_label} G")
+        plt.plot(
+            x_valid,
+            y_delta,
+            marker="o",
+            ms=3,
+            lw=2.0,
+            alpha=0.65,
+            label=_b_plot_label(part[0].b_value),
+        )
 
     plt.axhline(0.0, color="black", lw=1.0, alpha=0.5)
     plt.xscale("log")
     plt.xlabel(CSI_LABEL)
     plt.ylabel(rf"$\Delta$({y_label})")
-    plt.title(f"Delta from first point vs csi | {model} | {topo}")
+    plt.title(f"Delta from first point vs csi | {model}")
     plt.grid(alpha=0.25)
     plt.legend(fontsize=8)
     plt.tight_layout()
@@ -1202,13 +1315,12 @@ def _plot_delta_from_first_for_subset(
 def _plot_derivative_vs_log_csi_for_subset(
     rows: Sequence[SummaryRow],
     model: str,
-    topo: str,
     metric_name: str,
     y_label: str,
     out_path: Path,
     dpi: int,
 ) -> None:
-    subset = [r for r in rows if r.model == model and r.topology == topo]
+    subset = [r for r in rows if r.model == model and not r.is_baseline]
     if not subset:
         return
 
@@ -1237,12 +1349,20 @@ def _plot_derivative_vs_log_csi_for_subset(
             continue
 
         dy_dlogcsi = np.gradient(y_valid, x_valid)
-        plt.plot(x_valid, dy_dlogcsi, marker="o", ms=3, lw=2.0, alpha=0.65, label=f"B={b:g} G")
+        plt.plot(
+            x_valid,
+            dy_dlogcsi,
+            marker="o",
+            ms=3,
+            lw=2.0,
+            alpha=0.65,
+            label=_b_plot_label(b),
+        )
 
     plt.axhline(0.0, color="black", lw=1.0, alpha=0.5)
     plt.xlabel(LOG_CSI_LABEL)
     plt.ylabel(y_label)
-    plt.title(f"{y_label} vs log10(gamma) | {model} | {topo}")
+    plt.title(f"{y_label} vs log10(gamma) | {model}")
     plt.grid(alpha=0.25)
     plt.legend(fontsize=8)
     plt.tight_layout()
@@ -1253,13 +1373,12 @@ def _plot_derivative_vs_log_csi_for_subset(
 def _plot_slope_vs_b_for_subset(
     rows: Sequence[SummaryRow],
     model: str,
-    topo: str,
     metric_name: str,
     y_label: str,
     out_path: Path,
     dpi: int,
 ) -> None:
-    subset = [r for r in rows if r.model == model and r.topology == topo]
+    subset = [r for r in rows if r.model == model and not r.is_baseline]
     if not subset:
         return
 
@@ -1283,7 +1402,7 @@ def _plot_slope_vs_b_for_subset(
     plt.xscale("log")
     plt.xlabel(r"$B$ [G]")
     plt.ylabel(y_label)
-    plt.title(f"{y_label} vs B | {model} | {topo}")
+    plt.title(f"{y_label} vs B | {model}")
     plt.grid(alpha=0.25)
     plt.tight_layout()
     plt.savefig(out_path, dpi=dpi)
@@ -1294,8 +1413,7 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
     ensure_dir(out_dir)
 
     models = sorted({r.model for r in rows})
-    topologies = sorted({r.topology for r in rows})
-    
+
     metrics = [
         ("max_mass_msun", r"$M_{\max}$ [$M_\odot$]", "max_mass_vs_csi", False),
         ("radius_at_max_km", r"$R(M_{\max})$ [km]", "radius_at_max_vs_csi", False),
@@ -1312,28 +1430,25 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
 
     for metric_name, y_label, prefix, use_log_csi in metrics:
         for model in models:
-            for topo in topologies:
-                _plot_metric_for_subset(
+            _plot_metric_for_subset(
+                rows=rows,
+                model=model,
+                metric_name=metric_name,
+                y_label=y_label,
+                use_log_csi=use_log_csi,
+                out_path=out_dir / f"{prefix}_{model}.png",
+                dpi=dpi,
+            )
+
+            if metric_name in {"max_mass_msun", "radius_at_max_km"} and not use_log_csi:
+                _plot_delta_from_first_for_subset(
                     rows=rows,
                     model=model,
-                    topo=topo,
                     metric_name=metric_name,
                     y_label=y_label,
-                    use_log_csi=use_log_csi,
-                    out_path=out_dir / f"{prefix}_{model}_{topo}.png",
+                    out_path=out_dir / f"{prefix}_delta_from_first_{model}.png",
                     dpi=dpi,
                 )
-
-                if metric_name in {"max_mass_msun", "radius_at_max_km"} and not use_log_csi:
-                    _plot_delta_from_first_for_subset(
-                        rows=rows,
-                        model=model,
-                        topo=topo,
-                        metric_name=metric_name,
-                        y_label=y_label,
-                        out_path=out_dir / f"{prefix}_delta_from_first_{model}_{topo}.png",
-                        dpi=dpi,
-                    )
 
     derivative_metrics = [
         ("max_mass_msun", r"$dM_{max}/d\log_{10}(\gamma)$ [$M_\odot$]", "dmmax_dloggamma_vs_loggamma"),
@@ -1342,21 +1457,20 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
 
     for metric_name, y_label, prefix in derivative_metrics:
         for model in models:
-            for topo in topologies:
-                _plot_derivative_vs_log_csi_for_subset(
-                    rows=rows,
-                    model=model,
-                    topo=topo,
-                    metric_name=metric_name,
-                    y_label=y_label,
-                    out_path=out_dir / f"{prefix}_{model}_{topo}.png",
-                    dpi=dpi,
-                )
+            _plot_derivative_vs_log_csi_for_subset(
+                rows=rows,
+                model=model,
+                metric_name=metric_name,
+                y_label=y_label,
+                out_path=out_dir / f"{prefix}_{model}.png",
+                dpi=dpi,
+            )
 
 
 def _slope_for_rows(sub: Sequence[SummaryRow], metric: str) -> float:
-    x = np.array([r.log_csi for r in sub], dtype=float)
-    y = np.array([getattr(r, metric) for r in sub], dtype=float)
+    usable = [r for r in sub if not r.is_baseline]
+    x = np.array([r.log_csi for r in usable], dtype=float)
+    y = np.array([getattr(r, metric) for r in usable], dtype=float)
     mask = np.isfinite(x) & np.isfinite(y)
     if np.count_nonzero(mask) < 2:
         return math.nan
@@ -1364,16 +1478,17 @@ def _slope_for_rows(sub: Sequence[SummaryRow], metric: str) -> float:
     return float(a)
 
 
-def _group_rows_by_model_topology_b(rows: Sequence[SummaryRow]) -> Dict[Tuple[str, str, str], List[SummaryRow]]:
-    grouped: Dict[Tuple[str, str, str], List[SummaryRow]] = {}
+def _group_rows_by_model_b(rows: Sequence[SummaryRow]) -> Dict[Tuple[str, str], List[SummaryRow]]:
+    grouped: Dict[Tuple[str, str], List[SummaryRow]] = {}
     for r in rows:
-        grouped.setdefault((r.model, r.topology, r.b_label), []).append(r)
+        if r.is_baseline:
+            continue
+        grouped.setdefault((r.model, r.b_label), []).append(r)
     return grouped
 
 
 def _append_scope_section(lines: List[str], rows: Sequence[SummaryRow]) -> None:
     models = sorted({r.model for r in rows})
-    tops = sorted({r.topology for r in rows})
     lines.append("# NLEM neutron-star analysis report")
     lines.append("")
     lines.append("## Scope")
@@ -1381,7 +1496,6 @@ def _append_scope_section(lines: List[str], rows: Sequence[SummaryRow]) -> None:
     lines.append("")
     lines.append(f"- Total datasets analyzed: **{len(rows)}**")
     lines.append(f"- Models: **{', '.join(models)}**")
-    lines.append(f"- Topologies: **{', '.join(tops)}**")
     lines.append("")
 
 
@@ -1423,20 +1537,19 @@ def _append_landau_section(lines: List[str], rows: Sequence[SummaryRow]) -> None
 
 
 def _append_group_trend_section(lines: List[str], rows: Sequence[SummaryRow]) -> None:
-    lines.append("## Trend diagnostics by $(model, topology, B)$")
+    lines.append("## Trend diagnostics by $(model, B)$")
     lines.append("")
     lines.append("First derivative diagnostics plotted against $\\log_{10}(\\gamma)$:")
     lines.append("- $dM_{max}/d\\log_{10}(\\gamma)$")
     lines.append("- $dR(M_{max})/d\\log_{10}(\\gamma)$")
     lines.append("")
 
-    grouped = _group_rows_by_model_topology_b(rows)
-    for (model, topo, b_label), sub in sorted(
+    grouped = _group_rows_by_model_b(rows)
+    for (model, b_label), sub in sorted(
         grouped.items(),
         key=lambda kv: (
             kv[0][0],
-            kv[0][1],
-            _safe_float(kv[0][2]) if _safe_float(kv[0][2]) is not None else math.inf,
+            _safe_float(kv[0][1]) if _safe_float(kv[0][1]) is not None else math.inf,
         ),
     ):
         sub = sorted(sub, key=lambda x: x.log_csi)
@@ -1452,7 +1565,7 @@ def _append_group_trend_section(lines: List[str], rows: Sequence[SummaryRow]) ->
         r_min = float(np.nanmin(rvals)) if np.any(np.isfinite(rvals)) else math.nan
         r_max = float(np.nanmax(rvals)) if np.any(np.isfinite(rvals)) else math.nan
 
-        lines.append(f"### {model} | {topo} | B={b_label} G")
+        lines.append(f"### {model} | B={b_label} G")
         lines.append(f"- Samples: {len(sub)}")
         lines.append(f"- $M_{{max}}$ range: {m_min:.4f} to {m_max:.4f} $M_\\odot$")
         lines.append(f"- $R(M_{{max}})$ range: {r_min:.4f} to {r_max:.4f} km")
@@ -1476,7 +1589,6 @@ def write_scientific_report(rows: Sequence[SummaryRow], out_file: Path) -> None:
     lines.append("## Interpretation guide")
     lines.append("- Positive $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ tends to stiffen the effective sequence in your setup.")
     lines.append("- Negative $dM_{max}/d\\log_{10}(\\xi)$: larger $\\xi$ softens the sequence.")
-    lines.append("- Compare isotropic vs anisotropic at fixed $(model, B)$ to isolate topology effects.")
     lines.append("- Use population thresholds to map how $\\xi$ delays or anticipates hyperon onset.")
 
     out_file.write_text("\n".join(lines), encoding="utf-8")
@@ -1488,7 +1600,7 @@ def main() -> None:
 
     datasets = discover_datasets(args.input_root)
     if not datasets:
-        print(f"[ERRO] Nenhum eos.dat válido encontrado em: {args.input_root}")
+        print(f"[ERRO] Nenhum eos_csi_*.dat ou eos_baseline.dat válido encontrado em: {args.input_root}")
         return
 
     print(f"[INFO] Datasets encontrados: {len(datasets)}")
@@ -1530,7 +1642,6 @@ def main() -> None:
     plot_population_snapshots(datasets, pops_dir, dpi=args.dpi)
     print(f"[OK] Snapshots de populações: {pops_dir}")
 
-    # --- NOVO: Geração dos gráficos de limiar de surgimento (Thresholds) ---
     thresholds_dir = args.output_root / "thresholds"
     plot_population_thresholds(datasets, thresholds_dir, dpi=args.dpi)
     print(f"[OK] Gráficos de Thresholds de Partículas: {thresholds_dir}")

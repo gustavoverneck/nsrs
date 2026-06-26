@@ -1,9 +1,9 @@
 // src/bin/magtop.rs
 
-use nsrs::core::model::{GM1, GM3};
+use nsrs::core::model::{FSU2, GM1, GM3};
 use nsrs::core::physics::{HadronsMatter, MagneticTopology};
-use nsrs::core::solver::{Solver, EngineMode};
 use nsrs::core::plotting::Artist;
+use nsrs::core::solver::{EngineMode, Solver};
 use nsrs::core::tov_solver::generate_mr_curve;
 use std::env;
 use std::fs;
@@ -11,7 +11,7 @@ use std::io::{BufRead, BufReader};
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
-    
+
     let plot_only = if let Some(idx) = args.iter().position(|x| x == "--plot-only") {
         args.remove(idx);
         true
@@ -39,16 +39,20 @@ fn main() {
     };
 
     if args.len() < 3 {
-        eprintln!("Uso: {} [--plot-only] [--prefix TAG] <GM1|GM3> <B1> <B2> ...", args[0]);
-        eprintln!("Exemplo: {} --prefix novo GM1 1e16 5e17 1e18", args[0]);
+        eprintln!(
+            "Uso: {} [--plot-only] [--prefix TAG] <GM1|GM3|FSU2> <B1> <B2> ...",
+            args[0]
+        );
+        eprintln!("Exemplo: {} --prefix novo FSU2 1e16 5e17 1e18", args[0]);
         return;
     }
-    
+
     let model_name = &args[1];
     let model_params = match model_name.as_str() {
         "GM1" => GM1,
         "GM3" => GM3,
-        _ => panic!("Modelo não reconhecido. Use GM1 ou GM3."),
+        "FSU2" => FSU2,
+        _ => panic!("Modelo não reconhecido. Use GM1, GM3 ou FSU2."),
     };
 
     let b_fields: Vec<f64> = args[2..]
@@ -76,8 +80,14 @@ fn main() {
         let plot_b_tag = b_string.replace('+', "p").replace('-', "m");
 
         let mut artist_eos = Artist::new(
-            &format!("{}/{}eos_topology_{}_B_{}.svg", plots_dir, file_prefix, model_name, plot_b_tag),
-            &format!("Equation of State (Topology) - {} | B = {} G", model_name, b_string),
+            &format!(
+                "{}/{}eos_topology_{}_B_{}.svg",
+                plots_dir, file_prefix, model_name, plot_b_tag
+            ),
+            &format!(
+                "Equation of State (Topology) - {} | B = {} G",
+                model_name, b_string
+            ),
         )
         .with_x_label("Energy Density \u{03B5} [MeV/fm\u{00B3}]")
         .with_y_label("Pressure P [MeV/fm\u{00B3}]")
@@ -85,8 +95,14 @@ fn main() {
         .with_log_scale();
 
         let mut artist_mr = Artist::new(
-            &format!("{}/{}mr_topology_{}_B_{}.svg", plots_dir, file_prefix, model_name, plot_b_tag),
-            &format!("Mass-Radius (Topology) - {} | B = {} G", model_name, b_string),
+            &format!(
+                "{}/{}mr_topology_{}_B_{}.svg",
+                plots_dir, file_prefix, model_name, plot_b_tag
+            ),
+            &format!(
+                "Mass-Radius (Topology) - {} | B = {} G",
+                model_name, b_string
+            ),
         )
         .with_x_label("Radius [km]")
         .with_y_label("Mass [M\u{2299}]")
@@ -96,16 +112,28 @@ fn main() {
 
         // NOVO: artistas de população por topologia
         let mut artist_pop_iso = Artist::new(
-            &format!("{}/{}pop_iso_{}_B_{}.svg", plots_dir, file_prefix, model_name, plot_b_tag),
-            &format!("Particle Population (Iso) - {} | B = {} G", model_name, b_string),
+            &format!(
+                "{}/{}pop_iso_{}_B_{}.svg",
+                plots_dir, file_prefix, model_name, plot_b_tag
+            ),
+            &format!(
+                "Particle Population (Iso) - {} | B = {} G",
+                model_name, b_string
+            ),
         )
         .with_x_label("n / n0")
         .with_y_label("n_i [fm^-3]")
         .autoscale();
 
         let mut artist_pop_aniso = Artist::new(
-            &format!("{}/{}pop_aniso_{}_B_{}.svg", plots_dir, file_prefix, model_name, plot_b_tag),
-            &format!("Particle Population (Aniso) - {} | B = {} G", model_name, b_string),
+            &format!(
+                "{}/{}pop_aniso_{}_B_{}.svg",
+                plots_dir, file_prefix, model_name, plot_b_tag
+            ),
+            &format!(
+                "Particle Population (Aniso) - {} | B = {} G",
+                model_name, b_string
+            ),
         )
         .with_x_label("n / n0")
         .with_y_label("n_i [fm^-3]")
@@ -122,14 +150,14 @@ fn main() {
                 HadronsMatter::new(model_params, b_field)
                     .with_topology(MagneticTopology::Isotropic)
                     .with_limits(0.01, 2.2)
-                    .with_points(1500)
+                    .with_points(1500),
             );
 
             let engine_aniso = EngineMode::Hadrons(
                 HadronsMatter::new(model_params, b_field)
                     .with_topology(MagneticTopology::Anisotropic)
                     .with_limits(0.01, 2.2)
-                    .with_points(1500)
+                    .with_points(1500),
             );
 
             // Resolve as duas em paralelo
@@ -150,7 +178,7 @@ fn main() {
 
         for (folder, label_suffix) in topologies.iter() {
             let eos_path = format!("{}/{}/eos.dat", base_dir, folder);
-            
+
             if let Ok(file) = fs::File::open(&eos_path) {
                 let reader = BufReader::new(file);
                 let mut eps_vec = Vec::new();
@@ -221,7 +249,10 @@ fn main() {
                             r_at_m_max = radii[i];
                         }
                     }
-                    summary_data.push(format!("{},{},{:.4},{:.4}", b_string, label_suffix, m_max, r_at_m_max));
+                    summary_data.push(format!(
+                        "{},{},{:.4},{:.4}",
+                        b_string, label_suffix, m_max, r_at_m_max
+                    ));
                 }
 
                 // NOVO: adiciona curvas de população
@@ -261,7 +292,10 @@ fn main() {
             artist_eos.plot().ok();
             artist_mr.plot().ok();
         } else {
-            eprintln!("Aviso: nenhum dado válido encontrado para B = {} G", b_string);
+            eprintln!(
+                "Aviso: nenhum dado válido encontrado para B = {} G",
+                b_string
+            );
         }
 
         // NOVO: salva plots de população

@@ -20,41 +20,52 @@ pub fn plot_mr_curve(
         std::fs::create_dir_all(parent)?;
     }
 
-    let scale = 1; 
+    let scale = 1;
     let width = 800 * scale;
     let height = 600 * scale;
 
     let root = SVGBackend::new(output_path, (width, height)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    let r_min = 8.0; 
+    let r_min = 8.0;
     let r_max = 14.0;
-    let m_max = masses_msun.iter().fold(0./0., |a: f64, b| a.max(*b)) * 1.05;
+    let m_max = masses_msun.iter().fold(0. / 0., |a: f64, b| a.max(*b)) * 1.05;
 
     let mut chart = ChartBuilder::on(&root)
-        .caption("Mass-Radius Relation", ("sans-serif", 24 * scale).into_font())
+        .caption(
+            "Mass-Radius Relation",
+            ("sans-serif", 24 * scale).into_font(),
+        )
         .margin(15 * scale)
         .x_label_area_size(40 * scale)
         .y_label_area_size(50 * scale)
         .build_cartesian_2d(r_min..r_max, 0.0f64..m_max)?;
 
-    chart.configure_mesh()
+    chart
+        .configure_mesh()
         .x_desc("Radius [km]")
-        .y_desc("Mass [M\u{2299}]") 
+        .y_desc("Mass [M\u{2299}]")
         .axis_desc_style(("sans-serif", 16 * scale))
         .draw()?;
 
     let plot_blue = RGBColor(31, 119, 180);
     let data_iter = radii_km.iter().zip(masses_msun.iter());
 
-    chart.draw_series(LineSeries::new(
-        data_iter.map(|(r, m)| (*r, *m)),
-        plot_blue.stroke_width(2 * scale),
-    ))?
-    .label("MR Model")
-    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + (20 * scale) as i32, y)], plot_blue.stroke_width(2 * scale)));
+    chart
+        .draw_series(LineSeries::new(
+            data_iter.map(|(r, m)| (*r, *m)),
+            plot_blue.stroke_width(2 * scale),
+        ))?
+        .label("MR Model")
+        .legend(move |(x, y)| {
+            PathElement::new(
+                vec![(x, y), (x + (20 * scale) as i32, y)],
+                plot_blue.stroke_width(2 * scale),
+            )
+        });
 
-    chart.configure_series_labels()
+    chart
+        .configure_series_labels()
         .position(SeriesLabelPosition::UpperRight)
         .background_style(&WHITE.mix(0.8))
         .border_style(&BLACK)
@@ -83,24 +94,38 @@ pub fn plot_eos_curve(
     let root = SVGBackend::new(output_path, (width, height)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    let mut d_x_min = f64::MAX; let mut d_x_max = f64::MIN;
-    let mut d_y_min = f64::MAX; let mut d_y_max = f64::MIN;
+    let mut d_x_min = f64::MAX;
+    let mut d_x_max = f64::MIN;
+    let mut d_y_min = f64::MAX;
+    let mut d_y_max = f64::MIN;
 
     let mut clean_data = Vec::new();
 
     for (&e, &p) in eps_array.iter().zip(p_array.iter()) {
         if e.is_finite() && p.is_finite() {
-            if use_logscale && (e <= 0.0 || p <= 0.0) { continue; }
-            
+            if use_logscale && (e <= 0.0 || p <= 0.0) {
+                continue;
+            }
+
             clean_data.push((e, p));
-            if e < d_x_min { d_x_min = e; }
-            if e > d_x_max { d_x_max = e; }
-            if p < d_y_min { d_y_min = p; }
-            if p > d_y_max { d_y_max = p; }
+            if e < d_x_min {
+                d_x_min = e;
+            }
+            if e > d_x_max {
+                d_x_max = e;
+            }
+            if p < d_y_min {
+                d_y_min = p;
+            }
+            if p > d_y_max {
+                d_y_max = p;
+            }
         }
     }
 
-    if clean_data.is_empty() { return Err("Nenhum dado válido para plotar.".into()); }
+    if clean_data.is_empty() {
+        return Err("Nenhum dado válido para plotar.".into());
+    }
 
     let plot_red = RGBColor(214, 39, 40);
 
@@ -110,18 +135,31 @@ pub fn plot_eos_curve(
             .margin(15 * scale)
             .x_label_area_size(40 * scale)
             .y_label_area_size(50 * scale)
-            .build_cartesian_2d((d_x_min * 0.8..d_x_max * 1.2).log_scale(), (d_y_min * 0.8..d_y_max * 1.5).log_scale())?;
+            .build_cartesian_2d(
+                (d_x_min * 0.8..d_x_max * 1.2).log_scale(),
+                (d_y_min * 0.8..d_y_max * 1.5).log_scale(),
+            )?;
 
-        chart.configure_mesh()
+        chart
+            .configure_mesh()
             .x_desc("Energy Density \u{3B5} [MeV/fm\u{00B3}]")
             .y_desc("Pressure P [MeV/fm\u{00B3}]")
             .draw()?;
 
-        chart.draw_series(LineSeries::new(clean_data, plot_red.stroke_width(2 * scale)))?
+        chart
+            .draw_series(LineSeries::new(
+                clean_data,
+                plot_red.stroke_width(2 * scale),
+            ))?
             .label("EoS Model")
-            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], plot_red.stroke_width(2)));
+            .legend(move |(x, y)| {
+                PathElement::new(vec![(x, y), (x + 20, y)], plot_red.stroke_width(2))
+            });
 
-        chart.configure_series_labels().position(SeriesLabelPosition::UpperLeft).draw()?;
+        chart
+            .configure_series_labels()
+            .position(SeriesLabelPosition::UpperLeft)
+            .draw()?;
     } else {
         let mut chart = ChartBuilder::on(&root)
             .caption("Equation of State", ("sans-serif", 24 * scale))
@@ -130,16 +168,26 @@ pub fn plot_eos_curve(
             .y_label_area_size(50 * scale)
             .build_cartesian_2d(0.0f64..d_x_max * 1.05, 0.0f64..d_y_max * 1.05)?;
 
-        chart.configure_mesh()
+        chart
+            .configure_mesh()
             .x_desc("Energy Density \u{3B5} [MeV/fm\u{00B3}]")
             .y_desc("Pressure P [MeV/fm\u{00B3}]")
             .draw()?;
 
-        chart.draw_series(LineSeries::new(clean_data, plot_red.stroke_width(2 * scale)))?
+        chart
+            .draw_series(LineSeries::new(
+                clean_data,
+                plot_red.stroke_width(2 * scale),
+            ))?
             .label("EoS Model")
-            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], plot_red.stroke_width(2)));
+            .legend(move |(x, y)| {
+                PathElement::new(vec![(x, y), (x + 20, y)], plot_red.stroke_width(2))
+            });
 
-        chart.configure_series_labels().position(SeriesLabelPosition::UpperLeft).draw()?;
+        chart
+            .configure_series_labels()
+            .position(SeriesLabelPosition::UpperLeft)
+            .draw()?;
     }
 
     root.present()?;
@@ -189,65 +237,140 @@ impl Artist {
         }
     }
 
-    pub fn with_x_label(mut self, label: &str) -> Self { self.x_label = label.to_string(); self }
-    pub fn with_y_label(mut self, label: &str) -> Self { self.y_label = label.to_string(); self }
-    pub fn autoscale(mut self) -> Self { self.x_min = None; self.x_max = None; self.y_min = None; self.y_max = None; self }
-    pub fn with_x_range(mut self, min: f64, max: f64) -> Self { self.x_min = Some(min); self.x_max = Some(max); self }
-    pub fn with_y_range(mut self, min: f64, max: f64) -> Self { self.y_min = Some(min); self.y_max = Some(max); self }
-    pub fn with_x_labels(mut self, count: usize) -> Self { self.x_label_count = Some(count); self }
-    pub fn with_log_scale(mut self) -> Self { self.use_logscale = true; self }
+    pub fn with_x_label(mut self, label: &str) -> Self {
+        self.x_label = label.to_string();
+        self
+    }
+    pub fn with_y_label(mut self, label: &str) -> Self {
+        self.y_label = label.to_string();
+        self
+    }
+    pub fn autoscale(mut self) -> Self {
+        self.x_min = None;
+        self.x_max = None;
+        self.y_min = None;
+        self.y_max = None;
+        self
+    }
+    pub fn with_x_range(mut self, min: f64, max: f64) -> Self {
+        self.x_min = Some(min);
+        self.x_max = Some(max);
+        self
+    }
+    pub fn with_y_range(mut self, min: f64, max: f64) -> Self {
+        self.y_min = Some(min);
+        self.y_max = Some(max);
+        self
+    }
+    pub fn with_x_labels(mut self, count: usize) -> Self {
+        self.x_label_count = Some(count);
+        self
+    }
+    pub fn with_log_scale(mut self) -> Self {
+        self.use_logscale = true;
+        self
+    }
 
     /// Adiciona uma curva com uma cor automática da paleta base
     pub fn add_curve(mut self, x: &[f64], y: &[f64], label: &str) -> Self {
-        self.curves.push(CurveData { 
-            x: x.to_vec(), 
-            y: y.to_vec(), 
+        self.curves.push(CurveData {
+            x: x.to_vec(),
+            y: y.to_vec(),
             label: label.to_string(),
-            color: None 
+            color: None,
         });
         self
     }
 
     /// NOVO: Adiciona uma curva especificando a cor RGB exata (r, g, b)
-    pub fn add_curve_color(mut self, x: &[f64], y: &[f64], label: &str, r: u8, g: u8, b: u8) -> Self {
-        self.curves.push(CurveData { 
-            x: x.to_vec(), 
-            y: y.to_vec(), 
+    pub fn add_curve_color(
+        mut self,
+        x: &[f64],
+        y: &[f64],
+        label: &str,
+        r: u8,
+        g: u8,
+        b: u8,
+    ) -> Self {
+        self.curves.push(CurveData {
+            x: x.to_vec(),
+            y: y.to_vec(),
             label: label.to_string(),
-            color: Some((r, g, b)) 
+            color: Some((r, g, b)),
         });
         self
     }
 
     pub fn plot(&self) -> Result<(), Box<dyn Error>> {
-        if self.curves.is_empty() { return Err("Sem curvas.".into()); }
+        if self.curves.is_empty() {
+            return Err("Sem curvas.".into());
+        }
 
         let path = Path::new(&self.output_path);
-        if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
-        let mut d_x_min = f64::MAX; let mut d_x_max = f64::MIN;
-        let mut d_y_min = f64::MAX; let mut d_y_max = f64::MIN;
+        let mut d_x_min = f64::MAX;
+        let mut d_x_max = f64::MIN;
+        let mut d_y_min = f64::MAX;
+        let mut d_y_max = f64::MIN;
 
         for curve in &self.curves {
             for (&xi, &yi) in curve.x.iter().zip(curve.y.iter()) {
                 if xi.is_finite() && yi.is_finite() {
-                    if self.use_logscale && (xi <= 0.0 || yi <= 0.0) { continue; }
-                    if !self.use_logscale && self.x_label.contains("Radius") && xi > 50.0 { continue; }
-                    
-                    if xi < d_x_min { d_x_min = xi; }
-                    if xi > d_x_max { d_x_max = xi; }
-                    if yi < d_y_min { d_y_min = yi; }
-                    if yi > d_y_max { d_y_max = yi; }
+                    if self.use_logscale && (xi <= 0.0 || yi <= 0.0) {
+                        continue;
+                    }
+                    if !self.use_logscale && self.x_label.contains("Radius") && xi > 50.0 {
+                        continue;
+                    }
+
+                    if xi < d_x_min {
+                        d_x_min = xi;
+                    }
+                    if xi > d_x_max {
+                        d_x_max = xi;
+                    }
+                    if yi < d_y_min {
+                        d_y_min = yi;
+                    }
+                    if yi > d_y_max {
+                        d_y_max = yi;
+                    }
                 }
             }
         }
 
-        if d_x_min == f64::MAX { d_x_min = 0.1; d_x_max = 1.0; d_y_min = 0.1; d_y_max = 1.0; }
+        if d_x_min == f64::MAX {
+            d_x_min = 0.1;
+            d_x_max = 1.0;
+            d_y_min = 0.1;
+            d_y_max = 1.0;
+        }
 
-        let x_start = self.x_min.unwrap_or(if self.use_logscale { d_x_min * 0.8 } else if self.x_label.contains("Radius") { d_x_min.max(8.0) } else { 0.0 });
-        let x_end = self.x_max.unwrap_or(if self.use_logscale { d_x_max * 1.5 } else { d_x_max * 1.05 });
-        let y_start = self.y_min.unwrap_or(if self.use_logscale { d_y_min * 0.8 } else { 0.0 }); 
-        let y_end = self.y_max.unwrap_or(if self.use_logscale { d_y_max * 1.5 } else { d_y_max * 1.05 });
+        let x_start = self.x_min.unwrap_or(if self.use_logscale {
+            d_x_min * 0.8
+        } else if self.x_label.contains("Radius") {
+            d_x_min.max(8.0)
+        } else {
+            0.0
+        });
+        let x_end = self.x_max.unwrap_or(if self.use_logscale {
+            d_x_max * 1.5
+        } else {
+            d_x_max * 1.05
+        });
+        let y_start = self.y_min.unwrap_or(if self.use_logscale {
+            d_y_min * 0.8
+        } else {
+            0.0
+        });
+        let y_end = self.y_max.unwrap_or(if self.use_logscale {
+            d_y_max * 1.5
+        } else {
+            d_y_max * 1.05
+        });
 
         let root = SVGBackend::new(&self.output_path, (1000, 800)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -267,30 +390,53 @@ impl Artist {
             mesh.x_desc(&self.x_label)
                 .y_desc(&self.y_label)
                 .light_line_style(&WHITE.mix(0.1));
-            
-            if let Some(count) = self.x_label_count { mesh.x_labels(count); }
+
+            if let Some(count) = self.x_label_count {
+                mesh.x_labels(count);
+            }
             mesh.draw()?;
 
             for (i, curve) in self.curves.iter().enumerate() {
                 let step = (curve.x.len() / 2000).max(1);
-                let data = curve.x.iter().zip(curve.y.iter()).enumerate()
-                    .filter(|(idx, (x, y))| idx % step == 0 && x.is_finite() && y.is_finite() && *x > &0.0 && *y > &0.0)
+                let data = curve
+                    .x
+                    .iter()
+                    .zip(curve.y.iter())
+                    .enumerate()
+                    .filter(|(idx, (x, y))| {
+                        idx % step == 0 && x.is_finite() && y.is_finite() && *x > &0.0 && *y > &0.0
+                    })
                     .map(|(_, (&x, &y))| (x, y));
 
                 // Seleciona a cor personalizada ou cai na paleta padrão
                 if let Some((r, g, b)) = curve.color {
                     let custom_color = RGBColor(r, g, b);
-                    chart.draw_series(LineSeries::new(data, custom_color.stroke_width(2)))?
+                    chart
+                        .draw_series(LineSeries::new(data, custom_color.stroke_width(2)))?
                         .label(&curve.label)
-                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], custom_color.stroke_width(2)));
+                        .legend(move |(x, y)| {
+                            PathElement::new(
+                                vec![(x, y), (x + 20, y)],
+                                custom_color.stroke_width(2),
+                            )
+                        });
                 } else {
                     let default_color = colors[i % colors.len()];
-                    chart.draw_series(LineSeries::new(data, default_color.stroke_width(2)))?
+                    chart
+                        .draw_series(LineSeries::new(data, default_color.stroke_width(2)))?
                         .label(&curve.label)
-                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], default_color.stroke_width(2)));
+                        .legend(move |(x, y)| {
+                            PathElement::new(
+                                vec![(x, y), (x + 20, y)],
+                                default_color.stroke_width(2),
+                            )
+                        });
                 }
             }
-            chart.configure_series_labels().position(SeriesLabelPosition::UpperLeft).draw()?;
+            chart
+                .configure_series_labels()
+                .position(SeriesLabelPosition::UpperLeft)
+                .draw()?;
         } else {
             let mut chart = ChartBuilder::on(&root)
                 .caption(&self.title, ("sans-serif", 20))
@@ -303,38 +449,57 @@ impl Artist {
             mesh.x_desc(&self.x_label)
                 .y_desc(&self.y_label)
                 .light_line_style(&WHITE.mix(0.1));
-            
-            if let Some(count) = self.x_label_count { mesh.x_labels(count); }
+
+            if let Some(count) = self.x_label_count {
+                mesh.x_labels(count);
+            }
             mesh.draw()?;
 
             for (i, curve) in self.curves.iter().enumerate() {
                 let step = (curve.x.len() / 2000).max(1);
-                let data = curve.x.iter().zip(curve.y.iter()).enumerate()
+                let data = curve
+                    .x
+                    .iter()
+                    .zip(curve.y.iter())
+                    .enumerate()
                     .filter(|(idx, (x, y))| idx % step == 0 && x.is_finite() && y.is_finite())
                     .map(|(_, (&x, &y))| (x, y));
 
                 // Seleciona a cor personalizada ou cai na paleta padrão
                 if let Some((r, g, b)) = curve.color {
                     let custom_color = RGBColor(r, g, b);
-                    chart.draw_series(LineSeries::new(data, custom_color.stroke_width(2)))?
+                    chart
+                        .draw_series(LineSeries::new(data, custom_color.stroke_width(2)))?
                         .label(&curve.label)
-                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], custom_color.stroke_width(2)));
+                        .legend(move |(x, y)| {
+                            PathElement::new(
+                                vec![(x, y), (x + 20, y)],
+                                custom_color.stroke_width(2),
+                            )
+                        });
                 } else {
                     let default_color = colors[i % colors.len()];
-                    chart.draw_series(LineSeries::new(data, default_color.stroke_width(2)))?
+                    chart
+                        .draw_series(LineSeries::new(data, default_color.stroke_width(2)))?
                         .label(&curve.label)
-                        .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], default_color.stroke_width(2)));
+                        .legend(move |(x, y)| {
+                            PathElement::new(
+                                vec![(x, y), (x + 20, y)],
+                                default_color.stroke_width(2),
+                            )
+                        });
                 }
             }
-            chart.configure_series_labels().position(SeriesLabelPosition::UpperRight).draw()?;
+            chart
+                .configure_series_labels()
+                .position(SeriesLabelPosition::UpperRight)
+                .draw()?;
         }
 
         root.present()?;
         Ok(())
     }
 }
-
-
 
 // ============================================================================
 // COLOR SCALE: Gerenciador de Gradientes e Paletas de Cores

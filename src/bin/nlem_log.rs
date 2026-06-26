@@ -1,7 +1,8 @@
 // src/bin/nlem_log.rs
 
 use nsrs::{
-    generate_mr_curve, write_eos_with_mr, EngineMode, GM1, GM3, HadronsMatter, NlemModel, Solver,
+    EngineMode, FSU2, GM1, GM3, HadronsMatter, NlemModel, Solver, generate_mr_curve,
+    write_eos_with_mr,
 };
 use std::env;
 use std::fs;
@@ -10,13 +11,20 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 5 {
-        eprintln!("Uso: {} <exp_min> <exp_max> <interval> <B1> <B2> ...", args[0]);
+        eprintln!(
+            "Uso: {} <exp_min> <exp_max> <interval> <B1> <B2> ...",
+            args[0]
+        );
         eprintln!("Exemplo: {} 8 28 2 1e15 5e16", args[0]);
         return;
     }
 
-    let exp_min: i32 = args[1].parse().expect("exp_min inválido (use inteiros como 8)");
-    let exp_max: i32 = args[2].parse().expect("exp_max inválido (use inteiros como 28)");
+    let exp_min: i32 = args[1]
+        .parse()
+        .expect("exp_min inválido (use inteiros como 8)");
+    let exp_max: i32 = args[2]
+        .parse()
+        .expect("exp_max inválido (use inteiros como 28)");
     let interval: usize = args[3]
         .parse()
         .expect("interval inválido (use inteiros como 1, 2, 5 ou 10)");
@@ -24,7 +32,7 @@ fn main() {
     if interval == 0 {
         panic!("interval deve ser >= 1");
     }
-    
+
     let b_fields: Vec<f64> = args[4..]
         .iter()
         .map(|s| s.parse().expect("B deve ser um número válido"))
@@ -49,7 +57,7 @@ fn main() {
     csi_vals.push(10_f64.powf(log_csi_last));
 
     let num_points = csi_vals.len();
-    let models = [("GM1", GM1), ("GM3", GM3)];
+    let models = [("GM1", GM1), ("GM3", GM3), ("FSU2", FSU2)];
 
     // 2. Loop principal: modelos x campos usando a topologia padrão
     for (model_name, model_params) in models {
@@ -92,16 +100,14 @@ fn main() {
                     generate_mr_curve(&eps, &p_arr, &rho_arr, false);
 
                 let eos_filename = format!("{}/eos.dat", dir_path);
-                if let Err(_) =
-                    write_eos_with_mr(
-                        results,
-                        &masses,
-                        &radii,
-                        &b_masses,
-                        &central_p_list,
-                        &eos_filename,
-                    )
-                {
+                if let Err(_) = write_eos_with_mr(
+                    results,
+                    &masses,
+                    &radii,
+                    &b_masses,
+                    &central_p_list,
+                    &eos_filename,
+                ) {
                     continue;
                 }
             }

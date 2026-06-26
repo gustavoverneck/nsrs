@@ -5,28 +5,36 @@ use std::path::Path;
 
 use crate::core::constants::RESULTS_SIZE;
 
-pub fn read_eos_file<P: AsRef<Path>>(path: P) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Box<dyn Error>> {
+pub fn read_eos_file<P: AsRef<Path>>(
+    path: P,
+) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Box<dyn Error>> {
     let content = fs::read_to_string(path)?;
-    
+
     let mut rho_data = Vec::new();
     let mut eps_data = Vec::new();
     let mut p_data = Vec::new();
 
     for line in content.lines() {
         let trimmed_line = line.trim();
-        
+
         if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
             continue;
         }
 
         let columns: Vec<&str> = trimmed_line.split_whitespace().collect();
-        
+
         // Agora esperamos pelo menos 3 colunas: n_B (0), eps (1), P (2)
         if columns.len() >= 3 {
-            let rho: f64 = columns[0].parse().map_err(|_| format!("Erro ao ler: {}", columns[0]))?;
-            let eps: f64 = columns[1].parse().map_err(|_| format!("Erro ao ler: {}", columns[1]))?;
-            let p: f64 = columns[2].parse().map_err(|_| format!("Erro ao ler: {}", columns[2]))?;
-            
+            let rho: f64 = columns[0]
+                .parse()
+                .map_err(|_| format!("Erro ao ler: {}", columns[0]))?;
+            let eps: f64 = columns[1]
+                .parse()
+                .map_err(|_| format!("Erro ao ler: {}", columns[1]))?;
+            let p: f64 = columns[2]
+                .parse()
+                .map_err(|_| format!("Erro ao ler: {}", columns[2]))?;
+
             // Filtro básico de sanidade
             if eps > 0.0 && p >= 0.0 {
                 rho_data.push(rho);
@@ -39,7 +47,7 @@ pub fn read_eos_file<P: AsRef<Path>>(path: P) -> Result<(Vec<f64>, Vec<f64>, Vec
     if eps_data.is_empty() {
         return Err("Arquivo vazio ou formato incorreto (precisa de 3 colunas).".into());
     }
-    
+
     sort_eos_data(&mut rho_data, &mut eps_data, &mut p_data);
 
     Ok((eps_data, p_data, rho_data))
@@ -54,7 +62,7 @@ fn sort_eos_data(rho: &mut Vec<f64>, eps: &mut Vec<f64>, p: &mut Vec<f64>) {
         .map(|((p_val, eps_val), rho_val)| (p_val, eps_val, rho_val))
         .collect();
     combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    
+
     *p = combined.iter().map(|x| x.0).collect();
     *eps = combined.iter().map(|x| x.1).collect();
     *rho = combined.iter().map(|x| x.2).collect();
@@ -76,7 +84,7 @@ pub fn write_eos_with_mr<P: AsRef<Path>>(
 5:nn_fm^-3 6:np_fm^-3 7:nL0_fm^-3 8:nS-_fm^-3 9:nS0_fm^-3 \
 10:nS+_fm^-3 11:nX-_fm^-3 12:nX0_fm^-3 13:sigma_MeV 14:omega_MeV \
 15:rho_MeV 16:mstar_over_mN 17:mu_n_over_mN 18:mu_e_over_mN \
-19:eps_mag_MeV_fm3 20:B_T \
+19:eps_mag_MeV_fm3 20:mu_total_over_mN \
 mr_mass_msun mr_radius_km mr_baryonic_mass_msun"
     )?;
 
@@ -125,10 +133,7 @@ mr_mass_msun mr_radius_km mr_baryonic_mass_msun"
         writeln!(
             file,
             "{} {:12.5e} {:12.5e} {:12.5e}",
-            base_line,
-            matched_mass,
-            matched_radius,
-            matched_baryonic_mass
+            base_line, matched_mass, matched_radius, matched_baryonic_mass
         )?;
     }
 

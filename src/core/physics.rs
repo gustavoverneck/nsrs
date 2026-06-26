@@ -3,16 +3,16 @@
 
 use crate::core::constants::{
     AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA,
-    M_NUCLEON, MB, ML, N0, QE, RESULTS_SIZE, MAX_LANDAU_LIMIT, HBAR_C
+    HBAR_C, M_NUCLEON, MAX_LANDAU_LIMIT, MB, ML, N0, QE, RESULTS_SIZE,
 };
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NlemModel {
-    Maxwell,        // Eletromagnetismo Clássico (Linear)
-    Modmax(f64),    // Eletrodinâmica ModMax (recebe parâmetro csi)
-    Log(f64),       // Eletrodinâmica Logarítmica (recebe parâmetro csi)
+    Maxwell,     // Eletromagnetismo Clássico (Linear)
+    Modmax(f64), // Eletrodinâmica ModMax (recebe parâmetro csi)
+    Log(f64),    // Eletrodinâmica Logarítmica (recebe parâmetro csi)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -22,20 +22,18 @@ pub enum MagneticTopology {
 }
 
 impl NlemModel {
-    /// Recebe o campo magnético original (bg) e retorna o campo magnético 
+    /// Recebe o campo magnético original (bg) e retorna o campo magnético
     /// EFETIVO alterado pelo modelo não-linear.
     pub fn effective_bg(&self, bg: f64) -> f64 {
         match self {
             NlemModel::Maxwell => bg,
-            
+
             NlemModel::Modmax(csi) => {
                 // Fórmula: bg * exp(-csi)
                 bg * (-csi).exp()
-            },
-            
-            NlemModel::Log(csi) => {
-                bg * (1.0 + bg.powi(2) / (2.0 * csi.powi(2)))
             }
+
+            NlemModel::Log(csi) => bg * (1.0 + bg.powi(2) / (2.0 * csi.powi(2))),
         }
     }
 
@@ -44,19 +42,19 @@ impl NlemModel {
     pub fn magnetic_energy(&self, bg: f64, ebsi_maxwell: f64) -> f64 {
         match self {
             NlemModel::Maxwell => ebsi_maxwell,
-            
+
             NlemModel::Modmax(csi) => {
                 // ε_MM = ε_Max * e^(-csi)
                 ebsi_maxwell * (-csi).exp()
-            },
-            
+            }
+
             NlemModel::Log(csi) => {
                 let bg_sq = bg.powi(2);
                 let csi_sq = csi.powi(2);
-                
+
                 // x = B^2 / (2 * csi^2)
                 let x = bg_sq / (2.0 * csi_sq);
-                
+
                 // Limite de segurança matemático para x muito próximo de zero
                 if x < 1e-15 {
                     ebsi_maxwell
@@ -101,7 +99,7 @@ pub struct HadronsMatter {
     // Densidades
     pub nb: [f64; 8],
     pub nl: [f64; 2],
-    pub nbt: f64,               // densidade bariônica total
+    pub nbt: f64, // densidade bariônica total
 
     // Densidades escalares
     pub rhosb: f64,
@@ -110,22 +108,21 @@ pub struct HadronsMatter {
 
     // Energias de Fermi e momentos (para EOS)
     pub ef_b: [f64; 8],
-    pub ef_l: [f64; 2],      // Energias de Fermi: [0]=e, [1]=mu
-
+    pub ef_l: [f64; 2], // Energias de Fermi: [0]=e, [1]=mu
 
     // Acoplamentos (xv_v para omega, xv_r para rho)
     pub xv_v: [f64; 8], // g_wB / g_wN
     pub xv_r: [f64; 8], // g_rB / g_rN
 
     // Momentos de Fermi por nível de Landau (Vetorizados)
-    pub kf_b_up: [Vec<f64>; 8],   // [Barião][Nível nu]
+    pub kf_b_up: [Vec<f64>; 8], // [Barião][Nível nu]
     pub kf_b_down: [Vec<f64>; 8],
-    pub f_l: [Vec<f64>; 2],  // Momentos de Fermi: [0]=fe, [1]=fmu
+    pub f_l: [Vec<f64>; 2], // Momentos de Fermi: [0]=fe, [1]=fmu
 
     // Contadores de níveis por spin
     pub n_b_up: [usize; 8],
     pub n_b_down: [usize; 8],
-    pub n_l: [usize; 2],     // Contadores: [0]=ne, [1]=nu
+    pub n_l: [usize; 2], // Contadores: [0]=ne, [1]=nu
 
     pub max_landau_limit: usize,
 
@@ -191,7 +188,7 @@ impl HadronsMatter {
             nb: [0.0; 8],
             nl: [0.0; 2],
             nbt: 0.0,
-            
+
             rhosb: 0.0,
             rhos_b: [0.0; 8],
             rhos_l: [0.0; 2],
@@ -225,14 +222,14 @@ impl HadronsMatter {
     /// Builder para acoplar o Eletromagnetismo Não-Linear
     pub fn with_nlem(mut self, nlem: NlemModel) -> Self {
         self.nlem = nlem;
-        
+
         // 1. Calcula o campo macroscópico efetivo usando o Enum
         let bg_effective = self.nlem.effective_bg(self.bg);
-        
+
         // 2. Recalcula o 'b' que vai para os Níveis de Landau usando o novo bg
         let b0 = bg_effective / BCE_G;
         self.b = b0 * BCE;
-        
+
         self
     }
 
@@ -284,8 +281,8 @@ impl HadronsMatter {
         crate::core::particles::calculate_all_densities(self, vomega, vrho);
 
         let fsigma = self.equation_sigma(vsigma);
-        let fomega = self.equation_omega(vomega);
-        let frho = self.equation_rho(vrho);
+        let fomega = self.equation_omega(vomega, vrho);
+        let frho = self.equation_rho(vrho, vomega);
         let charge_neutral = self.charge_neutrality();
 
         [fsigma, fomega, frho, charge_neutral]
@@ -293,29 +290,36 @@ impl HadronsMatter {
 
     fn equation_sigma(&self, vsigma: f64) -> f64 {
         let gs2 = self.model.gs.powi(2);
-        gs2 * (self.rhosb - self.model.rb * vsigma.powi(2) - self.model.rc * vsigma.powi(3)) - vsigma
+        gs2 * (self.rhosb - self.model.rb * vsigma.powi(2) - self.model.rc * vsigma.powi(3))
+            - vsigma
     }
 
     // Equações de Campo Vetorizadas para suportar as partículas com total precisão
-    fn equation_omega(&self, vomega: f64) -> f64 {
+    fn equation_omega(&self, vomega: f64, vrho: f64) -> f64 {
         let mut sum_baryon = 0.0;
         for i in 0..8 {
             sum_baryon += self.nb[i] * self.xv_v[i];
         }
-        self.model.gv.powi(2) * sum_baryon - vomega
+        self.model.gv.powi(2) * sum_baryon
+            - vomega
+            - self.model.rxi * vomega.powi(3)
+            - 2.0 * self.model.lambda_v * vomega * vrho.powi(2)
     }
 
-    fn equation_rho(&self, vrho: f64) -> f64 {
+    fn equation_rho(&self, vrho: f64, vomega: f64) -> f64 {
         let mut sum_source = 0.0;
         for i in 0..8 {
             // A fonte para o rho é baseada no negativo do isospin
             sum_source += self.isospin_factor[i] * self.nb[i] * self.xv_r[i];
         }
-        self.model.gr.powi(2) * sum_source - vrho
+        self.model.gr.powi(2) * sum_source
+            - vrho
+            - 2.0 * self.model.lambda_v * vrho * vomega.powi(2)
     }
-    
+
     fn charge_neutrality(&self) -> f64 {
-        let charge_baryons: f64 = self.nb
+        let charge_baryons: f64 = self
+            .nb
             .iter()
             .zip(self.charges_b.iter())
             .map(|(n, q)| n * q)
@@ -328,7 +332,11 @@ impl HadronsMatter {
     }
 
     // Resolve para um dado mun e chute inicial, retorna solução e resultado
-    pub fn solve_point(&mut self, mun: f64, initial_x: &[f64]) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
+    pub fn solve_point(
+        &mut self,
+        mun: f64,
+        initial_x: &[f64],
+    ) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
         self.mun = mun;
 
         let mut x = Vector4::from_column_slice(initial_x);
@@ -429,28 +437,41 @@ impl HadronsMatter {
         let press_final = press_conv + pmag_effective;
 
         if ener_final >= 0.0 && press_final >= 0.0 {
+            let fermion_mu_density = self
+                .mu_b
+                .iter()
+                .zip(self.nb.iter())
+                .map(|(mu, n)| mu * n)
+                .sum::<f64>()
+                + mue * self.nl.iter().sum::<f64>();
+            let mu_total_per_baryon = if self.nbt > 0.0 {
+                fermion_mu_density / self.nbt
+            } else {
+                0.0
+            };
+
             let result = [
-                nbtd / 0.153, //  0: n/n0 (adimensional)
-                ener_final,   //  1: Energia Total [MeV/fm^3]
-                press_final,  //  2: Pressão Total [MeV/fm^3]
-                self.nl[0],   //  3: e- [fm^-3]
-                self.nl[1],   //  4: mu- [fm^-3]
-                self.nb[0],   //  5: n [fm^-3]
-                self.nb[1],   //  6: p [fm^-3]
-                self.nb[2],   //  7: L0 [fm^-3]
-                self.nb[3],   //  8: S- [fm^-3]
-                self.nb[4],   //  9: S0 [fm^-3]
-                self.nb[5],   // 10: S+ [fm^-3]
-                self.nb[6],   // 11: X- [fm^-3]
-                self.nb[7],   // 12: X0 [fm^-3]
-                vsigma,       // 13: Campo Sigma [MeV]
-                vomega,       // 14: Campo Omega [MeV]
-                vrho,         // 15: Campo Rho [MeV]
+                nbtd / 0.153,               //  0: n/n0 (adimensional)
+                ener_final,                 //  1: Energia Total [MeV/fm^3]
+                press_final,                //  2: Pressão Total [MeV/fm^3]
+                self.nl[0],                 //  3: e- [fm^-3]
+                self.nl[1],                 //  4: mu- [fm^-3]
+                self.nb[0],                 //  5: n [fm^-3]
+                self.nb[1],                 //  6: p [fm^-3]
+                self.nb[2],                 //  7: L0 [fm^-3]
+                self.nb[3],                 //  8: S- [fm^-3]
+                self.nb[4],                 //  9: S0 [fm^-3]
+                self.nb[5],                 // 10: S+ [fm^-3]
+                self.nb[6],                 // 11: X- [fm^-3]
+                self.nb[7],                 // 12: X0 [fm^-3]
+                vsigma,                     // 13: Campo Sigma [MeV]
+                vomega,                     // 14: Campo Omega [MeV]
+                vrho,                       // 15: Campo Rho [MeV]
                 self.m_eff[0] / self.m_nuc, // 16: m*/mN (adimensional)
-                self.mun,     // 17: mu_n [adimensional no código atual]
-                mue,          // 18: mu_e [adimensional no código atual]
-                ebsd,         // 19: Densidade de energia magnética [MeV/fm^3]
-                bdd,          // 20: Campo magnético local B(n) [T]
+                self.mun,                   // 17: mu_n [adimensional no código atual]
+                mue,                        // 18: mu_e [adimensional no código atual]
+                ebsd,                       // 19: Densidade de energia magnética [MeV/fm^3]
+                mu_total_per_baryon,        // 20: Potencial químico total por bárion [mN]
             ];
             Some((x_final, result))
         } else {

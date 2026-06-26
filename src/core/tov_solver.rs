@@ -1,7 +1,7 @@
 // src/core/tov_solver.rs
 use std::f64::consts::PI;
 
-use crate::constants::{M_NUCLEON, RESULTS_SIZE, MEV_FM3_TO_MSUN_KM3, G_C2};
+use crate::constants::{G_C2, M_NUCLEON, MEV_FM3_TO_MSUN_KM3, RESULTS_SIZE};
 
 fn log_linear_interp(x: &[f64], y: &[f64], xval: f64) -> f64 {
     let n = x.len();
@@ -71,7 +71,6 @@ fn tov_derivatives(
     eps_array: &[f64],
     rho_array: &[f64],
 ) -> (f64, f64, f64) {
-
     let eps = log_linear_interp(p_array, eps_array, p);
     let rho = log_linear_interp(p_array, rho_array, p);
 
@@ -99,14 +98,7 @@ fn rkck_step(
     eps_array: &[f64],
     rho_array: &[f64],
 ) -> ([f64; 3], [f64; 3]) {
-    let (k1_p, k1_m, k1_mb) = tov_derivatives(
-        r,
-        y[0],
-        y[1],
-        p_array,
-        eps_array,
-        rho_array,
-    );
+    let (k1_p, k1_m, k1_mb) = tov_derivatives(r, y[0], y[1], p_array, eps_array, rho_array);
 
     let a2 = 0.2;
     let a3 = 0.3;
@@ -146,80 +138,40 @@ fn rkck_step(
         y[1] + h * b21 * k1_m,
         y[2] + h * b21 * k1_mb,
     ];
-    let (k2_p, k2_m, k2_mb) = tov_derivatives(
-        r + a2 * h,
-        y2[0],
-        y2[1],
-        p_array,
-        eps_array,
-        rho_array,
-    );
+    let (k2_p, k2_m, k2_mb) =
+        tov_derivatives(r + a2 * h, y2[0], y2[1], p_array, eps_array, rho_array);
 
     let y3 = [
         y[0] + h * (b31 * k1_p + b32 * k2_p),
         y[1] + h * (b31 * k1_m + b32 * k2_m),
         y[2] + h * (b31 * k1_mb + b32 * k2_mb),
     ];
-    let (k3_p, k3_m, k3_mb) = tov_derivatives(
-        r + a3 * h,
-        y3[0],
-        y3[1],
-        p_array,
-        eps_array,
-        rho_array,
-    );
+    let (k3_p, k3_m, k3_mb) =
+        tov_derivatives(r + a3 * h, y3[0], y3[1], p_array, eps_array, rho_array);
 
     let y4 = [
         y[0] + h * (b41 * k1_p + b42 * k2_p + b43 * k3_p),
         y[1] + h * (b41 * k1_m + b42 * k2_m + b43 * k3_m),
         y[2] + h * (b41 * k1_mb + b42 * k2_mb + b43 * k3_mb),
     ];
-    let (k4_p, k4_m, k4_mb) = tov_derivatives(
-        r + a4 * h,
-        y4[0],
-        y4[1],
-        p_array,
-        eps_array,
-        rho_array,
-    );
+    let (k4_p, k4_m, k4_mb) =
+        tov_derivatives(r + a4 * h, y4[0], y4[1], p_array, eps_array, rho_array);
 
     let y5 = [
         y[0] + h * (b51 * k1_p + b52 * k2_p + b53 * k3_p + b54 * k4_p),
         y[1] + h * (b51 * k1_m + b52 * k2_m + b53 * k3_m + b54 * k4_m),
         y[2] + h * (b51 * k1_mb + b52 * k2_mb + b53 * k3_mb + b54 * k4_mb),
     ];
-    let (k5_p, k5_m, k5_mb) = tov_derivatives(
-        r + a5 * h,
-        y5[0],
-        y5[1],
-        p_array,
-        eps_array,
-        rho_array,
-    );
+    let (k5_p, k5_m, k5_mb) =
+        tov_derivatives(r + a5 * h, y5[0], y5[1], p_array, eps_array, rho_array);
 
     let y6 = [
-        y[0]
-            + h
-                * (b61 * k1_p + b62 * k2_p + b63 * k3_p + b64 * k4_p + b65 * k5_p),
-        y[1]
-            + h
-                * (b61 * k1_m + b62 * k2_m + b63 * k3_m + b64 * k4_m + b65 * k5_m),
-        y[2]
-            + h
-                * (b61 * k1_mb
-                    + b62 * k2_mb
-                    + b63 * k3_mb
-                    + b64 * k4_mb
-                    + b65 * k5_mb),
+        y[0] + h * (b61 * k1_p + b62 * k2_p + b63 * k3_p + b64 * k4_p + b65 * k5_p),
+        y[1] + h * (b61 * k1_m + b62 * k2_m + b63 * k3_m + b64 * k4_m + b65 * k5_m),
+        y[2] + h * (b61 * k1_mb + b62 * k2_mb + b63 * k3_mb + b64 * k4_mb + b65 * k5_mb),
     ];
-    let (k6_p, k6_m, k6_mb) = tov_derivatives(
-        r + a6 * h,
-        y6[0],
-        y6[1],
-        p_array,
-        eps_array,
-        rho_array,
-    );
+    let (k6_p, k6_m, k6_mb) =
+        tov_derivatives(r + a6 * h, y6[0], y6[1], p_array, eps_array, rho_array);
 
     let yout = [
         y[0] + h * (c1 * k1_p + c3 * k3_p + c4 * k4_p + c6 * k6_p),
@@ -253,14 +205,7 @@ fn rkqs_step(
 
     let mut h = htry;
     loop {
-        let (yout, yerr) = rkck_step(
-            r,
-            y,
-            h,
-            p_array,
-            eps_array,
-            rho_array,
-        );
+        let (yout, yerr) = rkck_step(r, y, h, p_array, eps_array, rho_array);
 
         let yscal = [
             y[0].abs() + (h * yerr[0]).abs() + tiny,
@@ -324,15 +269,7 @@ pub fn integrate_star(
             h = r_end - r;
         }
 
-        let (ynew, hdid, hnext) = match rkqs_step(
-            r,
-            y,
-            h,
-            eps,
-            p_tov,
-            &eps_tov,
-            &rho_tov,
-        ) {
+        let (ynew, hdid, hnext) = match rkqs_step(r, y, h, eps, p_tov, &eps_tov, &rho_tov) {
             Some(result) => result,
             None => break,
         };
@@ -357,25 +294,29 @@ pub fn integrate_star(
 }
 
 /// Unifica a crosta personalizada (1/fm⁴) com a EoS do núcleo, descartando dados inválidos
-pub fn unify_with_crust(core_eps: &[f64], core_p: &[f64], core_rho: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+pub fn unify_with_crust(
+    core_eps: &[f64],
+    core_p: &[f64],
+    core_rho: &[f64],
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     // Constante de conversão de 1/fm⁴ para MeV/fm³
     const HBARC: f64 = 197.3269804;
 
     // Dados da crosta em 1/fm⁴- Baym-Pethick-Sutherland - from https://github.com/mrpelicer/nuclear_physics
     const CRUST_P_FM4: &[f64] = &[
-        1.212e-11, 8.236e-11, 2.764e-10, 5.152e-10, 1.593e-09, 4.023e-09, 1.380e-08,
-        3.315e-08, 1.077e-07, 2.559e-07, 3.479e-07, 4.729e-07, 6.430e-07, 9.147e-07,
-        1.041e-06, 1.840e-06, 2.469e-06, 2.496e-06, 2.642e-06, 2.878e-06, 3.110e-06,
-        3.425e-06, 3.852e-06, 4.425e-06, 5.181e-06, 6.168e-06, 8.198e-06, 1.109e-05,
-        1.509e-05, 2.050e-05, 2.767e-05, 3.701e-05, 5.361e-05
+        1.212e-11, 8.236e-11, 2.764e-10, 5.152e-10, 1.593e-09, 4.023e-09, 1.380e-08, 3.315e-08,
+        1.077e-07, 2.559e-07, 3.479e-07, 4.729e-07, 6.430e-07, 9.147e-07, 1.041e-06, 1.840e-06,
+        2.469e-06, 2.496e-06, 2.642e-06, 2.878e-06, 3.110e-06, 3.425e-06, 3.852e-06, 4.425e-06,
+        5.181e-06, 6.168e-06, 8.198e-06, 1.109e-05, 1.509e-05, 2.050e-05, 2.767e-05, 3.701e-05,
+        5.361e-05,
     ];
 
     const CRUST_E_FM4: &[f64] = &[
-        9.387e-08, 3.738e-07, 9.392e-07, 1.489e-06, 3.741e-06, 7.465e-06, 1.877e-05,
-        3.747e-05, 9.418e-05, 1.881e-04, 2.369e-04, 2.982e-04, 3.758e-04, 5.242e-04,
-        5.958e-04, 9.452e-04, 1.222e-03, 1.268e-03, 1.486e-03, 1.879e-03, 2.264e-03,
-        2.765e-03, 3.400e-03, 4.182e-03, 5.131e-03, 6.260e-03, 8.329e-03, 1.090e-02,
-        1.402e-02, 1.776e-02, 2.218e-02, 2.732e-02, 3.542e-02
+        9.387e-08, 3.738e-07, 9.392e-07, 1.489e-06, 3.741e-06, 7.465e-06, 1.877e-05, 3.747e-05,
+        9.418e-05, 1.881e-04, 2.369e-04, 2.982e-04, 3.758e-04, 5.242e-04, 5.958e-04, 9.452e-04,
+        1.222e-03, 1.268e-03, 1.486e-03, 1.879e-03, 2.264e-03, 2.765e-03, 3.400e-03, 4.182e-03,
+        5.131e-03, 6.260e-03, 8.329e-03, 1.090e-02, 1.402e-02, 1.776e-02, 2.218e-02, 2.732e-02,
+        3.542e-02,
     ];
 
     // Fallback: use crust energy density as a rho proxy until a rho table is available.
@@ -402,14 +343,14 @@ pub fn unify_with_crust(core_eps: &[f64], core_p: &[f64], core_rho: &[f64]) -> (
 
     // 2. Inserir o Núcleo (GM1/GM3)
     for i in 0..core_p.len() {
-        // A costura só ocorre quando o núcleo supera tanto a pressão quanto a 
+        // A costura só ocorre quando o núcleo supera tanto a pressão quanto a
         // densidade de energia máximas da crosta. Isso preserva (e_c, p_c) como a fronteira absoluta.
         if core_p[i] > p_transition && core_eps[i] > e_transition {
             raw_p.push(core_p[i]);
             raw_eps.push(core_eps[i]);
-            
+
             // CONVERSÃO APLICADA AQUI: De 1/fm³ para MeV/fm³
-            raw_rho.push(core_rho[i] * M_NUCLEON); 
+            raw_rho.push(core_rho[i] * M_NUCLEON);
         }
     }
 
@@ -442,7 +383,12 @@ pub fn unify_with_crust(core_eps: &[f64], core_p: &[f64], core_rho: &[f64]) -> (
     (final_eps, final_p, final_rho)
 }
 
-pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], rho_array: &[f64], with_crust: bool) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+pub fn generate_mr_curve(
+    eps_array: &[f64],
+    p_array: &[f64],
+    rho_array: &[f64],
+    with_crust: bool,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut masses = Vec::new();
     let mut radii = Vec::new();
     let mut baryonic_masses = Vec::new();
@@ -451,15 +397,12 @@ pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], rho_array: &[f64], 
     // 1. Costura a crosta APENAS se a flag for verdadeira
     let (clean_eps, clean_p, clean_rho) = if with_crust {
         // A função unify_with_crust já faz a conversão do núcleo internamente agora
-        unify_with_crust(eps_array, p_array, rho_array) 
+        unify_with_crust(eps_array, p_array, rho_array)
     } else {
         // Se NÃO usar a crosta, precisamos converter a EoS original de 1/fm³ para MeV/fm³
         const NUCLEON_MASS_MEV: f64 = M_NUCLEON;
-        let converted_rho: Vec<f64> = rho_array
-            .iter()
-            .map(|&nb| nb * NUCLEON_MASS_MEV)
-            .collect();
-        
+        let converted_rho: Vec<f64> = rho_array.iter().map(|&nb| nb * NUCLEON_MASS_MEV).collect();
+
         (eps_array.to_vec(), p_array.to_vec(), converted_rho)
     };
 
@@ -467,13 +410,16 @@ pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], rho_array: &[f64], 
     let (clean_eps, clean_p, clean_rho) = clean_eos_with_rho(&clean_eps, &clean_p, &clean_rho);
 
     if clean_p.len() < 5 {
-        return (Vec::new(), Vec::new(), Vec::new(), Vec::new()); 
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     }
 
     // 3. Converte unidades uma unica vez
     let eps_tov: Vec<f64> = clean_eps.iter().map(|&e| e * MEV_FM3_TO_MSUN_KM3).collect();
     let p_tov: Vec<f64> = clean_p.iter().map(|&p| p * MEV_FM3_TO_MSUN_KM3).collect();
-    let rho_tov: Vec<f64> = clean_rho.iter().map(|&rho| rho * MEV_FM3_TO_MSUN_KM3).collect();
+    let rho_tov: Vec<f64> = clean_rho
+        .iter()
+        .map(|&rho| rho * MEV_FM3_TO_MSUN_KM3)
+        .collect();
     let p_min = p_tov[0];
 
     // 4. Define onde começar a iterar as pressões centrais
@@ -486,13 +432,9 @@ pub fn generate_mr_curve(eps_array: &[f64], p_array: &[f64], rho_array: &[f64], 
 
     for &pc_mev in &clean_p[core_start_idx..] {
         let pc_tov = pc_mev * MEV_FM3_TO_MSUN_KM3;
-        if let Some((m, r, mb, pc_final)) = integrate_star(
-            pc_tov,
-            p_min,
-            &p_tov,
-            &eps_tov,
-            &rho_tov,
-        ) {
+        if let Some((m, r, mb, pc_final)) =
+            integrate_star(pc_tov, p_min, &p_tov, &eps_tov, &rho_tov)
+        {
             if m > 0.05 && r > 2.0 && m.is_finite() && r.is_finite() {
                 masses.push(m);
                 radii.push(r);
@@ -531,28 +473,33 @@ fn clean_eos(eps: &[f64], p: &[f64]) -> (Vec<f64>, Vec<f64>) {
 }
 
 /// Procura e interpola os dados de quarks para um mun específico
-fn find_quark_point(quark_eos: &[[f64; RESULTS_SIZE]], target_mun: f64) -> Option<[f64; RESULTS_SIZE]> {
+fn find_quark_point(
+    quark_eos: &[[f64; RESULTS_SIZE]],
+    target_mun: f64,
+) -> Option<[f64; RESULTS_SIZE]> {
     // Busca binária para encontrar a posição do mun (índice 17)
     let pos = quark_eos.binary_search_by(|row| {
-        row[17].partial_cmp(&target_mun).unwrap_or(std::cmp::Ordering::Equal)
+        row[17]
+            .partial_cmp(&target_mun)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     match pos {
         // Encontrou o valor exato
         Ok(idx) => Some(quark_eos[idx]),
-        
+
         // Não encontrou valor exato, tenta interpolar entre idx-1 e idx
         Err(idx) => {
             if idx == 0 || idx >= quark_eos.len() {
                 return None; // mun fora do range da tabela de quarks
             }
-            
+
             let q_low = &quark_eos[idx - 1];
             let q_high = &quark_eos[idx];
-            
+
             // Fator de interpolação linear
             let factor = (target_mun - q_low[17]) / (q_high[17] - q_low[17]);
-            
+
             let mut interpolated = [0.0; RESULTS_SIZE];
             for i in 0..RESULTS_SIZE {
                 interpolated[i] = q_low[i] + factor * (q_high[i] - q_low[i]);
@@ -562,12 +509,15 @@ fn find_quark_point(quark_eos: &[[f64; RESULTS_SIZE]], target_mun: f64) -> Optio
     }
 }
 
-pub fn unify_hybrid_eos(hadron_eos: &[[f64; RESULTS_SIZE]], quark_eos: &[[f64; RESULTS_SIZE]]) -> (Vec<f64>, Vec<f64>) {
+pub fn unify_hybrid_eos(
+    hadron_eos: &[[f64; RESULTS_SIZE]],
+    quark_eos: &[[f64; RESULTS_SIZE]],
+) -> (Vec<f64>, Vec<f64>) {
     let mut final_eps = Vec::new();
     let mut final_p = Vec::new();
 
     for h_row in hadron_eos {
-        let mun = h_row[17]; 
+        let mun = h_row[17];
         let p_had = h_row[2];
 
         // Agora a função existe e retorna os dados interpolados

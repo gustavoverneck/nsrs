@@ -1,11 +1,11 @@
 // src/bin/darkphotons.rs
 
-use nsrs::{DarkPhotonsMatter, EngineMode, GM1, GM3, HadronsMatter, Solver};
+use nsrs::{DarkPhotonsMatter, EngineMode, FSU2, GM1, GM3, HadronsMatter, Solver};
 use std::fs;
 use std::io::Write;
 
 fn main() {
-    let models = [("GM1", GM1)];
+    let models = [("GM1", GM1), ("GM3", GM3), ("FSU2", FSU2)];
     let b_field = 1e17;
 
     let eps_values = linspace(1e-6, 1e-3, 10);
@@ -61,11 +61,7 @@ fn main() {
                         let _ = writeln!(
                             summary,
                             "darkphotons,{:.6e},{:.6e},{:.6e},{:.6e},{}",
-                            epsilon,
-                            m_x,
-                            g_d,
-                            n_chi,
-                            eos_filename
+                            epsilon, m_x, g_d, n_chi, eos_filename
                         );
                     }
                 }
@@ -76,21 +72,6 @@ fn main() {
     }
 
     println!("\nProcesso concluido! Dados salvos em output/darkphotons_scan/");
-}
-
-fn logspace(start: f64, end: f64, n: usize) -> Vec<f64> {
-    if n == 0 {
-        return Vec::new();
-    }
-    if n == 1 {
-        return vec![start];
-    }
-    let log_start = start.ln();
-    let log_end = end.ln();
-    let step = (log_end - log_start) / (n as f64 - 1.0);
-    (0..n)
-        .map(|i| (log_start + step * i as f64).exp())
-        .collect()
 }
 
 fn format_sci(value: f64) -> String {

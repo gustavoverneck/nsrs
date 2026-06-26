@@ -1,12 +1,13 @@
 // src/bin/hybrid.rs
 
 use nsrs::{
-    Artist, EngineMode, GM1, HadronsMatter, QuarksMatter, HybridMatter, Solver, generate_mr_curve, constants::RESULTS_SIZE
+    Artist, EngineMode, GM1, HadronsMatter, HybridMatter, QuarksMatter, Solver,
+    constants::RESULTS_SIZE, generate_mr_curve,
 };
 fn main() {
-    let bg = 1e15; 
+    let bg = 1e15;
     let bag_constant = 85.38; // MeV/fm³
-    
+
     // 1. Instancia os componentes base
     let hadron_engine = HadronsMatter::new(GM1, bg)
         .with_limits(0.0, 2.5)
@@ -46,7 +47,7 @@ fn main() {
         .with_x_label("Radius [km]")
         .with_y_label("Mass [M\u{2299}]")
         .autoscale();
-    
+
     artist_mr = artist_mr.add_curve(&r_h, &m_h, "Pure Hadron (GM1)");
     artist_mr = artist_mr.add_curve(&r_q, &m_q, "Pure Quark (MIT Bag)");
     artist_mr = artist_mr.add_curve(&r_hyb, &m_hyb, "Hybrid (Maxwell)");
@@ -58,7 +59,7 @@ fn main() {
         .with_y_label("P [MeV/fm\u{00B3}]")
         .autoscale()
         .with_log_scale();
-    
+
     artist_eos = artist_eos.add_curve(&eps_h, &p_h, "Hadron");
     artist_eos = artist_eos.add_curve(&eps_q, &p_q, "Quark");
     artist_eos = artist_eos.add_curve(&eps_hyb, &p_hyb, "Hybrid");

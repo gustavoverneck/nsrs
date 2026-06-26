@@ -1,12 +1,12 @@
-use crate::core::constants::{RESULTS_SIZE, N0};
+use crate::core::constants::{N0, RESULTS_SIZE};
 // src/core/solver.rs
-use crate::core::physics::HadronsMatter;
-use crate::core::tov_solver::generate_mr_curve;
-use crate::core::io_utils::write_eos_with_mr;
-use indicatif::{ProgressBar, ProgressStyle};
 use crate::core::darkphotons::DarkPhotonsMatter;
-use crate::core::quarks::QuarksMatter;
 use crate::core::hybrid::HybridMatter;
+use crate::core::io_utils::write_eos_with_mr;
+use crate::core::physics::HadronsMatter;
+use crate::core::quarks::QuarksMatter;
+use crate::core::tov_solver::generate_mr_curve;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 
 // 1. Enum que define o modelo físico a ser resolvido
@@ -42,11 +42,11 @@ impl Solver {
 
         let initial_dmub = (mun_sup - mun_inf) / (n - 1) as f64;
         let mut dmub = initial_dmub;
-        let min_dmub = 1e-6;   // passo mínimo aceitável
+        let min_dmub = 1e-6; // passo mínimo aceitável
 
         let mut results: Vec<[f64; RESULTS_SIZE]> = Vec::with_capacity(n);
         let mut last_x = [0.0, 0.0, 0.0, 0.0];
-        let mut last_mun = mun_inf;   // último mun que convergiu
+        let mut last_mun = mun_inf; // último mun que convergiu
         let mut mun = mun_inf;
 
         while mun <= mun_sup + 1e-9 {
@@ -55,7 +55,9 @@ impl Solver {
             let point_data = match &mut self.engine {
                 EngineMode::Hadrons(h_engine) => h_engine.solve_point(mun, &last_x),
                 // Para Quarks, transformamos o resultado em tupla com estado dummy
-                EngineMode::Quarks(q_engine) => q_engine.solve_point(mun).map(|result| ([0.0; 4], result)),
+                EngineMode::Quarks(q_engine) => {
+                    q_engine.solve_point(mun).map(|result| ([0.0; 4], result))
+                }
                 EngineMode::Hybrid(hyb_engine) => hyb_engine.solve_point(mun, &last_x),
                 EngineMode::DarkPhotons(d_engine) => d_engine.solve_point(mun, &last_x),
             };
@@ -139,10 +141,15 @@ impl Solver {
     }
 
     /// Resolve múltiplas EoS de forma paralela usando Rayon.
-    pub fn solve_parallel(engines: Vec<EngineMode>, num_threads: usize) -> Vec<Vec<[f64; RESULTS_SIZE]>> {
+    pub fn solve_parallel(
+        engines: Vec<EngineMode>,
+        num_threads: usize,
+    ) -> Vec<Vec<[f64; RESULTS_SIZE]>> {
         let pb = ProgressBar::new(engines.len() as u64);
-        let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
-            .unwrap_or_else(|_| ProgressStyle::default_bar());
+        let style = ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}",
+        )
+        .unwrap_or_else(|_| ProgressStyle::default_bar());
         pb.set_style(style);
         pb.set_message("NSRS");
 
@@ -176,7 +183,8 @@ impl Solver {
 
         for data in results.iter() {
             // 1. Transforma os 20 valores em uma única String separada por espaços
-            let line = data.iter()
+            let line = data
+                .iter()
                 .map(|val| format!("{:12.5e}", val))
                 .collect::<Vec<String>>()
                 .join(" ");

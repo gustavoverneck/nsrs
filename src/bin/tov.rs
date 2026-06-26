@@ -1,8 +1,8 @@
 use std::env;
 
 use nsrs::core::io_utils::read_eos_file;
-use nsrs::core::tov_solver::generate_mr_curve;
 use nsrs::core::plotting::plot_mr_curve;
+use nsrs::core::tov_solver::generate_mr_curve;
 
 fn main() {
     // 1. Captura os argumentos de linha de comando
@@ -26,7 +26,9 @@ fn main() {
             let (masses, radii, _b_masses, _) = generate_mr_curve(&eps, &p, &rho, false);
 
             if masses.is_empty() || radii.is_empty() {
-                eprintln!("Erro: A curva M-R retornou vazia. Verifique se as pressões da EoS suportam uma estrela.");
+                eprintln!(
+                    "Erro: A curva M-R retornou vazia. Verifique se as pressões da EoS suportam uma estrela."
+                );
             } else {
                 // 4. Salva o gráfico extraindo o nome base do arquivo EoS
                 let output_name = eos_path
@@ -34,7 +36,7 @@ fn main() {
                     .last()
                     .unwrap_or("eos")
                     .replace(".dat", "");
-                
+
                 let plot_path = format!("results/mr_{}.svg", output_name);
 
                 println!("Gerando gráfico em: {}", plot_path);
@@ -42,7 +44,7 @@ fn main() {
                     eprintln!("Erro ao salvar o gráfico SVG: {}", e);
                 } else {
                     println!("Concluído! Curva M-R gerada com sucesso.");
-                    
+
                     // Exibe a massa máxima atingida no terminal
                     let max_mass = masses.iter().copied().fold(f64::NAN, f64::max);
                     println!("Massa máxima da estrela: {:.2} M_sol", max_mass);

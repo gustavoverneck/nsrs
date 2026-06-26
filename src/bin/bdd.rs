@@ -38,14 +38,26 @@ fn main() {
     // Defaults: output=bdd_vs_density.png, x_col=0, y_col=20
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <input.dat> [output.png] [x_col] [y_col]", args[0]);
+        eprintln!(
+            "Usage: {} <input.dat> [output.png] [x_col] [y_col]",
+            args[0]
+        );
         process::exit(1);
     }
 
     let input = &args[1];
-    let output = args.get(2).map(String::as_str).unwrap_or("bdd_vs_density.png");
-    let x_col = args.get(3).and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-    let y_col = args.get(4).and_then(|s| s.parse::<usize>().ok()).unwrap_or(20);
+    let output = args
+        .get(2)
+        .map(String::as_str)
+        .unwrap_or("bdd_vs_density.png");
+    let x_col = args
+        .get(3)
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+    let y_col = args
+        .get(4)
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(20);
 
     let content = fs::read_to_string(input).unwrap_or_else(|e| {
         eprintln!("Failed to read '{}': {}", input, e);
@@ -106,7 +118,11 @@ fn main() {
         .draw_series(data.into_iter().map(|p| Circle::new(p, 2, BLUE.filled())))
         .unwrap();
 
-    chart.configure_series_labels().border_style(BLACK).draw().unwrap();
+    chart
+        .configure_series_labels()
+        .border_style(BLACK)
+        .draw()
+        .unwrap();
 
     root.present().unwrap();
     println!("Plot written to {}", output);

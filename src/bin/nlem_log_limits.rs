@@ -3,8 +3,8 @@
 // Tests increasingly absurd magnetic fields until physical limits are reached
 
 use nsrs::{
-    generate_mr_curve, write_eos_with_mr, EngineMode, GM1, GM3, HadronsMatter, NlemModel, Solver,
-    core::model::ModelParams,
+    EngineMode, FSU2, GM1, GM3, HadronsMatter, NlemModel, Solver, core::model::ModelParams,
+    generate_mr_curve, write_eos_with_mr,
 };
 use std::fs;
 
@@ -21,47 +21,47 @@ struct FieldTestResult {
 fn compute_csi_for_effective_field(b_bare: f64, b_target: f64) -> Option<f64> {
     // For Log model: B_eff = B / (1 + B^2 / (2*csi^2))
     // Solving for csi: csi = sqrt(B_target * B^2 / (2 * (B - B_target)))
-    
+
     if b_target >= b_bare || b_target <= 0.0 || b_bare <= 0.0 {
         return None;
     }
-    
+
     let numerator = b_target * b_bare * b_bare;
     let denominator = 2.0 * (b_bare - b_target);
-    
+
     if denominator <= 0.0 {
         return None;
     }
-    
+
     let csi_sq = numerator / denominator;
     if csi_sq <= 0.0 {
         return None;
     }
-    
+
     Some(csi_sq.sqrt())
 }
 
 fn generate_csi_values_for_field(b_bare: f64, num_steps: usize) -> Vec<f64> {
     // Generate csi values that produce effective fields from small to nearly b_bare
     let mut csi_vals = Vec::new();
-    
+
     // Start from a small fraction of b_bare and go up to nearly b_bare (logarithmic scale)
-    let b_min = b_bare * 0.01;  // 1% of bare field
-    let b_max = b_bare * 0.99;  // 99% of bare field
-    
+    let b_min = b_bare * 0.01; // 1% of bare field
+    let b_max = b_bare * 0.99; // 99% of bare field
+
     let log_min = b_min.log10();
     let log_max = b_max.log10();
-    
+
     for i in 0..=num_steps {
         let t = i as f64 / num_steps as f64;
         let log_b_eff = log_min + t * (log_max - log_min);
         let b_eff = 10_f64.powf(log_b_eff);
-        
+
         if let Some(csi) = compute_csi_for_effective_field(b_bare, b_eff) {
             csi_vals.push(csi);
         }
     }
-    
+
     csi_vals
 }
 
@@ -144,7 +144,10 @@ fn test_magnetic_field_no_nlem(
             .next();
 
         // Try to save results
-        let base_dir = format!("output/nlem_log_limits/{}/B_{}/no_nlem", model_name, b_string);
+        let base_dir = format!(
+            "output/nlem_log_limits/{}/B_{}/no_nlem",
+            model_name, b_string
+        );
         let _ = fs::create_dir_all(&base_dir);
         let eos_filename = format!("{}/eos.dat", base_dir);
         let _ = write_eos_with_mr(
@@ -158,26 +161,22 @@ fn test_magnetic_field_no_nlem(
 
         Ok((max_mass, max_radius))
     })() {
-        Ok((max_mass, max_radius)) => {
-            FieldTestResult {
-                b_field,
-                csi: 0.0,
-                max_mass: Some(max_mass),
-                max_radius,
-                success: true,
-                error_msg: String::new(),
-            }
-        }
-        Err(err_msg) => {
-            FieldTestResult {
-                b_field,
-                csi: 0.0,
-                max_mass: None,
-                max_radius: None,
-                success: false,
-                error_msg: err_msg.to_string(),
-            }
-        }
+        Ok((max_mass, max_radius)) => FieldTestResult {
+            b_field,
+            csi: 0.0,
+            max_mass: Some(max_mass),
+            max_radius,
+            success: true,
+            error_msg: String::new(),
+        },
+        Err(err_msg) => FieldTestResult {
+            b_field,
+            csi: 0.0,
+            max_mass: None,
+            max_radius: None,
+            success: false,
+            error_msg: err_msg.to_string(),
+        },
     }
 }
 
@@ -325,9 +324,7 @@ fn main() {
             args[1]
                 .parse::<i32>()
                 .expect("exp_start must be an integer"),
-            args[2]
-                .parse::<i32>()
-                .expect("exp_end must be an integer"),
+            args[2].parse::<i32>().expect("exp_end must be an integer"),
         )
     } else {
         // Default: test from 1e14 to 1e24
@@ -338,13 +335,10 @@ fn main() {
     };
 
     println!("=== Neutron Star Magnetic Field Limits ===");
-    println!(
-        "Testing B fields from 10^{} to 10^{} G",
-        exp_start, exp_end
-    );
+    println!("Testing B fields from 10^{} to 10^{} G", exp_start, exp_end);
     println!("Using adaptive csi values based on effective field expressions");
 
-    let models = [("GM1", GM1), ("GM3", GM3)];
+    let models = [("GM1", GM1), ("GM3", GM3), ("FSU2", FSU2)];
     let mut all_field_results: Vec<(String, f64, Vec<FieldTestResult>)> = Vec::new();
     let mut no_nlem_limits: Vec<(String, f64)> = Vec::new();
 
@@ -366,17 +360,11 @@ fn main() {
             let b_str = format!("{:.2e}", b_field);
             if result.success {
                 if let Some(mass) = result.max_mass {
-                    println!(
-                        "  B = {} G | SUCCESS | M_max = {:.3} M☉",
-                        b_str, mass
-                    );
+                    println!("  B = {} G | SUCCESS | M_max = {:.3} M☉", b_str, mass);
                     last_success_b = b_field;
                 }
             } else {
-                println!(
-                    "  B = {} G | FAILURE | {}",
-                    b_str, result.error_msg
-                );
+                println!("  B = {} G | FAILURE | {}", b_str, result.error_msg);
                 if last_success_b > 0.0 {
                     println!(
                         "  → Limit found: between 10^{:.1} and 10^{:.1} G",
@@ -409,16 +397,19 @@ fn main() {
         // Generate magnetic field values logarithmically, starting from base limit
         for exp in base_limit..=exp_end {
             let b_field = 10_f64.powf(exp as f64);
-            
+
             // For this bare B field, generate csi values that produce effective fields
             // from 1% to 99% of the bare field (logarithmic spacing)
             let csi_vals = generate_csi_values_for_field(b_field, 25);
-            
+
             if csi_vals.is_empty() {
-                println!("  B = {:.2e} G | WARNING: Could not generate valid csi values", b_field);
+                println!(
+                    "  B = {:.2e} G | WARNING: Could not generate valid csi values",
+                    b_field
+                );
                 continue;
             }
-            
+
             let results = test_magnetic_field(*model_params, b_field, &csi_vals, model_name);
             all_field_results.push((model_name.to_string(), b_field, results));
         }
@@ -448,12 +439,19 @@ fn main() {
 
             println!(
                 "Model {} | B = {} G | SUCCESS: {}/{} | Max M = {:.3} M☉",
-                model_name, b_str, success_count, results.len(), max_mass
+                model_name,
+                b_str,
+                success_count,
+                results.len(),
+                max_mass
             );
         } else {
             println!(
                 "Model {} | B = {} G | PARTIAL: {}/{}",
-                model_name, b_str, success_count, results.len()
+                model_name,
+                b_str,
+                success_count,
+                results.len()
             );
         }
     }
@@ -501,12 +499,15 @@ fn main() {
             .filter(|(m, _, _)| m == model_name)
             .collect();
 
-        if let Some((_, b_before, _res_before)) = model_results.iter().rev().find(|(_, _, r)| {
-            r.iter().filter(|x| x.success).count() > r.len() / 2
-        }) {
-            if let Some(idx) = model_results.iter().position(|(_, b, _)| {
-                (b - b_before).abs() < 1.0 && b > b_before
-            }) {
+        if let Some((_, b_before, _res_before)) = model_results
+            .iter()
+            .rev()
+            .find(|(_, _, r)| r.iter().filter(|x| x.success).count() > r.len() / 2)
+        {
+            if let Some(idx) = model_results
+                .iter()
+                .position(|(_, b, _)| (b - b_before).abs() < 1.0 && b > b_before)
+            {
                 if idx + 1 < model_results.len() {
                     let (_, b_after, res_after) = model_results[idx + 1];
                     if res_after.iter().filter(|x| x.success).count() == 0 {
@@ -533,7 +534,11 @@ fn main() {
         for (model_name, b_field, results) in &all_field_results {
             report.push_str(&format!("Model: {} | B = {:.2e} G\n", model_name, b_field));
             let success = results.iter().filter(|r| r.success).count();
-            report.push_str(&format!("  Status: {}/{} successful\n", success, results.len()));
+            report.push_str(&format!(
+                "  Status: {}/{} successful\n",
+                success,
+                results.len()
+            ));
 
             for result in results.iter().take(5) {
                 if let Some(mass) = result.max_mass {
@@ -544,7 +549,10 @@ fn main() {
                         result.max_radius.unwrap_or(0.0)
                     ));
                 } else {
-                    report.push_str(&format!("    csi={:.2e}: FAILED ({})\n", result.csi, result.error_msg));
+                    report.push_str(&format!(
+                        "    csi={:.2e}: FAILED ({})\n",
+                        result.csi, result.error_msg
+                    ));
                 }
             }
             report.push_str("\n");

@@ -1,6 +1,6 @@
 // src/bin/nlem_modmax.rs
 
-use nsrs::{EngineMode, GM1, GM3, HadronsMatter, NlemModel, Solver};
+use nsrs::{EngineMode, FSU2, GM1, GM3, HadronsMatter, NlemModel, Solver};
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -15,25 +15,25 @@ fn main() {
             (1..=9).map(move |i| i as f64 * base)
         })
         .collect();
-    
+
     let b_fields: Vec<f64> = if args.len() > 1 {
         args[1..]
             .iter()
             .map(|s| s.parse().expect("B deve ser um número válido"))
             .collect()
     } else {
-        eprintln!("Uso: {} <B1> <B2> ...", args);
-        eprintln!("Exemplo: {} 1e15 5e16", args);
+        eprintln!("Uso: {} <B1> <B2> ...", args[0]);
+        eprintln!("Exemplo: {} 1e15 5e16", args[0]);
         return;
     };
 
-    let models = [("GM1", GM1), ("GM3", GM3)];
+    let models = [("GM1", GM1), ("GM3", GM3), ("FSU2", FSU2)];
 
     // Loop principal: modelos x campos
     for (model_name, model_params) in models {
         for &b_field in &b_fields {
             let b_string = format_sci(b_field);
-            
+
             // Estrutura de diretórios simplificada (sem topologia)
             let base_dir = format!("output/modmax/{}/B_{}", model_name, b_string);
             if fs::create_dir_all(&base_dir).is_err() {
@@ -69,25 +69,25 @@ fn main() {
                     .with_nlem(NlemModel::Modmax(*csi))
                     .with_limits(0.02, 2.0)
                     .with_points(1201)
-                    .with_eos_output(&eos_path); 
+                    .with_eos_output(&eos_path);
 
                 engines.push(EngineMode::Hadrons(motor));
-                
+
                 // Escreve os metadados no csv
                 let _ = writeln!(
                     summary,
                     "modmax,{:.6e},{:.6e},{}",
-                    csi,
-                    b_field,
-                    eos_filename
+                    csi, b_field, eos_filename
                 );
             }
 
             println!(
                 "\nModelo={} | B={} G | Varrendo {} valores de \u{03BE}...",
-                model_name, b_string, engines.len()
+                model_name,
+                b_string,
+                engines.len()
             );
-            
+
             // Roda todas as configurações em paralelo
             let _ = Solver::solve_parallel(engines, 16);
         }

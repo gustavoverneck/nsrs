@@ -459,7 +459,11 @@ impl DarkPhotonsMatter {
             let mut j_matrix = DarkJacobian::zeros();
 
             for i in 0..5 {
-                let h = f64::EPSILON.sqrt() * (1.0 + x[i].abs());
+                // Match the finite-difference scale used by the visible RMF
+                // continuation.  Near particle thresholds, a larger probe can
+                // straddle two density branches and produce a misleading
+                // Jacobian.
+                let h = 1e-8 * (x[i].abs() + 1e-2);
                 let mut x_temp = x;
                 x_temp[i] += h;
 
@@ -500,7 +504,18 @@ impl DarkPhotonsMatter {
             }
 
             if !step_accepted {
-                break;
+                // Close to the vacuum-to-matter onset the density functions
+                // are only piecewise differentiable.  A strict Armijo-like
+                // rejection can therefore pin the continuation to the vacuum
+                // root even though the neighbouring matter root exists.  The
+                // visible RMF solver crosses the same onset with this small
+                // damped fallback step; keep both continuations consistent.
+                let x_fallback = x + 0.001 * delta_x;
+                if !x_fallback.iter().all(|value| value.is_finite()) {
+                    break;
+                }
+                x = x_fallback;
+                let _ = self.funcv(x.as_slice());
             }
         }
 
@@ -532,7 +547,11 @@ impl DarkPhotonsMatter {
 
         let bsurf = 1e11;
         let btsl = self.bg * 1e-4;
-        let bdd = bsurf + btsl * (1.0 - (-BDD_BETAA * (nbtd / N0).powf(BDD_ALPHAA)).exp());
+        let bdd = if self.bg == 0.0 {
+            0.0
+        } else {
+            bsurf + btsl * (1.0 - (-BDD_BETAA * (nbtd / N0).powf(BDD_ALPHAA)).exp())
+        };
 
         let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7);
         let ebsd = ebsi_maxwell / 1.602176634e32;
@@ -1515,5 +1534,52 @@ mod tests {
         assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|row| row[21] > 0.0));
         assert!(rows.iter().all(|row| row[27] > 0.0));
+    }
+
+    #[test]
+    fn zero_background_has_no_magnetic_vacuum_floor() {
+        for model in [GM1, GM3] {
+            let mut visible = HadronsMatter::new(model, 0.0);
+            let (_, visible_row) = visible
+                .solve_point(0.99, &[0.0; 4])
+                .expect("visible vacuum point must converge");
+
+            let mut dark = DarkPhotonsMatter::new(model, 0.0)
+                .with_m_chi(TEST_M_CHI)
+                .with_m_x(TEST_M_X)
+                .with_g_d(0.35)
+                .with_epsilon(1e-4)
+                .with_y_chi(TEST_Y_CHI);
+            let (_, dark_row) = dark
+                .solve_point(0.99, &[0.0; 5])
+                .expect("dark vacuum point must converge");
+
+            for row in [visible_row, dark_row] {
+                assert_eq!(row[0], 0.0);
+                assert_eq!(row[1], 0.0);
+                assert_eq!(row[2], 0.0);
+                assert_eq!(row[19], 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn dark_continuation_crosses_the_vacuum_matter_onset() {
+        for model in [GM1, GM3] {
+            let engine = DarkPhotonsMatter::new(model, 0.0)
+                .with_limits(1.0, 1.02)
+                .with_points(41)
+                .with_m_chi_mev(200_000.0)
+                .with_m_x_mev(100.0)
+                .with_g_d(0.45)
+                .with_epsilon(1e-4)
+                .with_y_chi(2.298_360_48e-4);
+            let rows = Solver::new(EngineMode::DarkPhotons(engine)).solve();
+
+            assert!(
+                rows.iter().any(|row| row[0] > 1e-4),
+                "dark continuation remained trapped in the {model:?} vacuum branch"
+            );
+        }
     }
 }

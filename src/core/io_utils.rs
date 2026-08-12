@@ -119,12 +119,10 @@ pub fn write_eos_with_mr<P: AsRef<Path>>(
             }
         }
 
-        // Skip rows with NaN values
-        if matched_mass.is_nan()
-            || matched_radius.is_nan()
-            || matched_baryonic_mass.is_nan()
-            || row.iter().any(|v| v.is_nan())
-        {
+        // A falha/ausência de um ponto TOV não pode apagar a linha da EOS.
+        // Mantemos NaN apenas nas três colunas M-R; consumidores podem filtrar
+        // esses pontos sem perder a tabela termodinâmica.
+        if row.iter().any(|v| !v.is_finite()) {
             continue;
         }
 
@@ -193,5 +191,38 @@ mod tests {
         assert_eq!(values[RESULTS_SIZE], 1.4);
         assert_eq!(values[RESULTS_SIZE + 1], 12.0);
         assert_eq!(values[RESULTS_SIZE + 2], 1.5);
+    }
+
+    #[test]
+    fn eos_writer_keeps_thermodynamic_rows_without_an_mr_match() {
+        let mut row = [0.0; RESULTS_SIZE];
+        row[0] = 1.0;
+        row[1] = 150.0;
+        row[2] = 25.0;
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must follow Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "nsrs_eos_without_mr_{}_{}.dat",
+            std::process::id(),
+            unique
+        ));
+
+        write_eos_with_mr(&[row], &[], &[], &[], &[], &path)
+            .expect("EOS without an M-R curve must still be writable");
+        let content = fs::read_to_string(&path).expect("fixture must be readable");
+        let _ = fs::remove_file(&path);
+
+        let values: Vec<f64> = content
+            .lines()
+            .find(|line| !line.starts_with('#') && !line.trim().is_empty())
+            .expect("the EOS row must not be discarded")
+            .split_whitespace()
+            .map(|token| token.parse().expect("every token must be numeric"))
+            .collect();
+        assert_eq!(values.len(), DATA_SIZE);
+        assert!(values[RESULTS_SIZE..].iter().all(|value| value.is_nan()));
     }
 }

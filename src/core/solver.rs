@@ -83,21 +83,21 @@ impl Solver {
                     break;
                 }
 
-                // Verificação de estabilidade (dp/de)
+                // Verificação de estabilidade (dP/dE). Perto do limiar
+                // vácuo-matéria, diferenças no nível do arredondamento não
+                // representam uma instabilidade física e não devem encerrar a
+                // continuação da EOS.
                 if !results.is_empty() {
                     let prev = results.last().unwrap();
                     let de = point_result[1] - prev[1];
                     let dp = point_result[2] - prev[2];
+                    let resolved_matter = prev[0] > 1e-6 && point_result[0] > 1e-6;
 
-                    if de > 0.0 {
+                    let de_tol = 1e-10 * point_result[1].abs().max(prev[1].abs()).max(1.0);
+                    let dp_tol = 1e-10 * point_result[2].abs().max(prev[2].abs()).max(1.0);
+
+                    if resolved_matter && de > de_tol && dp > dp_tol {
                         let cs2 = dp / de;
-                        if cs2 < 1e-15 {
-                            // println!(
-                            //     "EoS instável (dp/de = {:.2e}) em mun = {:.4}. Encerrando.",
-                            //     cs2, mun
-                            // );
-                            break;
-                        }
                         if cs2 > 1.1 {
                             // println!(
                             //     "Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}",
@@ -105,6 +105,10 @@ impl Solver {
                             // );
                             break;
                         }
+                    } else if resolved_matter && (de < -de_tol || dp < -dp_tol) {
+                        // Queda resolvida de energia ou pressão: esta sim é
+                        // incompatível com a ramificação monótona usada pela TOV.
+                        break;
                     }
                 }
 

@@ -15,11 +15,13 @@
 //   Here epsilon = 1e-4 is a fixed kinetic-mixing benchmark.
 // - Y_chi is chosen so that kF_chi = 20 MeV at n0 = 0.153 fm^-3.
 
-use nsrs::{DarkPhotonsMatter, EngineMode, GM1, GM3, HadronsMatter, Solver};
+use nsrs::{
+    DarkPhotonsMatter, EngineMode, GM1, GM3, HadronsMatter, Solver,
+    constants::{DATA_SIZE, RESULTS_SIZE},
+};
 
 use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
 
 // ============================================================================
 // Global numerical setup
@@ -27,7 +29,7 @@ use std::path::Path;
 
 const B_FIELD_G: f64 = 0.0;
 
-const MU_N_MIN: f64 = 0.01;
+const MU_N_MIN: f64 = 1.00;
 const MU_N_MAX: f64 = 2.00;
 const EOS_POINTS: usize = 2001;
 
@@ -62,22 +64,18 @@ struct DarkScenario {
 }
 
 fn main() -> io::Result<()> {
+    let mut all_outputs_complete = true;
     // ------------------------------------------------------------------------
     // Dark fraction corresponding to kF_chi = 20 MeV at n0 = 0.153 fm^-3.
     // ------------------------------------------------------------------------
 
-    let y_chi_benchmark =
-        y_chi_from_reference_kf(KF_CHI_REF_MEV, N0_REF_FM3);
+    let y_chi_benchmark = y_chi_from_reference_kf(KF_CHI_REF_MEV, N0_REF_FM3);
 
-    println!(
-        "Reference dark fraction: Y_chi = {:.8e}",
-        y_chi_benchmark
-    );
+    println!("Reference dark fraction: Y_chi = {:.8e}", y_chi_benchmark);
 
     println!(
         "By construction: kF_chi(n0={:.3} fm^-3) = {:.1} MeV",
-        N0_REF_FM3,
-        KF_CHI_REF_MEV
+        N0_REF_FM3, KF_CHI_REF_MEV
     );
 
     // ------------------------------------------------------------------------
@@ -131,25 +129,18 @@ fn main() -> io::Result<()> {
     // scenarios H0/S1/S2/S3 are evaluated.
     // ------------------------------------------------------------------------
 
-    let models = [
-        ("GM1", GM1),
-        ("GM3", GM3),
-    ];
+    let models = [("GM1", GM1), ("GM3", GM3)];
 
     for (model_name, model) in models {
-        let base_dir =
-            format!("output/darkphotons_benchmarks/{}", model_name);
+        let base_dir = format!("output/darkphotons_benchmarks/{}", model_name);
 
         fs::create_dir_all(&base_dir)?;
 
-        let summary_tmp =
-            format!("{}/summary.csv.tmp", base_dir);
+        let summary_tmp = format!("{}/summary.csv.tmp", base_dir);
 
-        let summary_final =
-            format!("{}/summary.csv", base_dir);
+        let summary_final = format!("{}/summary.csv", base_dir);
 
-        let mut summary =
-            fs::File::create(&summary_tmp)?;
+        let mut summary = fs::File::create(&summary_tmp)?;
 
         writeln!(
             summary,
@@ -166,27 +157,21 @@ fn main() -> io::Result<()> {
         // ====================================================================
 
         let h0_filename = "eos_H0_hadrons.dat";
-        let h0_path =
-            format!("{}/{}", base_dir, h0_filename);
+        let h0_path = format!("{}/{}", base_dir, h0_filename);
 
-        println!(
-            "\n[{}] H0: pure hadronic matter",
-            model_name
-        );
+        println!("\n[{}] H0: pure hadronic matter", model_name);
 
-        let hadrons_motor =
-            HadronsMatter::new(model, B_FIELD_G)
-                .with_limits(MU_N_MIN, MU_N_MAX)
-                .with_points(EOS_POINTS)
-                .with_eos_output(&h0_path);
+        let hadrons_motor = HadronsMatter::new(model, B_FIELD_G)
+            .with_limits(MU_N_MIN, MU_N_MAX)
+            .with_points(EOS_POINTS)
+            .with_eos_output(&h0_path);
 
-        let mut hadrons_solver =
-            Solver::new(EngineMode::Hadrons(hadrons_motor));
+        let mut hadrons_solver = Solver::new(EngineMode::Hadrons(hadrons_motor));
 
         let _ = hadrons_solver.solve();
 
-        let h0_status =
-            eos_file_status(&h0_path);
+        let h0_status = eos_file_status(&h0_path);
+        all_outputs_complete &= h0_status == "EOS_WRITTEN";
 
         writeln!(
             summary,
@@ -208,69 +193,43 @@ fn main() -> io::Result<()> {
         // ====================================================================
 
         for scenario in dark_scenarios {
-            let eos_filename =
-                format!("eos_{}_{}.dat",
-                    scenario.label,
-                    scenario.description
-                );
+            let eos_filename = format!("eos_{}_{}.dat", scenario.label, scenario.description);
 
-            let eos_path =
-                format!("{}/{}", base_dir, eos_filename);
+            let eos_path = format!("{}/{}", base_dir, eos_filename);
 
             println!(
                 "[{}] {}: {}",
-                model_name,
-                scenario.label,
-                scenario.description
+                model_name, scenario.label, scenario.description
             );
 
-            println!(
-                "    m_chi = {:.6e} MeV",
-                scenario.m_chi_mev
-            );
+            println!("    m_chi = {:.6e} MeV", scenario.m_chi_mev);
 
-            println!(
-                "    m_X   = {:.6e} MeV",
-                scenario.m_x_mev
-            );
+            println!("    m_X   = {:.6e} MeV", scenario.m_x_mev);
 
-            println!(
-                "    g_D   = {:.6e}",
-                scenario.g_d
-            );
+            println!("    g_D   = {:.6e}", scenario.g_d);
 
-            println!(
-                "    eps   = {:.6e}",
-                scenario.epsilon
-            );
+            println!("    eps   = {:.6e}", scenario.epsilon);
 
-            println!(
-                "    Y_chi = {:.6e}",
-                scenario.y_chi
-            );
+            println!("    Y_chi = {:.6e}", scenario.y_chi);
 
-            let dark_motor =
-                DarkPhotonsMatter::new(model, B_FIELD_G)
-                    .with_limits(MU_N_MIN, MU_N_MAX)
-                    .with_points(EOS_POINTS)
-                    .with_epsilon(scenario.epsilon)
-                    .with_m_x_mev(scenario.m_x_mev)
-                    .with_m_chi_mev(scenario.m_chi_mev)
-                    .with_g_d(scenario.g_d)
-                    .with_y_chi(scenario.y_chi)
-                    .with_eos_output(&eos_path);
+            let dark_motor = DarkPhotonsMatter::new(model, B_FIELD_G)
+                .with_limits(MU_N_MIN, MU_N_MAX)
+                .with_points(EOS_POINTS)
+                .with_epsilon(scenario.epsilon)
+                .with_m_x_mev(scenario.m_x_mev)
+                .with_m_chi_mev(scenario.m_chi_mev)
+                .with_g_d(scenario.g_d)
+                .with_y_chi(scenario.y_chi)
+                .with_eos_output(&eos_path);
 
-            let mut solver =
-                Solver::new(
-                    EngineMode::DarkPhotons(dark_motor)
-                );
+            let mut solver = Solver::new(EngineMode::DarkPhotons(dark_motor));
 
             let _ = solver.solve();
 
             // The row is written only after the solver has returned
             // and the output file has been checked.
-            let status =
-                eos_file_status(&eos_path);
+            let status = eos_file_status(&eos_path);
+            all_outputs_complete &= status == "EOS_WRITTEN";
 
             writeln!(
                 summary,
@@ -309,22 +268,18 @@ fn main() -> io::Result<()> {
         //
         // summary.csv is only produced once all four scenarios
         // for the current hadronic model have returned.
-        fs::rename(
-            &summary_tmp,
-            &summary_final,
-        )?;
+        fs::rename(&summary_tmp, &summary_final)?;
 
-        println!(
-            "[{}] summary committed: {}",
-            model_name,
-            summary_final
-        );
+        println!("[{}] summary committed: {}", model_name, summary_final);
     }
 
-    println!(
-        "\nConcluido. Resultados em \
-         output/darkphotons_benchmarks/"
-    );
+    if !all_outputs_complete {
+        return Err(io::Error::other(
+            "one or more benchmark EOS files are incomplete; inspect summary.csv",
+        ));
+    }
+
+    println!("\nConcluido. Resultados em output/darkphotons_benchmarks/");
 
     Ok(())
 }
@@ -340,16 +295,10 @@ fn main() -> io::Result<()> {
 ///     Y_chi = n_chi / n_B
 ///
 /// kF is supplied in MeV, n_B in fm^-3.
-fn y_chi_from_reference_kf(
-    kf_mev: f64,
-    n_b_ref_fm3: f64,
-) -> f64 {
-    let kf_fm_inv =
-        kf_mev / HBARC_MEV_FM;
+fn y_chi_from_reference_kf(kf_mev: f64, n_b_ref_fm3: f64) -> f64 {
+    let kf_fm_inv = kf_mev / HBARC_MEV_FM;
 
-    let n_chi_fm3 =
-        kf_fm_inv.powi(3)
-            / (3.0 * std::f64::consts::PI.powi(2));
+    let n_chi_fm3 = kf_fm_inv.powi(3) / (3.0 * std::f64::consts::PI.powi(2));
 
     n_chi_fm3 / n_b_ref_fm3
 }
@@ -359,15 +308,52 @@ fn y_chi_from_reference_kf(
 // ============================================================================
 
 fn eos_file_status(path: &str) -> &'static str {
-    let p = Path::new(path);
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return "FAILED_MISSING",
+        Err(_) => return "FAILED_READ",
+    };
 
-    if !p.exists() {
-        return "FAILED_MISSING";
+    let mut eos_rows = 0usize;
+    let mut valid_mr_rows = 0usize;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let values: Vec<f64> = match line
+            .split_whitespace()
+            .map(str::parse::<f64>)
+            .collect::<Result<_, _>>()
+        {
+            Ok(values) => values,
+            Err(_) => return "FAILED_FORMAT",
+        };
+
+        if values.len() != DATA_SIZE
+            || values[..RESULTS_SIZE]
+                .iter()
+                .any(|value| !value.is_finite())
+        {
+            return "FAILED_FORMAT";
+        }
+
+        eos_rows += 1;
+        if values[RESULTS_SIZE..]
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+        {
+            valid_mr_rows += 1;
+        }
     }
 
-    match fs::metadata(p) {
-        Ok(metadata) if metadata.len() > 0 => "EOS_WRITTEN",
-        Ok(_) => "FAILED_EMPTY",
-        Err(_) => "FAILED_METADATA",
+    if eos_rows == 0 {
+        "FAILED_NO_EOS_ROWS"
+    } else if valid_mr_rows < 3 {
+        "FAILED_NO_MR_CURVE"
+    } else {
+        "EOS_WRITTEN"
     }
 }

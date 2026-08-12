@@ -242,7 +242,11 @@ impl QuarksMatter {
         let bsurf = 1e11;
         let btsl = self.bg * 1e-4;
 
-        let bdd = bsurf + btsl * (1.0 - (-BDD_BETAA * (nb_total / N0).powf(BDD_ALPHAA)).exp());
+        let bdd = if self.bg == 0.0 {
+            0.0
+        } else {
+            bsurf + btsl * (1.0 - (-BDD_BETAA * (nb_total / N0).powf(BDD_ALPHAA)).exp())
+        };
         let ebsi_maxwell = bdd.powi(2) / (8.0 * PI * 1e-7);
         let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
         let ebsd = ebsi_nlem / 1.602176634e32;

@@ -1,7 +1,7 @@
 // src/core/tov_solver.rs
 use std::f64::consts::PI;
 
-use crate::constants::{G_C2, M_NUCLEON, MEV_FM3_TO_MSUN_KM3, RESULTS_SIZE};
+use crate::constants::{G_C2, M_NUCLEON, MEV_FM3_TO_MSUN_KM3, N0, RESULTS_SIZE};
 
 fn log_linear_interp(x: &[f64], y: &[f64], xval: f64) -> f64 {
     let n = x.len();
@@ -251,46 +251,69 @@ pub fn integrate_star(
     if p_tov.len() != eps_tov.len() || p_tov.len() != rho_tov.len() {
         return None;
     }
+    if !pc_tov.is_finite() || !p_min.is_finite() || pc_tov <= p_min {
+        return None;
+    }
     let mut r = 1e-5;
     let mut y = [pc_tov, 0.0, 0.0];
     let mut h = 1.0e-2;
-    let hmin = 0.0;
     let r_end = 30000.0;
     let eps = 3.0e-16;
     let mut steps = 0u64;
     let max_steps = 90000u64;
 
     while r < r_end && steps < max_steps {
-        if y[0].is_nan() || y[0] <= p_min || r <= 2.0 * G_C2 * y[1] {
-            break;
+        if !y.iter().all(|value| value.is_finite()) || y[0] <= p_min || r <= 2.0 * G_C2 * y[1] {
+            return None;
         }
 
         if r + h > r_end {
             h = r_end - r;
         }
 
-        let (ynew, hdid, hnext) = match rkqs_step(r, y, h, eps, p_tov, &eps_tov, &rho_tov) {
-            Some(result) => result,
-            None => break,
-        };
+        let (ynew, hdid, hnext) = rkqs_step(r, y, h, eps, p_tov, eps_tov, rho_tov)?;
+
+        if !ynew.iter().all(|value| value.is_finite())
+            || !hdid.is_finite()
+            || hdid <= 0.0
+            || !hnext.is_finite()
+        {
+            return None;
+        }
 
         if ynew[0] <= p_min {
-            y = ynew;
-            r += hdid;
-            break;
+            // Locate the surface inside the accepted step instead of
+            // returning the overshot state.  A TOV point is successful only
+            // when this pressure event is actually reached.
+            let pressure_drop = y[0] - ynew[0];
+            if !pressure_drop.is_finite() || pressure_drop <= 0.0 {
+                return None;
+            }
+            let fraction = ((y[0] - p_min) / pressure_drop).clamp(0.0, 1.0);
+            let surface_r = r + fraction * hdid;
+            let surface_m = y[1] + fraction * (ynew[1] - y[1]);
+            let surface_mb = y[2] + fraction * (ynew[2] - y[2]);
+
+            if surface_r.is_finite() && surface_m.is_finite() && surface_mb.is_finite() {
+                return Some((
+                    surface_m,
+                    surface_r,
+                    surface_mb,
+                    pc_tov / MEV_FM3_TO_MSUN_KM3,
+                ));
+            }
+            return None;
         }
 
         y = ynew;
         r += hdid;
 
-        if hnext.abs() < hmin {
-            break;
-        }
         h = hnext;
         steps += 1;
     }
 
-    Some((y[1], r, y[2], pc_tov / MEV_FM3_TO_MSUN_KM3))
+    // Reaching the radial/step budget is not reaching the stellar surface.
+    None
 }
 
 /// Unifica a crosta personalizada (1/fm⁴) com a EoS do núcleo, descartando dados inválidos
@@ -349,8 +372,9 @@ pub fn unify_with_crust(
             raw_p.push(core_p[i]);
             raw_eps.push(core_eps[i]);
 
-            // CONVERSÃO APLICADA AQUI: De 1/fm³ para MeV/fm³
-            raw_rho.push(core_rho[i] * M_NUCLEON);
+            // A coluna EOS é n_B/n_0. Converta primeiro para fm^-3 e
+            // depois para uma densidade de massa-energia em MeV/fm^3.
+            raw_rho.push(core_rho[i] * N0 * M_NUCLEON);
         }
     }
 
@@ -399,9 +423,11 @@ pub fn generate_mr_curve(
         // A função unify_with_crust já faz a conversão do núcleo internamente agora
         unify_with_crust(eps_array, p_array, rho_array)
     } else {
-        // Se NÃO usar a crosta, precisamos converter a EoS original de 1/fm³ para MeV/fm³
-        const NUCLEON_MASS_MEV: f64 = M_NUCLEON;
-        let converted_rho: Vec<f64> = rho_array.iter().map(|&nb| nb * NUCLEON_MASS_MEV).collect();
+        // ``rho_array`` segue o contrato da coluna 0 da EOS: n_B/n_0.
+        let converted_rho: Vec<f64> = rho_array
+            .iter()
+            .map(|&nb_over_n0| nb_over_n0 * N0 * M_NUCLEON)
+            .collect();
 
         (eps_array.to_vec(), p_array.to_vec(), converted_rho)
     };
@@ -445,31 +471,6 @@ pub fn generate_mr_curve(
     }
 
     (masses, radii, baryonic_masses, central_pressures)
-}
-
-/// Garante que a pressão seja estritamente crescente para a GSL
-fn clean_eos(eps: &[f64], p: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let mut combined: Vec<(f64, f64)> = p.iter().cloned().zip(eps.iter().cloned()).collect();
-
-    // Ordena por pressão crescente
-    combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut safe_p = Vec::with_capacity(combined.len());
-    let mut safe_eps = Vec::with_capacity(combined.len());
-
-    let mut last_p = -f64::INFINITY;
-
-    for (pres, energy) in combined {
-        // Regra de Ouro da GSL: pres deve ser estritamente maior que o anterior
-        // Usamos um epsilon de 1e-18 para evitar ruídos de ponto flutuante
-        if pres > last_p + 1e-18 && pres.is_finite() && energy.is_finite() {
-            safe_p.push(pres);
-            safe_eps.push(energy);
-            last_p = pres;
-        }
-    }
-
-    (safe_eps, safe_p)
 }
 
 /// Procura e interpola os dados de quarks para um mun específico
@@ -561,7 +562,16 @@ fn clean_eos_with_rho(eps: &[f64], p: &[f64], rho: &[f64]) -> (Vec<f64>, Vec<f64
     let mut last_p = -f64::INFINITY;
 
     for (pres, energy, rho_val) in combined {
-        if pres > last_p + 1e-18 && pres.is_finite() && energy.is_finite() && rho_val.is_finite() {
+        // Repeated vacuum points are continuation aids for the microscopic
+        // solver, not material through which a star should be integrated.
+        if pres >= 0.0
+            && energy > 0.0
+            && rho_val > 0.0
+            && pres > last_p + 1e-18
+            && pres.is_finite()
+            && energy.is_finite()
+            && rho_val.is_finite()
+        {
             safe_p.push(pres);
             safe_eps.push(energy);
             safe_rho.push(rho_val);
@@ -570,4 +580,41 @@ fn clean_eos_with_rho(eps: &[f64], p: &[f64], rho: &[f64]) -> (Vec<f64>, Vec<f64
     }
 
     (safe_eps, safe_p, safe_rho)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vacuum_prefix_does_not_change_the_mr_curve_or_baryonic_mass_scale() {
+        let eps: Vec<f64> = (0..101).map(|i| 10.0 + i as f64 * 10.0).collect();
+        let pressure: Vec<f64> = eps.iter().map(|energy| 0.25 * (energy - 10.0)).collect();
+        let density: Vec<f64> = eps.iter().map(|energy| energy / (M_NUCLEON * N0)).collect();
+
+        let reference = generate_mr_curve(&eps, &pressure, &density, false);
+        assert!(!reference.0.is_empty());
+
+        let mut prefixed_eps = vec![0.0; 20];
+        let mut prefixed_pressure = vec![0.0; 20];
+        let mut prefixed_density = vec![0.0; 20];
+        prefixed_eps.extend_from_slice(&eps);
+        prefixed_pressure.extend_from_slice(&pressure);
+        prefixed_density.extend_from_slice(&density);
+        let prefixed =
+            generate_mr_curve(&prefixed_eps, &prefixed_pressure, &prefixed_density, false);
+
+        assert_eq!(prefixed, reference);
+        let max_index = reference
+            .0
+            .iter()
+            .enumerate()
+            .max_by(|(_, lhs), (_, rhs)| lhs.total_cmp(rhs))
+            .map(|(index, _)| index)
+            .unwrap();
+        let mass = reference.0[max_index];
+        let baryonic_mass = reference.2[max_index];
+        assert!(baryonic_mass > mass);
+        assert!(baryonic_mass < 1.5 * mass);
+    }
 }

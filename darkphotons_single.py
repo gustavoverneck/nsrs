@@ -122,7 +122,7 @@ def read_curve(path: Path) -> dict[str, np.ndarray]:
                 continue
 
             parts = stripped.split()
-            if len(parts) < 24:
+            if len(parts) not in (24, 37):
                 continue
 
             try:
@@ -130,8 +130,8 @@ def read_curve(path: Path) -> dict[str, np.ndarray]:
             except ValueError:
                 continue
 
-            mass = values[21]
-            radius = values[22]
+            mass = values[-3]
+            radius = values[-2]
             if not (np.isfinite(mass) and np.isfinite(radius)):
                 continue
             if mass <= 0.0 or mass >= 3.0 or radius <= 0.0 or radius >= 30.0:

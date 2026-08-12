@@ -45,26 +45,37 @@ impl Solver {
         let min_dmub = 1e-6; // passo mínimo aceitável
 
         let mut results: Vec<[f64; RESULTS_SIZE]> = Vec::with_capacity(n);
-        let mut last_x = [0.0, 0.0, 0.0, 0.0];
+        let mut last_visible_x = [0.0; 4];
+        let mut last_dark_x = [0.0; 5];
         let mut last_mun = mun_inf; // último mun que convergiu
         let mut mun = mun_inf;
 
         while mun <= mun_sup + 1e-9 {
             // Tenta resolver o ponto com o mun atual
-            // Agora todos os braços retornam Option<([f64;4], [f64;RESULTS_SIZE])>
-            let point_data = match &mut self.engine {
-                EngineMode::Hadrons(h_engine) => h_engine.solve_point(mun, &last_x),
-                // Para Quarks, transformamos o resultado em tupla com estado dummy
-                EngineMode::Quarks(q_engine) => {
-                    q_engine.solve_point(mun).map(|result| ([0.0; 4], result))
-                }
-                EngineMode::Hybrid(hyb_engine) => hyb_engine.solve_point(mun, &last_x),
-                EngineMode::DarkPhotons(d_engine) => d_engine.solve_point(mun, &last_x),
-            };
+            let point_data =
+                match &mut self.engine {
+                    EngineMode::Hadrons(h_engine) => h_engine
+                        .solve_point(mun, &last_visible_x)
+                        .map(|(x, result)| {
+                            last_visible_x = x;
+                            result
+                        }),
+                    EngineMode::Quarks(q_engine) => q_engine.solve_point(mun),
+                    EngineMode::Hybrid(hyb_engine) => hyb_engine
+                        .solve_point(mun, &last_visible_x)
+                        .map(|(x, result)| {
+                            last_visible_x = x;
+                            result
+                        }),
+                    EngineMode::DarkPhotons(d_engine) => {
+                        d_engine.solve_point(mun, &last_dark_x).map(|(x, result)| {
+                            last_dark_x = x;
+                            result
+                        })
+                    }
+                };
 
-            if let Some((x_converged, point_result)) = point_data {
-                // Sucesso: atualiza chute, faz verificações e armazena
-                last_x = x_converged;
+            if let Some(point_result) = point_data {
                 last_mun = mun;
 
                 // Para a integração se a densidade bariônica ultrapassar 15 N0.
@@ -133,7 +144,13 @@ impl Solver {
             let rho_arr: Vec<f64> = results.iter().map(|r| r[0]).collect();
             let (masses, radii, b_masses, pc_list) =
                 generate_mr_curve(&eps_arr, &p_arr, &rho_arr, false);
-            let _ = write_eos_with_mr(&results, &masses, &radii, &b_masses, &pc_list, &path);
+            if let Err(error) =
+                write_eos_with_mr(&results, &masses, &radii, &b_masses, &pc_list, &path)
+            {
+                eprintln!("failed to write EOS output '{}': {error}", path);
+            }
+            // Parallel production scans intentionally do not retain every EOS
+            // in memory after it has been written.
             return Vec::new();
         }
 
@@ -182,7 +199,7 @@ impl Solver {
         let mut file = std::fs::File::create(filename)?;
 
         for data in results.iter() {
-            // 1. Transforma os 20 valores em uma única String separada por espaços
+            // Transforma todas as colunas EOS em uma String separada por espaços.
             let line = data
                 .iter()
                 .map(|val| format!("{:12.5e}", val))

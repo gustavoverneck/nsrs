@@ -7,7 +7,7 @@ Objetivos:
 - Quantificar o efeito de log10(csi) na estrutura estelar.
 - Avaliar os limites de causalidade e estabilidade através da velocidade do som (c_s^2).
 - Mapear os limiares de surgimento (onset thresholds) das partículas.
-- Mapear a quantização de Landau para elétrons via mu_e e B(n).
+- Registrar como indisponível o diagnóstico de Landau enquanto B(n) não for exportado.
 - Gerar tabelas e figuras prontas para publicação/inspeção posterior em Python.
 """
 
@@ -50,7 +50,10 @@ COL_MEFF = 16
 COL_MUN = 17
 COL_MUE = 18
 COL_EMAG = 19
-COL_BDD = 20
+COL_MU_TOTAL = 20
+EOS_RESULTS_SIZE = 34
+COL_MR_MASS = EOS_RESULTS_SIZE
+COL_MR_RADIUS = EOS_RESULTS_SIZE + 1
 
 # Fator padrão. Se necessário, o código também detecta automaticamente
 # se o mu_e parece normalizado e converte por 939.0 para MeV.
@@ -101,7 +104,7 @@ class SummaryRow:
     landau_nu_max: float
     landau_nu_p95: float
     eos_path: str
-    
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Análise NLEM completa para dados em output/modmax"
@@ -184,7 +187,7 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
 
-    if arr.shape[1] < 22:
+    if arr.shape[1] <= COL_MR_RADIUS:
         return None
 
     return arr
@@ -304,8 +307,10 @@ def _load_mr_from_eos(path: Path) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     if arr.shape[1] < 5:
         return None
 
-    mass = arr[:, -2].astype(float)
-    radius = arr[:, -1].astype(float)
+    if arr.shape[1] <= COL_MR_RADIUS:
+        return None
+    mass = arr[:, COL_MR_MASS].astype(float)
+    radius = arr[:, COL_MR_RADIUS].astype(float)
     mask = valid_mr_mask(mass, radius)
     if not np.any(mask):
         return None
@@ -323,8 +328,8 @@ def _load_baseline_b0_curve(baseline_root: Path, model: str) -> Optional[Tuple[n
 def summarize_dataset(ds: Dataset) -> SummaryRow:
     arr = ds.data
 
-    mass_col = arr[:, -2]
-    radius_col = arr[:, -1]
+    mass_col = arr[:, COL_MR_MASS]
+    radius_col = arr[:, COL_MR_RADIUS]
     mr_mask = valid_mr_mask(mass_col, radius_col)
 
     n_mr_points = int(np.count_nonzero(mr_mask))
@@ -335,8 +340,8 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
         local = np.argmax(mass_col[mr_mask])
         i_max = int(mr_indices[local])
 
-        max_mass = float(arr[i_max, -2])
-        r_at_max = float(arr[i_max, -1])
+        max_mass = float(arr[i_max, COL_MR_MASS])
+        r_at_max = float(arr[i_max, COL_MR_RADIUS])
         central_nb = float(arr[i_max, COL_NB])
         central_eps = float(arr[i_max, COL_EPS])
         central_p = float(arr[i_max, COL_P])
@@ -355,22 +360,9 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
         arr[:, COL_EPS], arr[:, COL_P]
     )
 
-    if arr.shape[1] > COL_BDD:
-        mu_e_raw = arr[:, COL_MUE]
-        mu_factor = _infer_mue_to_mev_factor(mu_e_raw)
-        mu_e = mu_e_raw * mu_factor
-        b_tesla = arr[:, COL_BDD]
-        nu_max_arr = _compute_electron_landau_nu_max(mu_e, b_tesla)
-        finite_nu = nu_max_arr[np.isfinite(nu_max_arr)]
-        if finite_nu.size > 0:
-            landau_nu_max = float(np.max(finite_nu))
-            landau_nu_p95 = float(np.percentile(finite_nu, 95.0))
-        else:
-            landau_nu_max = math.nan
-            landau_nu_p95 = math.nan
-    else:
-        landau_nu_max = math.nan
-        landau_nu_p95 = math.nan
+    # The EOS schema does not export local B(n); column 20 is mu_total/M_N.
+    landau_nu_max = math.nan
+    landau_nu_p95 = math.nan
 
     return SummaryRow(
         model=ds.model,
@@ -560,28 +552,8 @@ def _plot_single_landau_curve(
     cmin: float,
     denom: float,
 ) -> bool:
-    if ds.data.shape[1] <= COL_BDD:
-        return False
-
-    nb = ds.data[:, COL_NB]
-    mu_e_raw = ds.data[:, COL_MUE]
-    mu_factor = _infer_mue_to_mev_factor(mu_e_raw)
-    mu_e = mu_e_raw * mu_factor
-    b_tesla = ds.data[:, COL_BDD]
-    nu_max = _compute_electron_landau_nu_max(mu_e, b_tesla)
-    if not np.any(np.isfinite(nu_max)):
-        return False
-
-    color = cmap((ds.csi - cmin) / denom)
-    plt.step(
-        nb,
-        nu_max,
-        where="post",
-        color=color,
-        alpha=0.85,
-        lw=1.3,
-    )
-    return True
+    # No local B(n) column is available in the current EOS schema.
+    return False
 
 
 def plot_landau_levels(
@@ -675,14 +647,14 @@ def plot_family_eos_mr(
             eps_fm4 = eps[mask] / HBARC_MEV_FM
             p_fm4 = p[mask] / HBARC_MEV_FM
             plt.plot(eps_fm4, p_fm4, color=color, alpha=0.8, lw=1.0)
-        
+
         plt.xlabel(r"$\epsilon$ [fm$^{-4}$]")
         plt.ylabel(r"$P$ [fm$^{-4}$]")
         plt.title(f"EoS family | {model} | {topology} | B={b_label} G")
         plt.xlim(0, 7)
         plt.ylim(0, 4)
         plt.grid(alpha=0.25)
-        
+
         sm = plt.cm.ScalarMappable(cmap=cmap_eos, norm=norm)
         cbar = plt.colorbar(sm, ax=plt.gca())
         cbar.set_label(LOG_CSI_LABEL)
@@ -693,29 +665,29 @@ def plot_family_eos_mr(
         # --- M-R family ---
         plt.figure(figsize=(8, 6))
         for d in plot_set:
-            m = d.data[:, -2]
-            r = d.data[:, -1]
+            m = d.data[:, COL_MR_MASS]
+            r = d.data[:, COL_MR_RADIUS]
             p_central = d.data[:, COL_P]
 
             mask = valid_mr_mask(m, r)
             if np.count_nonzero(mask) < 3:
                 continue
-                
+
             m_valid = m[mask]
             r_valid = r[mask]
             p_valid = p_central[mask]
-            
+
             sort_idx = np.argsort(p_valid)
             color = cmap_mr(_color_value(d.csi))
             plt.plot(r_valid[sort_idx], m_valid[sort_idx], color=color, alpha=0.8, lw=1.0)
-            
+
         plt.xlabel("Radius [km]")
         plt.ylabel(r"Mass [$M_\odot$]")
         plt.title(f"M-R family | {model} | {topology} | B={b_label} G")
         plt.xlim(9, 14.5)
         plt.ylim(1.0, 2.25)
         plt.grid(alpha=0.25)
-        
+
         sm_mr = plt.cm.ScalarMappable(cmap=cmap_mr, norm=norm)
         cbar_mr = plt.colorbar(sm_mr, ax=plt.gca())
         cbar_mr.set_label(LOG_CSI_LABEL)
@@ -731,37 +703,37 @@ def plot_family_eos_mr(
             mask = np.isfinite(eps) & np.isfinite(p)
             eps_val = eps[mask]
             p_val = p[mask]
-            
+
             if eps_val.size > 2:
                 idx = np.argsort(eps_val)
                 eps_sorted = eps_val[idx]
                 p_sorted = p_val[idx]
-                
+
                 de = np.diff(eps_sorted)
                 dp = np.diff(p_sorted)
-                
+
                 good = de > 1e-14
                 if np.any(good):
                     cs2 = np.zeros_like(de)
                     cs2[good] = dp[good] / de[good]
-                    
+
                     color = cmap_cs2(_color_value(d.csi))
                     plt.plot(eps_sorted[:-1][good], cs2[good], color=color, alpha=0.8, lw=1.0)
-                    
+
         plt.axhline(1.0, color='red', linestyle='--', alpha=0.7, label='Causalidade ($c_s^2 = 1$)')
         plt.axhline(0.0, color='black', linestyle='--', alpha=0.7, label='Estabilidade ($c_s^2 = 0$)')
         plt.axhline(1/3, color='gray', linestyle=':', alpha=0.7, label='Limite Conforme ($c_s^2 = 1/3$)')
-        
+
         plt.xlabel(r"$\epsilon$ [MeV/fm$^3$]")
         plt.ylabel(r"$c_s^2$ (Unidades de $c=1$)")
         plt.title(f"Speed of Sound | {model} | {topology} | B={b_label} G")
         plt.grid(alpha=0.25)
         plt.legend(loc='upper right', fontsize=9)
-        
+
         sm_cs2 = plt.cm.ScalarMappable(cmap=cmap_cs2, norm=norm)
         cbar_cs2 = plt.colorbar(sm_cs2, ax=plt.gca())
         cbar_cs2.set_label(LOG_CSI_LABEL)
-        
+
         plt.tight_layout()
         plt.savefig(out_dir / f"cs2_family_{model}_{topology}_B_{b_label}.png", dpi=dpi)
         plt.close()
@@ -825,7 +797,7 @@ def plot_mr_specific_targets(
         else:
             cmin = 1e-25
             cmax = 1e-1
-        
+
         if cmin > 0:
             norm = mcolors.LogNorm(vmin=max(cmin, 1e-300), vmax=cmax)
         else:
@@ -859,8 +831,8 @@ def plot_mr_specific_targets(
                 _zoom_center_m = None
 
         for idx, (d, target) in enumerate(selected):
-            m = d.data[:, -2]
-            r = d.data[:, -1]
+            m = d.data[:, COL_MR_MASS]
+            r = d.data[:, COL_MR_RADIUS]
             p_central = d.data[:, COL_P]
 
             mask = valid_mr_mask(m, r)
@@ -1004,7 +976,7 @@ def plot_population_thresholds(
     datasets: Sequence[Dataset],
     out_dir: Path,
     dpi: int,
-) -> None:  
+) -> None:
     """
     Plota a densidade bariônica de surgimento (onset) das partículas em função de csi.
     Foco nas partículas que 'nascem' em altas densidades (Múons e Hiperons).
@@ -1032,7 +1004,7 @@ def plot_population_thresholds(
             continue
 
         x_vals = np.array([d.csi for d in arr_sorted], dtype=float)
-        
+
         plt.figure(figsize=(8, 6))
         plotted_any = False
 
@@ -1048,7 +1020,7 @@ def plot_population_thresholds(
 
             y_arr = np.array(y_vals)
             mask = np.isfinite(y_arr) & (x_vals > 0.0)
-            
+
             if np.count_nonzero(mask) > 0:
                 plt.plot(x_vals[mask], y_arr[mask], marker='o', ms=4, lw=1.5, label=label)
                 plotted_any = True
@@ -1093,7 +1065,7 @@ def _plot_metric_for_subset(
         mask = np.isfinite(x) & np.isfinite(y)
         if not use_log_csi:
             mask &= x > 0.0
-        
+
         if np.count_nonzero(mask) < 1:
             continue
         plt.plot(x[mask], y[mask], marker="o", ms=3, lw=1.2, label=f"B={part[0].b_label} G")
@@ -1124,7 +1096,7 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
 
     models = sorted({r.model for r in rows})
     topologies = sorted({r.topology for r in rows})
-    
+
     metrics = [
         ("max_mass_msun", r"$M_{\max}$ [$M_\odot$]", "max_mass_vs_csi", False),
         ("radius_at_max_km", r"$R(M_{\max})$ [km]", "radius_at_max_vs_csi", False),
@@ -1335,9 +1307,10 @@ def main() -> None:
     plot_population_thresholds(datasets, thresholds_dir, dpi=args.dpi)
     print(f"[OK] Gráficos de Thresholds de Partículas: {thresholds_dir}")
 
-    landau_dir = args.output_root / "landau_levels"
-    plot_landau_levels(datasets, landau_dir, dpi=args.dpi)
-    print(f"[OK] Níveis de Quantização de Landau: {landau_dir}")
+    print(
+        "[SKIP] Quantização de Landau indisponível: "
+        "o esquema EOS atual não exporta B(n)."
+    )
 
     report_md = args.output_root / "scientific_report.md"
     write_scientific_report(summary_rows, report_md)

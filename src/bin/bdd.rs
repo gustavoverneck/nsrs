@@ -34,12 +34,12 @@ fn parse_data(content: &str, x_col: usize, y_col: usize) -> Vec<(f64, f64)> {
 
 fn main() {
     // Usage:
-    // cargo run --bin bdd -- <input.dat> [output.png] [x_col] [y_col]
-    // Defaults: output=bdd_vs_density.png, x_col=0, y_col=20
+    // cargo run --bin bdd -- <input.dat> [output.png] [x_col] <y_col>
+    // The current EOS schema does not export local B(n), so y_col is explicit.
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "Usage: {} <input.dat> [output.png] [x_col] [y_col]",
+            "Usage: {} <input.dat> [output.png] [x_col] <y_col>",
             args[0]
         );
         process::exit(1);
@@ -57,7 +57,10 @@ fn main() {
     let y_col = args
         .get(4)
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(20);
+        .unwrap_or_else(|| {
+            eprintln!("y_col is required; EOS column 20 is mu_total/M_N, not B(n)");
+            process::exit(1);
+        });
 
     let content = fs::read_to_string(input).unwrap_or_else(|e| {
         eprintln!("Failed to read '{}': {}", input, e);
@@ -93,7 +96,10 @@ fn main() {
     root.fill(&WHITE).unwrap();
 
     let mut chart = ChartBuilder::on(&root)
-        .caption("Bdd vs Density", ("sans-serif", 32))
+        .caption(
+            format!("EOS column {y_col} vs column {x_col}"),
+            ("sans-serif", 32),
+        )
         .margin(20)
         .x_label_area_size(50)
         .y_label_area_size(70)
@@ -102,8 +108,8 @@ fn main() {
 
     chart
         .configure_mesh()
-        .x_desc("Density (n/n0)")
-        .y_desc("Bdd (Tesla)")
+        .x_desc(format!("EOS column {x_col}"))
+        .y_desc(format!("EOS column {y_col}"))
         .y_label_formatter(&|v| format!("{:.3e}", v))
         .draw()
         .unwrap();
@@ -111,7 +117,7 @@ fn main() {
     chart
         .draw_series(LineSeries::new(data.clone(), &BLUE))
         .unwrap()
-        .label("Bdd")
+        .label(format!("column {y_col}"))
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 25, y)], BLUE));
 
     chart

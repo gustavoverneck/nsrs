@@ -52,7 +52,10 @@ COL_MEFF = 16
 COL_MUN = 17
 COL_MUE = 18
 COL_EMAG = 19
-COL_BDD = 20
+COL_MU_TOTAL = 20
+EOS_RESULTS_SIZE = 34
+COL_MR_MASS = EOS_RESULTS_SIZE
+COL_MR_RADIUS = EOS_RESULTS_SIZE + 1
 
 MAX_VALID_MASS_MSUN = 3.0
 MAX_VALID_RADIUS_KM = 20.0
@@ -148,7 +151,7 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
 	if arr.ndim == 1:
 		arr = arr.reshape(1, -1)
 
-	if arr.shape[1] < 5:
+	if arr.shape[1] <= COL_MR_RADIUS:
 		return None
 
 	return arr
@@ -197,8 +200,8 @@ def valid_mr_mask(mass_col: np.ndarray, radius_col: np.ndarray) -> np.ndarray:
 
 def summarize_b_dataset(ds: BDataset) -> BSummaryRow:
 	arr = ds.data
-	mass_col = arr[:, -2]
-	radius_col = arr[:, -1]
+	mass_col = arr[:, COL_MR_MASS]
+	radius_col = arr[:, COL_MR_RADIUS]
 	mr_mask = valid_mr_mask(mass_col, radius_col)
 
 	n_mr_points = int(np.count_nonzero(mr_mask))
@@ -209,8 +212,8 @@ def summarize_b_dataset(ds: BDataset) -> BSummaryRow:
 		local = int(np.argmax(mass_col[mr_mask]))
 		i_max = int(valid_idx[local])
 
-		max_mass = float(arr[i_max, -2])
-		radius_at_max = float(arr[i_max, -1])
+		max_mass = float(arr[i_max, COL_MR_MASS])
+		radius_at_max = float(arr[i_max, COL_MR_RADIUS])
 		central_nb = float(arr[i_max, COL_NB]) if arr.shape[1] > COL_NB else math.nan
 		central_eps = float(arr[i_max, COL_EPS]) if arr.shape[1] > COL_EPS else math.nan
 		central_p = float(arr[i_max, COL_P]) if arr.shape[1] > COL_P else math.nan
@@ -397,7 +400,7 @@ def plot_all_core_variables_vs_logb(
 		(COL_MUN, r"$\mu_n$", "mu_n"),
 		(COL_MUE, r"$\mu_e$", "mu_e"),
 		(COL_EMAG, r"$\epsilon_B$ [MeV/fm$^3$]", "emag"),
-		(COL_BDD, r"$B(n)$ [T]", "b_local"),
+		(COL_MU_TOTAL, r"$\mu_{\mathrm{tot}}/M_N$", "mu_total_over_mn"),
 	]
 
 	for model in models:
@@ -414,8 +417,8 @@ def plot_all_core_variables_vs_logb(
 				if arr.shape[1] <= col:
 					y_vals.append(math.nan)
 					continue
-				mass_col = arr[:, -2]
-				radius_col = arr[:, -1]
+				mass_col = arr[:, COL_MR_MASS]
+				radius_col = arr[:, COL_MR_RADIUS]
 				mr_mask = valid_mr_mask(mass_col, radius_col)
 				if not np.any(mr_mask):
 					y_vals.append(math.nan)
@@ -479,14 +482,14 @@ def plot_b_trends(rows: Sequence[BSummaryRow], b_datasets: Sequence[BDataset], o
 		plt.tight_layout()
 		plt.savefig(out_dir / f"R_max_vs_logB_{model}.png", dpi=dpi)
 		plt.close()
-		
+
 		# Calcular e plotar taxas de crescimento de R_max
 		_plot_growth_rates(x, y_m, y_r, model, out_dir, dpi)
-		
+
 		# Extrair raio em massa constante (1.4 M_solar)
 		target_mass = TARGET_CANONICAL_MASS_MSUN
 		y_r_at_const_m = _extract_radius_at_fixed_mass(model, sub, b_datasets, target_mass)
-		
+
 		if len(y_r_at_const_m) > 0:
 			valid_r_mask = np.isfinite(y_r_at_const_m)
 			if np.count_nonzero(valid_r_mask) > 1:
@@ -501,7 +504,7 @@ def plot_b_trends(rows: Sequence[BSummaryRow], b_datasets: Sequence[BDataset], o
 				plt.tight_layout()
 				plt.savefig(out_dir / f"R_at_const_M_vs_logB_{model}.png", dpi=dpi)
 				plt.close()
-				
+
 				# Calcular e plotar taxas de crescimento de R(M=const)
 				_plot_growth_rates_const_mass(x, np.array(y_r_at_const_m), model, target_mass, out_dir, dpi)
 
@@ -511,43 +514,43 @@ def _extract_radius_at_fixed_mass(
 ) -> List[float]:
 	"""Extrai o raio para uma massa fixa interpolando os dados M-R de cada dataset."""
 	radii = []
-	
+
 	for s_row in summary_rows:
 		# Encontrar dataset correspondente
 		matching_ds = [
-			d for d in b_datasets 
+			d for d in b_datasets
 			if d.model == model and abs(d.b_value - s_row.b_value) < 1e-6
 		]
-		
+
 		if not matching_ds:
 			radii.append(np.nan)
 			continue
-		
+
 		ds = matching_ds[0]
-		mass_col = ds.data[:, -2]
-		radius_col = ds.data[:, -1]
-		
+		mass_col = ds.data[:, COL_MR_MASS]
+		radius_col = ds.data[:, COL_MR_RADIUS]
+
 		# Filtrar dados válidos
 		valid_mask = valid_mr_mask(mass_col, radius_col)
 		if np.count_nonzero(valid_mask) < 2:
 			radii.append(np.nan)
 			continue
-		
+
 		mass_valid = mass_col[valid_mask]
 		radius_valid = radius_col[valid_mask]
-		
+
 		# Ordenar por massa
 		sorted_idx = np.argsort(mass_valid)
 		mass_sorted = mass_valid[sorted_idx]
 		radius_sorted = radius_valid[sorted_idx]
-		
+
 		# Interpolar para encontrar raio em massa alvo
 		if mass_sorted.min() <= target_mass <= mass_sorted.max():
 			r_at_target = float(np.interp(target_mass, mass_sorted, radius_sorted))
 			radii.append(r_at_target)
 		else:
 			radii.append(np.nan)
-	
+
 	return radii
 
 
@@ -556,7 +559,7 @@ def _plot_growth_rates_const_mass(
 ) -> None:
 	"""Plota a taxa de crescimento de R em massa constante."""
 	valid_r = np.isfinite(y_r)
-	
+
 	if np.count_nonzero(valid_r) > 2:
 		x_valid = x[valid_r]
 		y_r_valid = y_r[valid_r]
@@ -566,7 +569,7 @@ def _plot_growth_rates_const_mass(
 		# Usar ponto médio para x
 		x_mid_r = x_valid[:-1] + dx / 2.0
 		growth_r = dy_r / np.where(np.abs(dx) > 1e-10, dx, 1.0)
-		
+
 		# Plotar taxa de crescimento de R(M=const)
 		plt.figure(figsize=(8, 6))
 		plt.plot(x_mid_r, growth_r, marker="^", ms=4, lw=1.2, color="darkred", label="dR/d(log B)")
@@ -589,7 +592,7 @@ def _plot_growth_rates(
 	# Máscaras de valores finitos
 	valid_m = np.isfinite(y_m)
 	valid_r = np.isfinite(y_r)
-	
+
 	if np.count_nonzero(valid_m) > 2:
 		x_valid = x[valid_m]
 		y_m_valid = y_m[valid_m]
@@ -599,7 +602,7 @@ def _plot_growth_rates(
 		# Usar ponto médio para x
 		x_mid_m = x_valid[:-1] + dx / 2.0
 		growth_m = dy_m / np.where(np.abs(dx) > 1e-10, dx, 1.0)
-		
+
 		# Plotar taxa de crescimento de M_max
 		plt.figure(figsize=(8, 6))
 		plt.plot(x_mid_m, growth_m, marker="s", ms=4, lw=1.2, color="darkblue", label="dM/d(log B)")
@@ -612,7 +615,7 @@ def _plot_growth_rates(
 		plt.tight_layout()
 		plt.savefig(out_dir / f"growth_rate_maxM_vs_logB_{model}.png", dpi=dpi)
 		plt.close()
-	
+
 	if np.count_nonzero(valid_r) > 2:
 		x_valid = x[valid_r]
 		y_r_valid = y_r[valid_r]
@@ -622,7 +625,7 @@ def _plot_growth_rates(
 		# Usar ponto médio para x
 		x_mid_r = x_valid[:-1] + dx / 2.0
 		growth_r = dy_r / np.where(np.abs(dx) > 1e-10, dx, 1.0)
-		
+
 		# Plotar taxa de crescimento de R_max
 		plt.figure(figsize=(8, 6))
 		plt.plot(x_mid_r, growth_r, marker="^", ms=4, lw=1.2, color="darkred", label="dR/d(log B)")
@@ -635,7 +638,7 @@ def _plot_growth_rates(
 		plt.tight_layout()
 		plt.savefig(out_dir / f"growth_rate_R_max_vs_logB_{model}.png", dpi=dpi)
 		plt.close()
-		
+
 	# Plotar ambas as taxas de crescimento juntas (eixos normalizados)
 	if np.count_nonzero(valid_m) > 2 and np.count_nonzero(valid_r) > 2:
 		_plot_combined_growth_rates(x, y_m, y_r, model, out_dir, dpi)
@@ -648,35 +651,35 @@ def _plot_combined_growth_rates(
 	"""Plota taxas de crescimento de M_max e R_max combinadas."""
 	valid_m = np.isfinite(y_m)
 	valid_r = np.isfinite(y_r)
-	
+
 	x_valid_m = x[valid_m]
 	y_m_valid = y_m[valid_m]
 	dx_m = np.diff(x_valid_m)
 	dy_m = np.diff(y_m_valid)
 	x_mid_m = x_valid_m[:-1] + dx_m / 2.0
 	growth_m = dy_m / np.where(np.abs(dx_m) > 1e-10, dx_m, 1.0)
-	
+
 	x_valid_r = x[valid_r]
 	y_r_valid = y_r[valid_r]
 	dx_r = np.diff(x_valid_r)
 	dy_r = np.diff(y_r_valid)
 	x_mid_r = x_valid_r[:-1] + dx_r / 2.0
 	growth_r = dy_r / np.where(np.abs(dx_r) > 1e-10, dx_r, 1.0)
-	
+
 	fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=False)
-	
+
 	ax1.plot(x_mid_m, growth_m, marker="s", ms=4, lw=1.2, color="darkblue")
 	ax1.axhline(0.0, color="black", linestyle="--", alpha=0.5)
 	ax1.set_ylabel(r"$\frac{dM_{max}}{d\log_{10}(B)}$ [$M_\odot$]", fontsize=10)
 	ax1.set_title(f"Taxas de crescimento vs log10(B) | {model} | sem csi", fontsize=11)
 	ax1.grid(alpha=0.25)
-	
+
 	ax2.plot(x_mid_r, growth_r, marker="^", ms=4, lw=1.2, color="darkred")
 	ax2.axhline(0.0, color="black", linestyle="--", alpha=0.5)
 	ax2.set_xlabel(X_LABEL_LOG_B)
 	ax2.set_ylabel(r"$\frac{dR(M_{max})}{d\log_{10}(B)}$ [km]", fontsize=10)
 	ax2.grid(alpha=0.25)
-	
+
 	fig.tight_layout()
 	fig.savefig(out_dir / f"growth_rates_combined_max_{model}.png", dpi=dpi)
 	plt.close(fig)
@@ -1144,58 +1147,58 @@ def plot_3d_surface_m_r_vs_b(
 
 	for model in models:
 		# ===== Sem CSI =====
-		no_csi = [r for r in b_rows if r.model == model and r.b_value > 0 and 
-		         np.isfinite(r.log_b_value) and np.isfinite(r.max_mass_msun) and 
+		no_csi = [r for r in b_rows if r.model == model and r.b_value > 0 and
+		         np.isfinite(r.log_b_value) and np.isfinite(r.max_mass_msun) and
 		         np.isfinite(r.radius_at_max_km)]
-		
+
 		if no_csi:
 			no_csi = sorted(no_csi, key=lambda x: x.b_value)
 			b_vals_no = np.array([r.b_value for r in no_csi], dtype=float)
 			m_vals_no = np.array([r.max_mass_msun for r in no_csi], dtype=float)
 			r_vals_no = np.array([r.radius_at_max_km for r in no_csi], dtype=float)
-			
+
 			fig = plt.figure(figsize=(12, 9))
 			ax = fig.add_subplot(111, projection='3d')
-			
+
 			scatter = ax.scatter(xs=b_vals_no, ys=m_vals_no, zs=r_vals_no, c=np.log10(b_vals_no),  # type: ignore
 			           cmap='viridis', s=100, alpha=0.7, edgecolors='black', linewidth=0.5)
-			
+
 			ax.set_xlabel(r'$B\,[G]$', fontsize=11)
 			ax.set_ylabel(Y_LABEL_MAXM, fontsize=11)
 			ax.set_zlabel(Y_LABEL_MAXR, fontsize=11)
 			ax.set_title(f'{Y_LABEL_MAXM_SHORT} vs {Z_LABEL_MAXR_SHORT} vs B | {model} | sem csi', fontsize=12)
-			
+
 			cbar = fig.colorbar(scatter, ax=ax, shrink=0.5, aspect=5, pad=0.1)
 			cbar.set_label(r'$\log_{10}(B)$ [log10(G)]', fontsize=10)
-			
+
 			fig.tight_layout()
 			fig.savefig(out_dir / f"surface_3d_no_csi_{model}.png", dpi=dpi)
 			plt.close(fig)
-		
+
 		# ===== Com CSI (NLEM) =====
 		with_csi = [r for r in nlem_rows if r.model == model and r.b_value > 0 and
 		           np.isfinite(r.max_mass_msun) and np.isfinite(r.radius_at_max_km)]
-		
+
 		if with_csi:
 			with_csi = sorted(with_csi, key=lambda x: (x.b_value, x.log_csi))
 			b_vals = np.array([r.b_value for r in with_csi], dtype=float)
 			m_vals = np.array([r.max_mass_msun for r in with_csi], dtype=float)
 			r_vals = np.array([r.radius_at_max_km for r in with_csi], dtype=float)
-			
+
 			fig = plt.figure(figsize=(12, 9))
 			ax = fig.add_subplot(111, projection='3d')
-			
+
 			scatter = ax.scatter(xs=b_vals, ys=m_vals, zs=r_vals, c=np.array([r.log_csi for r in with_csi]),  # type: ignore
 			           cmap='plasma', s=100, alpha=0.7, edgecolors='black', linewidth=0.5)
-			
+
 			ax.set_xlabel(r'$B\,[G]$', fontsize=11)
 			ax.set_ylabel(Y_LABEL_MAXM, fontsize=11)
 			ax.set_zlabel(Y_LABEL_MAXR, fontsize=11)
 			ax.set_title(f'{Y_LABEL_MAXM_SHORT} vs {Z_LABEL_MAXR_SHORT} vs B | {model} | com csi', fontsize=12)
-			
+
 			cbar = fig.colorbar(scatter, ax=ax, shrink=0.5, aspect=5, pad=0.1)
 			cbar.set_label(r'$\log_{10}(\xi)$ [log10]', fontsize=10)
-			
+
 			fig.tight_layout()
 			fig.savefig(out_dir / f"surface_3d_with_csi_{model}.png", dpi=dpi)
 			plt.close(fig)
@@ -1210,23 +1213,23 @@ def plot_3d_surface_interactive(
 	if not PLOTLY_AVAILABLE:
 		print("Plotly não está instalado. Pulando gráficos 3D interativos.")
 		return
-	
+
 	ensure_dir(out_dir)
 	models = sorted({r.model for r in nlem_rows} | {r.model for r in b_rows})
 
 	for model in models:
 		# ===== Sem CSI =====
-		no_csi = [r for r in b_rows if r.model == model and r.b_value > 0 and 
-		         np.isfinite(r.log_b_value) and np.isfinite(r.max_mass_msun) and 
+		no_csi = [r for r in b_rows if r.model == model and r.b_value > 0 and
+		         np.isfinite(r.log_b_value) and np.isfinite(r.max_mass_msun) and
 		         np.isfinite(r.radius_at_max_km)]
-		
+
 		if no_csi:
 			no_csi = sorted(no_csi, key=lambda x: x.b_value)
 			b_vals_no = np.array([r.b_value for r in no_csi], dtype=float)
 			m_vals_no = np.array([r.max_mass_msun for r in no_csi], dtype=float)
 			r_vals_no = np.array([r.radius_at_max_km for r in no_csi], dtype=float)
 			log_b_vals = np.log10(b_vals_no)
-			
+
 			fig = go.Figure(data=[go.Scatter3d(  # type: ignore[union-attr,attr-defined]
 				x=b_vals_no,
 				y=m_vals_no,
@@ -1241,11 +1244,11 @@ def plot_3d_surface_interactive(
 					'line': {'width': 0.5, 'color': 'black'},
 					'opacity': 0.8,
 				},
-				text=[f"B={b:.2e} G<br>M={m:.3f} M☉<br>R={r:.2f} km<br>log₁₀(B)={lb:.2f}" 
+				text=[f"B={b:.2e} G<br>M={m:.3f} M☉<br>R={r:.2f} km<br>log₁₀(B)={lb:.2f}"
 				      for b, m, r, lb in zip(b_vals_no, m_vals_no, r_vals_no, log_b_vals)],
 				hoverinfo='text'
 			)])
-			
+
 			fig.update_layout(  # type: ignore[union-attr]
 				title=f'Massa vs Raio vs Campo Magnético | {model} | sem CSI',
 				scene={
@@ -1258,20 +1261,20 @@ def plot_3d_surface_interactive(
 				height=800,
 				hovermode='closest'
 			)
-			
+
 			fig.write_html(out_dir / f"surface_3d_interactive_no_csi_{model}.html")  # type: ignore[union-attr]
-		
+
 		# ===== Com CSI =====
 		with_csi = [r for r in nlem_rows if r.model == model and r.b_value > 0 and
 		           np.isfinite(r.max_mass_msun) and np.isfinite(r.radius_at_max_km)]
-		
+
 		if with_csi:
 			with_csi = sorted(with_csi, key=lambda x: (x.b_value, x.log_csi))
 			b_vals = np.array([r.b_value for r in with_csi], dtype=float)
 			m_vals = np.array([r.max_mass_msun for r in with_csi], dtype=float)
 			r_vals = np.array([r.radius_at_max_km for r in with_csi], dtype=float)
 			log_csi_vals = np.array([r.log_csi for r in with_csi])
-			
+
 			fig = go.Figure(data=[go.Scatter3d(  # type: ignore[union-attr,attr-defined]
 				x=b_vals,
 				y=m_vals,
@@ -1286,11 +1289,11 @@ def plot_3d_surface_interactive(
 					'line': {'width': 0.5, 'color': 'black'},
 					'opacity': 0.8,
 				},
-				text=[f"B={b:.2e} G<br>ξ={csi:.2e}<br>M={m:.3f} M☉<br>R={r:.2f} km<br>log₁₀(ξ)={lc:.2f}" 
+				text=[f"B={b:.2e} G<br>ξ={csi:.2e}<br>M={m:.3f} M☉<br>R={r:.2f} km<br>log₁₀(ξ)={lc:.2f}"
 				      for b, csi, m, r, lc in zip(b_vals, 10**log_csi_vals, m_vals, r_vals, log_csi_vals)],
 				hoverinfo='text'
 			)])
-			
+
 			fig.update_layout(  # type: ignore[union-attr]
 				title=f'Massa vs Raio vs Campo Magnético | {model} | com CSI',
 				scene={
@@ -1303,7 +1306,7 @@ def plot_3d_surface_interactive(
 				height=800,
 				hovermode='closest'
 			)
-			
+
 			fig.write_html(out_dir / f"surface_3d_interactive_with_csi_{model}.html")  # type: ignore[union-attr]
 
 
@@ -1446,7 +1449,7 @@ def main() -> None:
 		dpi=args.dpi,
 	)
 	print(f"[OK] gráficos diagnósticos com/sem csi: {diagnostics_dir}")
-	
+
 	# Gráficos 3D de superfície
 	surface_dir = comp_dir / "surfaces"
 	plot_3d_surface_m_r_vs_b(
@@ -1456,7 +1459,7 @@ def main() -> None:
 		dpi=args.dpi,
 	)
 	print(f"[OK] plots 3D de superfícies: {surface_dir}")
-	
+
 	# Gráficos 3D interativos (Plotly)
 	plot_3d_surface_interactive(
 		b_rows=b_rows,

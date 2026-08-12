@@ -104,12 +104,12 @@ def _load_mr_from_eos(path: Path) -> Optional[Tuple[np.ndarray, np.ndarray]]:
 	if arr.ndim == 1:
 		arr = arr.reshape(1, -1)
 
-	# Convenção do projeto: últimas 2 colunas = massa e raio
-	if arr.shape[1] < 5:
+	# Colunas M-R anexadas após as 34 colunas da EOS.
+	if arr.shape[1] < 37:
 		return None
 
-	mass = arr[:, -2].astype(float)
-	radius = arr[:, -1].astype(float)
+	mass = arr[:, 34].astype(float)
+	radius = arr[:, 35].astype(float)
 	mask = _valid_mr_mask(mass, radius)
 	if not np.any(mask):
 		return None

@@ -174,10 +174,10 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
 
 
 def max_mass_pair(data: np.ndarray) -> Optional[Tuple[float, float, int]]:
-    if data.shape[1] < 2:
+    if data.shape[1] < 37:
         return None
-    mass = data[:, -2]
-    radius = data[:, -1]
+    mass = data[:, 34]
+    radius = data[:, 35]
     mask = (
         np.isfinite(mass)
         & np.isfinite(radius)

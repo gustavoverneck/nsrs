@@ -49,7 +49,7 @@ COL_MEFF = 16    # Massa efetiva
 COL_MUN = 17     # Potencial químico do nêutron
 COL_MUE = 18     # Potencial químico do elétron
 COL_EMAG = 19    # Energia de magnetização
-COL_BDD = 20     # Campo magnético (Meisner)
+COL_MU_TOTAL = 20  # Potencial químico fermiônico total por bárion / M_N
 
 
 # Mapeamento de coluna para nome legível
@@ -71,7 +71,7 @@ COLUMN_NAMES = {
     COL_MUN: "μ_n",
     COL_MUE: "μ_e",
     COL_EMAG: "E_mag",
-    COL_BDD: "B_Meisner",
+    COL_MU_TOTAL: "mu_total_over_mN",
 }
 
 # Populações de hiperanos
@@ -171,12 +171,12 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
 def discover_datasets(input_root: Path) -> List[EoSDataset]:
     """Descobre todos os datasets em um diretório"""
     datasets: List[EoSDataset] = []
-    
+
     for eos_file in sorted(input_root.rglob("eos.dat")):
         meta = parse_metadata_from_path(eos_file)
         if meta is None:
             continue
-        
+
         data = load_eos(eos_file)
         if data is None:
             continue
@@ -206,7 +206,7 @@ def detect_onset_for_column(
 ) -> Optional[ColumnOnsetAnalysis]:
     """
     Detecta o onset de efeitos para uma coluna específica.
-    
+
     Analisa mudanças entre valores consecutivos de log_csi.
     O onset é quando uma mudança relativa significativa (threshold_change) ocorre.
     """
@@ -220,7 +220,7 @@ def detect_onset_for_column(
 
     log_csi_sorted = sorted(log_csi_sorted)
     analysis.log_csi_values = log_csi_sorted
-    
+
     # Calcular valores médios em cada ponto de CSI
     means_by_log_csi = {}
     for log_csi in log_csi_sorted:
@@ -235,18 +235,18 @@ def detect_onset_for_column(
     for i in range(1, len(log_csi_sorted)):
         prev_log_csi = log_csi_sorted[i-1]
         curr_log_csi = log_csi_sorted[i]
-        
+
         prev_val = means_by_log_csi[prev_log_csi]
         curr_val = means_by_log_csi[curr_log_csi]
-        
+
         if not np.isfinite(prev_val) or not np.isfinite(curr_val):
             continue
-        
+
         if prev_val == 0:
             continue
-        
+
         relative_change = abs((curr_val - prev_val) / prev_val)
-        
+
         # Se primeira mudança significativa ou mudança em população (non-zero onset)
         if relative_change > threshold_change:
             analysis.onset_log_csi = curr_log_csi
@@ -261,12 +261,12 @@ def detect_onset_for_column(
 def analyze_hyperon_onset(datasets_by_b_model: Dict[str, List[EoSDataset]]) -> Dict[str, Optional[float]]:
     """Analisa o onset de hiperanos (primeira aparição em densidade)."""
     hyperon_onsets = {}
-    
+
     for key, datasets in datasets_by_b_model.items():
         sorted_datasets = sorted(datasets, key=lambda d: d.log_csi)
         onset_log_csi = _find_first_hyperon_onset(sorted_datasets)
         hyperon_onsets[key] = onset_log_csi
-    
+
     return hyperon_onsets
 
 
@@ -285,16 +285,16 @@ def analyze_dataset_group(
 ) -> Dict[str, List[DatasetOnsetReport]]:
     """Analisa um grupo de datasets."""
     reports = defaultdict(list)
-    
+
     for key, datasets in datasets_by_b_model.items():
         sorted_datasets = sorted(datasets, key=lambda d: d.log_csi)
         data_by_column = _build_column_data_map(sorted_datasets)
         log_csi_values = sorted([ds.log_csi for ds in sorted_datasets])
-        
+
         for ds in sorted_datasets:
             report = _build_dataset_report(ds, log_csi_values, data_by_column)
             reports[key].append(report)
-    
+
     return dict(reports)
 
 
@@ -323,13 +323,13 @@ def _build_dataset_report(
         log_csi=ds.log_csi,
         csi=ds.csi,
     )
-    
+
     important_columns = [
         COL_NE, COL_NMU, COL_NN, COL_NP,
         COL_NL0, COL_NSM, COL_NS0, COL_NSP, COL_NXM, COL_NX0,
-        COL_MEFF, COL_MUN, COL_MUE, COL_EMAG, COL_BDD
+        COL_MEFF, COL_MUN, COL_MUE, COL_EMAG, COL_MU_TOTAL
     ]
-    
+
     for col_idx in important_columns:
         if col_idx < ds.data.shape[1]:
             analysis = detect_onset_for_column(
@@ -339,7 +339,7 @@ def _build_dataset_report(
             )
             if analysis:
                 report.column_analyses[col_idx] = analysis
-    
+
     _detect_hyperon_onsets_in_report(ds, report)
     return report
 
@@ -363,7 +363,7 @@ def write_detailed_report(
     """Escreve relatório detalhado em arquivo CSV"""
     with open(output_file, 'w', newline='') as f:
         writer = csv.writer(f)
-        
+
         # Cabeçalho
         writer.writerow([
             "Modelo",
@@ -379,7 +379,7 @@ def write_detailed_report(
             "Mudança Relativa (%)",
             "Caminho Arquivo",
         ])
-        
+
         for key in sorted(reports.keys()):
             for report in sorted(reports[key], key=lambda r: r.log_csi):
                 for col_idx, analysis in sorted(report.column_analyses.items()):
@@ -406,7 +406,7 @@ def write_summary_report(
 ) -> None:
     """Escreve sumário de onsets por modelo e campo magnético"""
     summary = defaultdict(lambda: defaultdict(list))
-    
+
     # Agregar dados
     for key, report_list in reports.items():
         for report in report_list:
@@ -414,11 +414,11 @@ def write_summary_report(
             for col_idx, analysis in report.column_analyses.items():
                 if analysis.onset_log_csi is not None:
                     summary[model_b_key][col_idx].append(analysis.onset_log_csi)
-    
+
     # Escrever sumário
     with open(output_file, 'w', newline='') as f:
         writer = csv.writer(f)
-        
+
         writer.writerow([
             "Modelo_B",
             "Coluna",
@@ -428,7 +428,7 @@ def write_summary_report(
             "Onset log10(ξ) Médio",
             "Contagem",
         ])
-        
+
         for model_b in sorted(summary.keys()):
             for col_idx in sorted(summary[model_b].keys()):
                 onsets = summary[model_b][col_idx]
@@ -450,18 +450,18 @@ def plot_onset_analysis(
 ) -> None:
     """Gera gráficos da análise de onset"""
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     all_onsets = _collect_onset_data(reports)
     labels = sorted(all_onsets.keys())
     data = [all_onsets[label] for label in labels]
-    
+
     _, ax = plt.subplots(figsize=(14, 8))
-    
+
     bp = ax.boxplot(data, patch_artist=True)
     for idx, patch in enumerate(bp['boxes']):
         patch.set_facecolor('lightblue')
         ax.set_xticklabels(labels, rotation=45, ha='right')
-    
+
     ax.set_xlabel("Modelo e Campo Magnético", fontsize=12)
     ax.set_ylabel(r"$\log_{10}(\xi)$ no Onset", fontsize=12)
     ax.set_title("Distribuição de Onsets de CSI por Grandeza Física", fontsize=14)
@@ -469,7 +469,7 @@ def plot_onset_analysis(
     plt.tight_layout()
     plt.savefig(output_dir / "onset_distribution.png", dpi=150)
     plt.close()
-    
+
     print(f"Gráfico salvo em: {output_dir / 'onset_distribution.png'}")
 
 
@@ -478,16 +478,16 @@ def _collect_onset_data(
 ) -> Dict[str, List[float]]:
     """Coleta dados de onset por modelo e coluna."""
     all_onsets: Dict[str, List[float]] = defaultdict(list)
-    
+
     for key, report_list in reports.items():
         model_b = f"{report_list[0].model}_{report_list[0].b_label}"
-        
+
         for report in report_list:
             for col_idx, analysis in report.column_analyses.items():
                 if analysis.onset_log_csi is not None:
                     label = f"{model_b}_{COLUMN_NAMES.get(col_idx)}"
                     all_onsets[label].append(analysis.onset_log_csi)
-    
+
     return all_onsets
 
 
@@ -495,54 +495,54 @@ def main():
     input_root = Path("output/nlem_log")
     output_root = Path("results/nlem_log/csi_onset_analysis")
     output_root.mkdir(parents=True, exist_ok=True)
-    
+
     print("📊 Análise de Onset de CSI no Dataset NLEM_LOG")
     print("=" * 60)
-    
+
     # 1. Descobrir datasets
     print("\n🔍 Descobrindo datasets...")
     all_datasets = discover_datasets(input_root)
     print(f"   ✓ {len(all_datasets)} datasets encontrados")
-    
+
     # 2. Agrupar por modelo e campo magnético
     datasets_by_model_b = defaultdict(list)
     for ds in all_datasets:
         key = f"{ds.model}_{ds.b_label}"
         datasets_by_model_b[key].append(ds)
-    
+
     print(f"   ✓ Agrupados em {len(datasets_by_model_b)} grupos")
-    
+
     # 3. Analisar onset para cada grupo
     print("\n📈 Analisando onsets de CSI...")
     reports = analyze_dataset_group(datasets_by_model_b)
-    
+
     total_analyses = sum(
-        len(report.column_analyses) 
-        for report_list in reports.values() 
+        len(report.column_analyses)
+        for report_list in reports.values()
         for report in report_list
     )
     print(f"   ✓ {total_analyses} análises de onset concluídas")
-    
+
     # 4. Gerar relatórios
     print("\n📄 Gerando relatórios...")
-    
+
     detailed_report_path = output_root / "detailed_onset_analysis.csv"
     write_detailed_report(reports, detailed_report_path)
     print(f"   ✓ Relatório detalhado: {detailed_report_path}")
-    
+
     summary_report_path = output_root / "onset_summary.csv"
     write_summary_report(reports, summary_report_path)
     print(f"   ✓ Sumário: {summary_report_path}")
-    
+
     # 5. Gerar gráficos
     print("\n🎨 Gerando visualizações...")
     plot_onset_analysis(reports, output_root / "plots")
     print(f"   ✓ Gráficos salvos em: {output_root / 'plots'}")
-    
+
     # 6. Análise de hiperanos
     print("\n🔬 Analisando onset de hiperanos...")
     hyperon_onsets = analyze_hyperon_onset(datasets_by_model_b)
-    
+
     with open(output_root / "hyperon_onset.csv", 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Modelo_B", "log10(ξ) Onset Hiperão"])
@@ -551,9 +551,9 @@ def main():
                 writer.writerow([key, f"{onset_log_csi:.2f}"])
             else:
                 writer.writerow([key, "N/A"])
-    
+
     print(f"   ✓ Onsets de hiperão: {output_root / 'hyperon_onset.csv'}")
-    
+
     print("\n" + "=" * 60)
     print("✅ Análise concluída com sucesso!")
     print(f"📁 Resultados em: {output_root}")

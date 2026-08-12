@@ -8,7 +8,7 @@ Objetivos:
 - Quantificar como o campo magnético efetivo H varia com csi no modelo Log.
 - Avaliar os limites de causalidade e estabilidade através da velocidade do som (c_s^2).
 - Mapear os limiares de surgimento (onset thresholds) das partículas.
-- Mapear a quantização de Landau para elétrons via mu_e e B(n).
+- Registrar como indisponível o diagnóstico de Landau enquanto B(n) não for exportado.
 - Analisar a variação dos potenciais químicos com a densidade bariônica.
 - Gerar tabelas e figuras prontas para publicação/inspeção posterior em Python.
 """
@@ -53,7 +53,10 @@ COL_MEFF = 16
 COL_MUN = 17
 COL_MUE = 18
 COL_EMAG = 19
-COL_BDD = 20
+COL_MU_TOTAL = 20
+EOS_RESULTS_SIZE = 34
+COL_MR_MASS = EOS_RESULTS_SIZE
+COL_MR_RADIUS = EOS_RESULTS_SIZE + 1
 
 # Fator padrão. Se necessário, o código também detecta automaticamente
 # se o mu_e parece normalizado e converte por 939.0 para MeV.
@@ -211,7 +214,7 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
 
-    if arr.shape[1] < 22:
+    if arr.shape[1] <= COL_MR_RADIUS:
         return None
 
     return arr
@@ -285,8 +288,8 @@ def valid_mr_mask(mass_col: np.ndarray, radius_col: np.ndarray) -> np.ndarray:
 def summarize_dataset(ds: Dataset) -> SummaryRow:
     arr = ds.data
 
-    mass_col = arr[:, -2]
-    radius_col = arr[:, -1]
+    mass_col = arr[:, COL_MR_MASS]
+    radius_col = arr[:, COL_MR_RADIUS]
     mr_mask = valid_mr_mask(mass_col, radius_col)
 
     n_mr_points = int(np.count_nonzero(mr_mask))
@@ -297,8 +300,8 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
         local = np.argmax(mass_col[mr_mask])
         i_max = int(mr_indices[local])
 
-        max_mass = float(arr[i_max, -2])
-        r_at_max = float(arr[i_max, -1])
+        max_mass = float(arr[i_max, COL_MR_MASS])
+        r_at_max = float(arr[i_max, COL_MR_RADIUS])
         central_nb = float(arr[i_max, COL_NB])
         central_eps = float(arr[i_max, COL_EPS])
         central_p = float(arr[i_max, COL_P])
@@ -717,28 +720,8 @@ def _plot_single_landau_curve(
     denom: float,
     fixed_color: Optional[Tuple[float, float, float, float]] = None,
 ) -> bool:
-    if ds.data.shape[1] <= COL_BDD:
-        return False
-
-    nb = ds.data[:, COL_NB]
-    mu_e_raw = ds.data[:, COL_MUE]
-    mu_factor = _infer_mue_to_mev_factor(mu_e_raw)
-    mu_e = mu_e_raw * mu_factor
-    b_tesla = ds.data[:, COL_BDD]
-    nu_max = _compute_electron_landau_nu_max(mu_e, b_tesla)
-    if not np.any(np.isfinite(nu_max)):
-        return False
-
-    color = fixed_color if fixed_color is not None else cmap((ds.log_csi - cmin) / denom)
-    plt.step(
-        nb,
-        nu_max,
-        where="post",
-        color=color,
-        alpha=0.85,
-        lw=1.3,
-    )
-    return True
+    # No local B(n) column is available in the current EOS schema.
+    return False
 
 
 def plot_landau_levels(
@@ -1008,8 +991,8 @@ def _plot_mr_family_panel(
     plt.figure(figsize=(8, 6))
     ax = plt.gca()
     for d in plot_set:
-        m = d.data[:, -2]
-        r = d.data[:, -1]
+        m = d.data[:, COL_MR_MASS]
+        r = d.data[:, COL_MR_RADIUS]
         p_central = d.data[:, COL_P]
 
         mask = valid_mr_mask(m, r)
@@ -1151,8 +1134,8 @@ def write_comparison_selection_csv(
 
         for ds, target in selected:
             arr = ds.data
-            mass_col = arr[:, -2]
-            radius_col = arr[:, -1]
+            mass_col = arr[:, COL_MR_MASS]
+            radius_col = arr[:, COL_MR_RADIUS]
             stable_idx = _stable_branch_indices(mass_col, radius_col)
 
             if stable_idx.size > 0:
@@ -1277,7 +1260,7 @@ def plot_comparison_folder(
     )
     plot_population_snapshots(selected_datasets, out_dir / "populations", dpi=dpi, distinct_styles=True)
     plot_population_thresholds(selected_datasets, out_dir / "thresholds", dpi=dpi)
-    plot_landau_levels(selected_datasets, out_dir / "landau_levels", dpi=dpi, fixed_colors=True, show_colorbar=False)
+    # Landau reconstruction is intentionally skipped: B(n) is not exported.
     plot_chemical_potential_profiles(
         selected_datasets,
         out_dir / "chemical_potentials",
@@ -1598,7 +1581,7 @@ def _plot_metric_for_subset(
         x = np.array([r.log_csi for r in part], dtype=float)
         y = np.array([getattr(r, metric_name) for r in part], dtype=float)
         mask = np.isfinite(x) & np.isfinite(y)
-        
+
         if np.count_nonzero(mask) < 1:
             continue
         plt.plot(x[mask], y[mask], marker="o", ms=3, lw=1.2, label=f"B={part[0].b_label} G")
@@ -1617,7 +1600,7 @@ def plot_trends(rows: Sequence[SummaryRow], out_dir: Path, dpi: int) -> None:
     ensure_dir(out_dir)
 
     models = sorted({r.model for r in rows})
-    
+
     metrics = [
         ("max_mass_msun", r"$M_{\max}$ [$M_\odot$]", "max_mass_vs_logcsi"),
         ("radius_at_max_km", r"$R(M_{\max})$ [km]", "radius_at_max_vs_logcsi"),
@@ -1801,9 +1784,10 @@ def main() -> None:
     )
     print(f"[OK] Comparação direta Maxwell/NLEM (pontos selecionados): {comparison_dir}")
 
-    landau_dir = args.output_root / "landau_levels"
-    plot_landau_levels(datasets, landau_dir, dpi=args.dpi)
-    print(f"[OK] Níveis de Quantização de Landau: {landau_dir}")
+    print(
+        "[SKIP] Quantização de Landau indisponível: "
+        "o esquema EOS atual não exporta B(n)."
+    )
 
     h_dir = args.output_root / "h_vs_csi"
     plot_effective_h_vs_csi(datasets, h_dir, dpi=args.dpi)

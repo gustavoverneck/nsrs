@@ -29,7 +29,7 @@ pub fn plot_mr_curve(
 
     let r_min = 8.0;
     let r_max = 14.0;
-    let m_max = masses_msun.iter().fold(0. / 0., |a: f64, b| a.max(*b)) * 1.05;
+    let m_max = masses_msun.iter().fold(f64::NAN, |a: f64, b| a.max(*b)) * 1.05;
 
     let mut chart = ChartBuilder::on(&root)
         .caption(

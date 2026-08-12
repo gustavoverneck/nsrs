@@ -5,6 +5,8 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
+use nsrs::core::constants::{HBAR_C, N0, RESULTS_SIZE};
+
 const COL_NB_OVER_N0: usize = 0;
 const COL_EPS: usize = 1;
 const COL_PRESS: usize = 2;
@@ -15,11 +17,24 @@ const COL_NSM: usize = 8;
 const COL_NSP: usize = 10;
 const COL_NXM: usize = 11;
 const COL_MU_TOTAL: usize = 20;
-const COL_MR_MASS: usize = 21;
-const COL_MR_RADIUS: usize = 22;
-const COL_MR_BARYONIC: usize = 23;
+const COL_N_CHI: usize = 21;
+const COL_Y_CHI: usize = 22;
+const COL_M_CHI: usize = 23;
+const COL_M_X: usize = 24;
+const COL_EPSILON: usize = 25;
+const COL_G_D: usize = 26;
+const COL_X0: usize = 27;
+const COL_KF_CHI: usize = 28;
+const COL_MU_CHI: usize = 29;
+const COL_EPS_CHI_KIN: usize = 30;
+const COL_P_CHI_KIN: usize = 31;
+const COL_EPS_X: usize = 32;
+const COL_P_X: usize = 33;
+const COL_MR_MASS: usize = RESULTS_SIZE;
+const COL_MR_RADIUS: usize = RESULTS_SIZE + 1;
+const COL_MR_BARYONIC: usize = RESULTS_SIZE + 2;
 
-const MIN_BASE_COLUMNS: usize = COL_MU_TOTAL + 1;
+const MIN_BASE_COLUMNS: usize = RESULTS_SIZE;
 const MIN_MR_COLUMNS: usize = COL_MR_BARYONIC + 1;
 const EPS_DIFF_TOL: f64 = 1.0e-10;
 const PRESS_DIFF_TOL: f64 = 1.0e-10;
@@ -289,11 +304,12 @@ fn validate_file(path: &Path, config: &Config) -> FileReport {
     };
 
     let row_count = data.rows.len();
-    let has_mr = data.max_cols >= MIN_MR_COLUMNS;
+    let has_mr = has_complete_mr(&data);
 
     checks.extend(check_shape(&data, config));
     checks.extend(check_thermodynamics(&data));
     checks.extend(check_composition(&data));
+    checks.extend(check_dark_diagnostics(&data));
     checks.extend(check_total_chemical_potential(&data));
     checks.extend(check_mass_radius(&data, config));
 
@@ -349,26 +365,31 @@ fn check_shape(data: &EosData, config: &Config) -> Vec<Check> {
     let malformed_rows = data
         .rows
         .iter()
-        .filter(|row| row.len() < MIN_BASE_COLUMNS)
+        .filter(|row| row.len() != MIN_BASE_COLUMNS && row.len() != MIN_MR_COLUMNS)
         .count();
+    let mixed_widths = data
+        .rows
+        .first()
+        .map(|first| data.rows.iter().any(|row| row.len() != first.len()))
+        .unwrap_or(false);
 
     checks.push(Check {
         name: "columns",
-        severity: if malformed_rows == 0 {
+        severity: if malformed_rows == 0 && !mixed_widths {
             Severity::Pass
         } else {
             Severity::Fail
         },
         detail: format!(
-            "rows={}, max_cols={}, rows_with_less_than_{}={}",
+            "rows={}, max_cols={}, invalid_width_rows={}, mixed_widths={}",
             data.rows.len(),
             data.max_cols,
-            MIN_BASE_COLUMNS,
-            malformed_rows
+            malformed_rows,
+            mixed_widths
         ),
     });
 
-    let has_mr = data.max_cols >= MIN_MR_COLUMNS;
+    let has_mr = has_complete_mr(data);
     checks.push(Check {
         name: "mr_columns",
         severity: if has_mr {
@@ -542,7 +563,7 @@ fn check_composition(data: &EosData) -> Vec<Check> {
 
         let charge =
             row[COL_NP] + row[COL_NSP] - row[COL_NSM] - row[COL_NXM] - row[COL_NE] - row[COL_NMU];
-        let nb = (row[COL_NB_OVER_N0] * 0.153).abs().max(1.0e-30);
+        let nb = (row[COL_NB_OVER_N0] * N0).abs().max(1.0e-30);
         max_charge_abs = max_charge_abs.max(charge.abs());
         max_charge_rel = max_charge_rel.max(charge.abs() / nb);
     }
@@ -571,6 +592,131 @@ fn check_composition(data: &EosData) -> Vec<Check> {
     });
 
     checks
+}
+
+fn check_dark_diagnostics(data: &EosData) -> Vec<Check> {
+    let mut dark_rows = 0;
+    let mut invalid_parameters = 0;
+    let mut negative_thermodynamics = 0;
+    let mut fraction_violations = 0;
+    let mut fermi_momentum_violations = 0;
+    let mut chemical_potential_violations = 0;
+    let mut proca_violations = 0;
+    let mut vector_pressure_violations = 0;
+
+    for row in data.rows.iter().filter(|row| row.len() >= MIN_BASE_COLUMNS) {
+        let is_dark = row[COL_N_CHI..=COL_P_X]
+            .iter()
+            .any(|value| !value.is_finite() || *value != 0.0);
+        if !is_dark {
+            continue;
+        }
+        dark_rows += 1;
+
+        let n_chi = row[COL_N_CHI];
+        let y_chi = row[COL_Y_CHI];
+        let m_chi = row[COL_M_CHI];
+        let m_x = row[COL_M_X];
+        let epsilon = row[COL_EPSILON];
+        let g_d = row[COL_G_D];
+        let x0 = row[COL_X0];
+        let kf_chi = row[COL_KF_CHI];
+        let mu_chi = row[COL_MU_CHI];
+        let eps_chi = row[COL_EPS_CHI_KIN];
+        let p_chi = row[COL_P_CHI_KIN];
+        let eps_x = row[COL_EPS_X];
+        let p_x = row[COL_P_X];
+
+        let parameters_valid = n_chi.is_finite()
+            && n_chi >= 0.0
+            && y_chi.is_finite()
+            && y_chi >= 0.0
+            && m_chi.is_finite()
+            && m_chi > 0.0
+            && m_x.is_finite()
+            && m_x > 0.0
+            && epsilon.is_finite()
+            && epsilon.abs() < 1.0
+            && g_d.is_finite()
+            && x0.is_finite()
+            && kf_chi.is_finite()
+            && kf_chi >= 0.0
+            && mu_chi.is_finite();
+        if !parameters_valid {
+            invalid_parameters += 1;
+            continue;
+        }
+
+        if !eps_chi.is_finite()
+            || !p_chi.is_finite()
+            || !eps_x.is_finite()
+            || !p_x.is_finite()
+            || eps_chi < -1.0e-10
+            || p_chi < -1.0e-10
+            || eps_x < -1.0e-10
+            || p_x < -1.0e-10
+        {
+            negative_thermodynamics += 1;
+        }
+
+        let expected_n_chi = y_chi * row[COL_NB_OVER_N0] * N0;
+        if !approximately_equal(n_chi, expected_n_chi, 2.0e-10, 2.0e-5) {
+            fraction_violations += 1;
+        }
+
+        let expected_n_from_kf =
+            kf_chi.powi(3) / (3.0 * std::f64::consts::PI.powi(2) * HBAR_C.powi(3));
+        if !approximately_equal(n_chi, expected_n_from_kf, 2.0e-10, 3.0e-5) {
+            fermi_momentum_violations += 1;
+        }
+
+        if n_chi > 1.0e-14 {
+            let norm = (1.0 - epsilon.powi(2)).sqrt();
+            let expected_mu = kf_chi.hypot(m_chi) + g_d * x0 / norm;
+            if !approximately_equal(mu_chi, expected_mu, 2.0e-4, 3.0e-5) {
+                chemical_potential_violations += 1;
+            }
+
+            let proca_left = m_x.powi(2) * x0;
+            let proca_right = g_d * n_chi * HBAR_C.powi(3) / norm;
+            if !approximately_equal(proca_left, proca_right, 2.0e-4, 5.0e-5) {
+                proca_violations += 1;
+            }
+        } else if kf_chi.abs() > 1.0e-10 || mu_chi.abs() > 1.0e-10 {
+            chemical_potential_violations += 1;
+        }
+
+        let expected_eps_x = 0.5 * m_x.powi(2) * x0.powi(2) / HBAR_C.powi(3);
+        if !approximately_equal(eps_x, expected_eps_x, 2.0e-10, 5.0e-5)
+            || !approximately_equal(p_x, eps_x, 2.0e-10, 2.0e-5)
+        {
+            vector_pressure_violations += 1;
+        }
+    }
+
+    let violations = invalid_parameters
+        + negative_thermodynamics
+        + fraction_violations
+        + fermi_momentum_violations
+        + chemical_potential_violations
+        + proca_violations
+        + vector_pressure_violations;
+
+    vec![Check {
+        name: "dark_diagnostics",
+        severity: if violations == 0 {
+            Severity::Pass
+        } else {
+            Severity::Fail
+        },
+        detail: format!(
+            "dark_rows={dark_rows}, invalid_parameters={invalid_parameters}, negative_thermodynamics={negative_thermodynamics}, fraction={fraction_violations}, kf={fermi_momentum_violations}, mu_chi={chemical_potential_violations}, proca={proca_violations}, vector_pressure={vector_pressure_violations}"
+        ),
+    }]
+}
+
+fn approximately_equal(left: f64, right: f64, abs_tol: f64, rel_tol: f64) -> bool {
+    (left - right).abs() <= abs_tol.max(rel_tol * left.abs().max(right.abs()))
 }
 
 fn check_total_chemical_potential(data: &EosData) -> Vec<Check> {
@@ -617,7 +763,7 @@ fn check_total_chemical_potential(data: &EosData) -> Vec<Check> {
 
 fn check_mass_radius(data: &EosData, config: &Config) -> Vec<Check> {
     let mut checks = Vec::new();
-    if data.max_cols < MIN_MR_COLUMNS {
+    if !has_complete_mr(data) {
         return checks;
     }
 
@@ -719,6 +865,10 @@ fn check_mass_radius(data: &EosData, config: &Config) -> Vec<Check> {
     ));
 
     checks
+}
+
+fn has_complete_mr(data: &EosData) -> bool {
+    !data.rows.is_empty() && data.rows.iter().all(|row| row.len() == MIN_MR_COLUMNS)
 }
 
 fn is_valid_mr_point(mass: f64, radius: f64) -> bool {
@@ -898,5 +1048,56 @@ fn csv_escape(text: &str) -> String {
         format!("\"{}\"", text.replace('"', "\"\""))
     } else {
         text.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_dark_row() -> Vec<f64> {
+        let mut row = vec![0.0; RESULTS_SIZE];
+        row[COL_NB_OVER_N0] = 1.0;
+        row[COL_Y_CHI] = 0.02;
+        row[COL_N_CHI] = row[COL_Y_CHI] * N0;
+        row[COL_M_CHI] = 750.0;
+        row[COL_M_X] = 100.0;
+        row[COL_EPSILON] = 0.08;
+        row[COL_G_D] = 0.35;
+
+        let norm = (1.0 - row[COL_EPSILON].powi(2)).sqrt();
+        row[COL_KF_CHI] =
+            (3.0 * std::f64::consts::PI.powi(2) * row[COL_N_CHI] * HBAR_C.powi(3)).cbrt();
+        row[COL_X0] =
+            row[COL_G_D] * row[COL_N_CHI] * HBAR_C.powi(3) / (row[COL_M_X].powi(2) * norm);
+        row[COL_MU_CHI] = row[COL_KF_CHI].hypot(row[COL_M_CHI]) + row[COL_G_D] * row[COL_X0] / norm;
+        row[COL_EPS_CHI_KIN] = 2.5;
+        row[COL_P_CHI_KIN] = 0.2;
+        row[COL_EPS_X] = 0.5 * row[COL_M_X].powi(2) * row[COL_X0].powi(2) / HBAR_C.powi(3);
+        row[COL_P_X] = row[COL_EPS_X];
+        row
+    }
+
+    #[test]
+    fn dark_diagnostic_validator_accepts_consistent_exported_units() {
+        let data = EosData {
+            rows: vec![valid_dark_row()],
+            max_cols: RESULTS_SIZE,
+        };
+        let check = check_dark_diagnostics(&data).remove(0);
+        assert_eq!(check.severity, Severity::Pass, "{}", check.detail);
+    }
+
+    #[test]
+    fn dark_diagnostic_validator_rejects_broken_fraction_relation() {
+        let mut row = valid_dark_row();
+        row[COL_N_CHI] *= 2.0;
+        let data = EosData {
+            rows: vec![row],
+            max_cols: RESULTS_SIZE,
+        };
+        let check = check_dark_diagnostics(&data).remove(0);
+        assert_eq!(check.severity, Severity::Fail);
+        assert!(check.detail.contains("fraction=1"));
     }
 }

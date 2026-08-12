@@ -7,7 +7,7 @@ Objetivos:
 - Quantificar o efeito de log10(csi) na estrutura estelar.
 - Avaliar os limites de causalidade e estabilidade através da velocidade do som (c_s^2).
 - Mapear os limiares de surgimento (onset thresholds) das partículas.
-- Mapear a quantização de Landau para elétrons via mu_e e B(n).
+- Registrar como indisponível o diagnóstico de Landau enquanto B(n) não for exportado.
 - Gerar tabelas e figuras prontas para publicação/inspeção posterior em Python.
 """
 
@@ -53,12 +53,13 @@ COL_MEFF = 16
 COL_MUN = 17
 COL_MUE = 18
 COL_EMAG = 19
-COL_BDD = 20
+COL_MU_TOTAL = 20
 
 # M-R columns appended by write_eos_with_mr
-COL_MR_MASS = 21
-COL_MR_RADIUS = 22
-COL_MR_BARYONIC = 23
+EOS_RESULTS_SIZE = 34
+COL_MR_MASS = EOS_RESULTS_SIZE
+COL_MR_RADIUS = EOS_RESULTS_SIZE + 1
+COL_MR_BARYONIC = EOS_RESULTS_SIZE + 2
 
 # Fator padrão. Se necessário, o código também detecta automaticamente
 # se o mu_e parece normalizado e converte por 939.0 para MeV.
@@ -271,7 +272,7 @@ def load_eos(path: Path) -> Optional[np.ndarray]:
             return None
         arr = arr.reshape(1, -1)
 
-    if arr.ndim != 2 or arr.shape[1] <= COL_BDD:
+    if arr.ndim != 2 or arr.shape[1] <= COL_MU_TOTAL:
         return None
 
     return arr
@@ -489,22 +490,10 @@ def summarize_dataset(ds: Dataset) -> SummaryRow:
         arr[:, COL_EPS], arr[:, COL_P]
     )
 
-    if _has_columns(arr, COL_BDD):
-        mu_e_raw = arr[:, COL_MUE]
-        mu_factor = _infer_mue_to_mev_factor(mu_e_raw)
-        mu_e = mu_e_raw * mu_factor
-        b_tesla = arr[:, COL_BDD]
-        nu_max_arr = _compute_electron_landau_nu_max(mu_e, b_tesla)
-        finite_nu = nu_max_arr[np.isfinite(nu_max_arr)]
-        if finite_nu.size > 0:
-            landau_nu_max = float(np.max(finite_nu))
-            landau_nu_p95 = float(np.percentile(finite_nu, 95.0))
-        else:
-            landau_nu_max = math.nan
-            landau_nu_p95 = math.nan
-    else:
-        landau_nu_max = math.nan
-        landau_nu_p95 = math.nan
+    # The current EOS schema does not export local B(n). Column 20 is
+    # mu_total/M_N, so Landau diagnostics cannot be reconstructed safely.
+    landau_nu_max = math.nan
+    landau_nu_p95 = math.nan
 
     return SummaryRow(
         model=ds.model,
@@ -694,28 +683,8 @@ def _plot_single_landau_curve(
     cmin: float,
     denom: float,
 ) -> bool:
-    if not _has_columns(ds.data, COL_BDD):
-        return False
-
-    nb = ds.data[:, COL_NB]
-    mu_e_raw = ds.data[:, COL_MUE]
-    mu_factor = _infer_mue_to_mev_factor(mu_e_raw)
-    mu_e = mu_e_raw * mu_factor
-    b_tesla = ds.data[:, COL_BDD]
-    nu_max = _compute_electron_landau_nu_max(mu_e, b_tesla)
-    if not np.any(np.isfinite(nu_max)):
-        return False
-
-    color = cmap((ds.csi - cmin) / denom)
-    plt.step(
-        nb,
-        nu_max,
-        where="post",
-        color=color,
-        alpha=0.85,
-        lw=1.3,
-    )
-    return True
+    # No local B(n) column is available in the current EOS schema.
+    return False
 
 
 def plot_landau_levels(
@@ -1646,9 +1615,10 @@ def main() -> None:
     plot_population_thresholds(datasets, thresholds_dir, dpi=args.dpi)
     print(f"[OK] Gráficos de Thresholds de Partículas: {thresholds_dir}")
 
-    landau_dir = args.output_root / "landau_levels"
-    plot_landau_levels(datasets, landau_dir, dpi=args.dpi)
-    print(f"[OK] Níveis de Quantização de Landau: {landau_dir}")
+    print(
+        "[SKIP] Quantização de Landau indisponível: "
+        "o esquema EOS atual não exporta B(n)."
+    )
 
     report_md = args.output_root / "scientific_report.md"
     write_scientific_report(summary_rows, report_md)

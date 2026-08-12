@@ -1,6 +1,7 @@
 // src/bin/darkphotons.rs
 
-use nsrs::{DarkPhotonsMatter, EngineMode, FSU2, GM1, HadronsMatter, Solver};
+use nsrs::constants::M_NUCLEON;
+use nsrs::{DarkPhotonsMatter, EngineMode, GM1, HadronsMatter, Solver};
 
 fn main() {
     let b_field = 1e17;
@@ -23,8 +24,9 @@ fn main() {
         .with_limits(0.01, 2.0)
         .with_epsilon(1e-4)
         .with_m_x(0.1065)
+        .with_m_chi_mev(M_NUCLEON)
         .with_g_d(0.45)
-        .with_n_chi(0.0001187)
+        .with_y_chi(0.01)
         .with_eos_output(&eos_path);
 
     engines.push(EngineMode::DarkPhotons(dark_motor));

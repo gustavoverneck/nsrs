@@ -20,12 +20,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+EOS_RESULTS_SIZE = 34
+EOS_WITH_MR_COLUMNS = EOS_RESULTS_SIZE + 3
+
+
 @dataclass
 class Metrics:
     epsilon: float
-    m_x: float
+    m_x_over_mn: float
     g_d: float
-    n_chi: float
+    y_chi: float
     eos_file: str
     rms_rel_p: float
     mean_gain: float
@@ -73,7 +77,7 @@ def read_eos(path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 
 def read_mr_from_eos(path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    """Read MR data from eos_with_mr files (expects >= 24 columns)."""
+    """Read the final three M-R columns appended to an EOS row."""
     masses: List[float] = []
     radii: List[float] = []
 
@@ -83,7 +87,7 @@ def read_mr_from_eos(path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
             if not line or line.startswith("#"):
                 continue
             parts = line.split()
-            if len(parts) < 24:
+            if len(parts) < EOS_WITH_MR_COLUMNS:
                 continue
             try:
                 mass = float(parts[-3])
@@ -179,9 +183,9 @@ def analyze(base_dir: str, min_overlap: int) -> Tuple[List[Metrics], str]:
 
     for row in rows:
         epsilon = safe_float(row.get("epsilon", ""))
-        m_x = safe_float(row.get("m_x", ""))
+        m_x_over_mn = safe_float(row.get("m_x_over_mN", ""))
         g_d = safe_float(row.get("g_d", ""))
-        n_chi = safe_float(row.get("n_chi", ""))
+        y_chi = safe_float(row.get("y_chi", ""))
         eos_file = row.get("eos_file", "")
         if not eos_file:
             continue
@@ -189,7 +193,7 @@ def analyze(base_dir: str, min_overlap: int) -> Tuple[List[Metrics], str]:
         eos_path = os.path.join(base_dir, eos_file)
         try:
             _, eps_d, p_d = read_eos(eos_path)
-        except ValueError:
+        except (OSError, ValueError):
             continue
 
         rms_rel, mean_gain, max_cs2, frac_invalid, n_overlap = compute_metrics(
@@ -200,9 +204,9 @@ def analyze(base_dir: str, min_overlap: int) -> Tuple[List[Metrics], str]:
         metrics_list.append(
             Metrics(
                 epsilon=epsilon,
-                m_x=m_x,
+                m_x_over_mn=m_x_over_mn,
                 g_d=g_d,
-                n_chi=n_chi,
+                y_chi=y_chi,
                 eos_file=eos_file,
                 rms_rel_p=rms_rel,
                 mean_gain=mean_gain,
@@ -222,9 +226,9 @@ def write_analysis_csv(out_path: str, rows: Iterable[Metrics]) -> None:
         writer.writerow(
             [
                 "epsilon",
-                "m_x",
+                "m_x_over_mN",
                 "g_d",
-                "n_chi",
+                "y_chi",
                 "eos_file",
                 "rms_rel_p",
                 "mean_gain",
@@ -238,9 +242,9 @@ def write_analysis_csv(out_path: str, rows: Iterable[Metrics]) -> None:
             writer.writerow(
                 [
                     f"{m.epsilon:.6e}",
-                    f"{m.m_x:.6e}",
+                    f"{m.m_x_over_mn:.6e}",
                     f"{m.g_d:.6e}",
-                    f"{m.n_chi:.6e}",
+                    f"{m.y_chi:.6e}",
                     m.eos_file,
                     f"{m.rms_rel_p:.6e}",
                     f"{m.mean_gain:.6e}",
@@ -266,7 +270,7 @@ def plot_eos(
     for m in best:
         eos_path = os.path.join(base_dir, m.eos_file)
         _, eps_d, p_d = read_eos(eos_path)
-        label = f"eps={m.epsilon:.1e}, mx={m.m_x:.1e}, gd={m.g_d:.2f}, nchi={m.n_chi:.3f}"
+        label = f"eps={m.epsilon:.1e}, mx/MN={m.m_x_over_mn:.1e}, gd={m.g_d:.2f}, Ychi={m.y_chi:.3f}"
         plt.plot(eps_d, p_d, linewidth=1.0, alpha=0.8, label=label)
 
     plt.xlabel("Energy density (MeV/fm^3)")
@@ -284,9 +288,9 @@ def plot_score_scatter(out_path: str, rows: List[Metrics]) -> None:
     fig, axs = plt.subplots(2, 2, figsize=(8.0, 6.0))
     params = [
         ("epsilon", [m.epsilon for m in rows]),
-        ("m_x", [m.m_x for m in rows]),
+        ("m_x_over_mN", [m.m_x_over_mn for m in rows]),
         ("g_d", [m.g_d for m in rows]),
-        ("n_chi", [m.n_chi for m in rows]),
+        ("y_chi", [m.y_chi for m in rows]),
     ]
     scores = [m.score for m in rows]
 
@@ -328,9 +332,9 @@ def plot_mr_all(out_path: str, hadrons_path: str, base_dir: str, rows: List[Metr
 
 def plot_pairwise_scores(out_path: str, rows: List[Metrics], top_frac: float) -> None:
     eps = np.array([m.epsilon for m in rows])
-    mx = np.array([m.m_x for m in rows])
+    mx = np.array([m.m_x_over_mn for m in rows])
     gd = np.array([m.g_d for m in rows])
-    nchi = np.array([m.n_chi for m in rows])
+    ychi = np.array([m.y_chi for m in rows])
     score = np.array([m.score for m in rows])
 
     n_top = max(1, int(len(rows) * top_frac))
@@ -339,17 +343,17 @@ def plot_pairwise_scores(out_path: str, rows: List[Metrics], top_frac: float) ->
 
     params = {
         "epsilon": eps,
-        "m_x": mx,
+        "m_x_over_mN": mx,
         "g_d": gd,
-        "n_chi": nchi,
+        "y_chi": ychi,
     }
     pairs = [
-        ("epsilon", "m_x"),
+        ("epsilon", "m_x_over_mN"),
         ("epsilon", "g_d"),
-        ("epsilon", "n_chi"),
-        ("m_x", "g_d"),
-        ("m_x", "n_chi"),
-        ("g_d", "n_chi"),
+        ("epsilon", "y_chi"),
+        ("m_x_over_mN", "g_d"),
+        ("m_x_over_mN", "y_chi"),
+        ("g_d", "y_chi"),
     ]
 
     fig, axs = plt.subplots(2, 3, figsize=(11.0, 6.0))
@@ -387,18 +391,18 @@ def write_optimal_ranges(out_path: str, rows: List[Metrics], top_frac: float) ->
     top = rows[:n_top]
 
     eps = np.array([m.epsilon for m in top])
-    mx = np.array([m.m_x for m in top])
+    mx = np.array([m.m_x_over_mn for m in top])
     gd = np.array([m.g_d for m in top])
-    nchi = np.array([m.n_chi for m in top])
+    ychi = np.array([m.y_chi for m in top])
     score = np.array([m.score for m in top])
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("Optimal ranges from top {:.1f}% (by score)\n".format(top_frac * 100.0))
         f.write("count={}\n\n".format(len(top)))
         f.write("epsilon: min={:.3e} max={:.3e} mean={:.3e}\n".format(eps.min(), eps.max(), eps.mean()))
-        f.write("m_x:     min={:.3e} max={:.3e} mean={:.3e}\n".format(mx.min(), mx.max(), mx.mean()))
+        f.write("m_x/MN:  min={:.3e} max={:.3e} mean={:.3e}\n".format(mx.min(), mx.max(), mx.mean()))
         f.write("g_d:     min={:.3e} max={:.3e} mean={:.3e}\n".format(gd.min(), gd.max(), gd.mean()))
-        f.write("n_chi:   min={:.3e} max={:.3e} mean={:.3e}\n".format(nchi.min(), nchi.max(), nchi.mean()))
+        f.write("y_chi:   min={:.3e} max={:.3e} mean={:.3e}\n".format(ychi.min(), ychi.max(), ychi.mean()))
         f.write("\nscore:  min={:.3e} max={:.3e} mean={:.3e}\n".format(score.min(), score.max(), score.mean()))
 
 
@@ -441,8 +445,8 @@ def main() -> None:
 
     print("Best parameters:")
     print(
-        "  epsilon={:.3e} m_x={:.3e} g_d={:.3e} n_chi={:.3e} score={:.3e}".format(
-            best.epsilon, best.m_x, best.g_d, best.n_chi, best.score
+        "  epsilon={:.3e} m_x/MN={:.3e} g_d={:.3e} y_chi={:.3e} score={:.3e}".format(
+            best.epsilon, best.m_x_over_mn, best.g_d, best.y_chi, best.score
         )
     )
     print("  eos_file={}".format(best.eos_file))
@@ -451,8 +455,8 @@ def main() -> None:
     print("Top candidates:")
     for m in top_n:
         print(
-            "  score={:.3e} eps={:.1e} mx={:.1e} gd={:.2f} nchi={:.3f}"
-            .format(m.score, m.epsilon, m.m_x, m.g_d, m.n_chi)
+            "  score={:.3e} eps={:.1e} mx/MN={:.1e} gd={:.2f} Ychi={:.3f}"
+            .format(m.score, m.epsilon, m.m_x_over_mn, m.g_d, m.y_chi)
         )
 
     if not args.no_plots:

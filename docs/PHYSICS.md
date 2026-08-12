@@ -65,6 +65,86 @@ $$
 
 Aqui, $F_{\mu\nu} = \partial_\mu A_\nu - \partial_\nu A_\mu$ representa o tensor de força do campo eletromagnético de Maxwell padrão, e $A_\mu$ é o campo de fótons visíveis acoplado à corrente eletromagnética $J^\mu_{\text{EM}}$.
 
+## Setor escuro fermiônico
+
+`DarkPhotonsMatter` acrescenta um férmion de Dirac eletricamente neutro $\chi$
+e um fóton escuro físico massivo $X_\mu$. Após diagonalizar a mistura cinética,
+a convenção usada é
+
+$$
+\mathcal L_{\rm int}=\frac{g_Dj_D^\mu+\epsilon J_{\rm EM}^\mu}
+{\sqrt{1-\epsilon^2}}X_\mu.
+$$
+
+Assim, o deslocamento de uma partícula visível de carga $q_i$ é
+$\Delta_{X,i}=\epsilon e q_iX_0/\sqrt{1-\epsilon^2}$. O código usa
+$E_{F,b}^*=\mu_b-V_b-\Delta_{X,b}$ e
+$E_{F,\ell}=\mu_e-\Delta_{X,\ell}$; para elétrons e múons isto resulta em
+$E_{F,\ell}=\mu_e+\epsilon eX_0/\sqrt{1-\epsilon^2}$.
+
+A abundância escura é prescrita por ponto como $n_\chi=Y_\chi n_B$. O solver
+determina simultaneamente $(\mu_e,S,W,R,X_0)$ e inclui a equação completa
+
+$$
+m_X^2X_0=\frac{g_Dn_\chi+\epsilon e n_Q}{\sqrt{1-\epsilon^2}},
+$$
+
+sem substituir $n_Q=0$ antes da solução. O gás escuro não recebe Landau, AMM
+ou acoplamentos mesônicos. Seu potencial químico é
+$\mu_\chi=\sqrt{k_{F\chi}^2+m_\chi^2}+g_DX_0/\sqrt{1-\epsilon^2}$, com
+$k_{F\chi}=(3\pi^2n_\chi)^{1/3}$. Energia e pressão totais incluem uma única
+contribuição vetorial $m_X^2X_0^2/2$.
+
+Para $E_{F\chi}=\sqrt{k_{F\chi}^2+m_\chi^2}$, as contribuições cinéticas são
+
+$$
+\epsilon_\chi^{\rm kin}=\frac{k_FE_F(2k_F^2+m_\chi^2)
+-m_\chi^4\ln[(k_F+E_F)/m_\chi]}{8\pi^2},
+$$
+
+$$
+P_\chi^{\rm kin}=\frac{k_FE_F(2k_F^2-3m_\chi^2)
++3m_\chi^4\ln[(k_F+E_F)/m_\chi]}{24\pi^2},
+$$
+
+e satisfazem $\epsilon_\chi^{\rm kin}+P_\chi^{\rm kin}=n_\chi E_{F\chi}$.
+A pressão total é calculada uma única vez pela relação de Gibbs
+
+$$
+P=\sum_b\mu_bn_b+\mu_e(n_e+n_\mu)+\mu_\chi n_\chi-\epsilon,
+$$
+
+que, sob neutralidade e a equação de Proca, recupera
+$P_{\rm dark}=P_\chi^{\rm kin}+m_X^2X_0^2/2$ sem dupla contagem.
+
+### Nota de normalização RMF legada
+
+Internamente, `gv` e `gr` representam $C_i=g_iM_N/m_i$, enquanto os termos
+não lineares de `equation_omega()` e `equation_rho()` mantêm a normalização
+histórica do projeto. Para FSU2 (`rxi` ou `lambda_v` não nulos), essas equações
+não são a derivada exata do funcional atualmente usado em `compute()`; na forma
+escalada faltariam fatores $C_\omega^2$ ou $C_\rho^2$ nos termos não lineares.
+GM1 e GM3 não são afetados porque ambos os coeficientes são zero. A presente
+alteração preserva deliberadamente essa normalização para que $Y_\chi=0$
+recupere o caminho hadrônico existente; uma correção deve modificar e validar
+em conjunto `physics.rs`, `eos.rs`, `darkphotons.rs` e as parametrizações.
+
+### Limites desta etapa de validação
+
+Os testes novos isolam primeiro o setor microscópico em `B=0`, isto é, sem
+Landau nem AMM. Para preservar o perfil magnético legado, a exportação ainda
+adiciona o piso macroscópico `bsurf = 10^11 T` mesmo quando `bg = 0`; portanto o
+limite de vácuo automatizado demonstra
+$n_\chi,X_0,\epsilon_{\rm dark},P_{\rm dark}\to0$, mas a energia e a pressão
+totais exportadas conservam o pequeno piso eletromagnético legado.
+
+Os executáveis de campanha `darkphotons` e `single_darkphotons` continuam
+configurados com $B=10^{17}$ G. Essas campanhas magnetizadas são uma etapa
+posterior à validação limpa do setor escuro e ainda exigem testes dedicados da
+interação com Landau, AMM, perfil de campo e anisotropia antes de produção em
+larga escala. O scan padrão usa somente GM1/GM3 e registra explicitamente
+$m_\chi$ e $B$ no `summary.csv`.
+
 ---
 
 ## Outros Modelos

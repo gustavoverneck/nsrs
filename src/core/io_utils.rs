@@ -82,10 +82,14 @@ pub fn write_eos_with_mr<P: AsRef<Path>>(
         file,
         "# 0:nB_over_n0 1:eps_MeV_fm3 2:p_MeV_fm3 3:ne_fm^-3 4:nmu_fm^-3 \
 5:nn_fm^-3 6:np_fm^-3 7:nL0_fm^-3 8:nS-_fm^-3 9:nS0_fm^-3 \
-10:nS+_fm^-3 11:nX-_fm^-3 12:nX0_fm^-3 13:sigma_MeV 14:omega_MeV \
-15:rho_MeV 16:mstar_over_mN 17:mu_n_over_mN 18:mu_e_over_mN \
-19:eps_mag_MeV_fm3 20:mu_total_over_mN \
-mr_mass_msun mr_radius_km mr_baryonic_mass_msun"
+10:nS+_fm^-3 11:nX-_fm^-3 12:nX0_fm^-3 13:g_sigma_sigma_MeV \
+14:g_omega_omega0_MeV 15:g_rho_rho03_MeV 16:mstar_over_mN \
+17:mu_n_over_mN 18:mu_e_over_mN \
+19:eps_mag_MeV_fm3 20:mu_total_over_mN 21:n_chi_fm^-3 22:Y_chi \
+23:m_chi_MeV 24:m_x_MeV 25:epsilon 26:g_d 27:X0_MeV 28:kF_chi_MeV \
+29:mu_chi_MeV 30:eps_chi_kin_MeV_fm3 31:P_chi_kin_MeV_fm3 \
+32:eps_X_MeV_fm3 33:P_X_MeV_fm3 \
+34:mr_mass_msun 35:mr_radius_km 36:mr_baryonic_mass_msun"
     )?;
 
     let n_mr = masses
@@ -138,4 +142,56 @@ mr_mass_msun mr_radius_km mr_baryonic_mass_msun"
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::constants::DATA_SIZE;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn eos_writer_preserves_the_34_plus_3_column_contract() {
+        let mut row = [0.0; RESULTS_SIZE];
+        row[0] = 1.0;
+        row[1] = 150.0;
+        row[2] = 25.0;
+        row[21] = 0.001;
+        row[22] = 0.01;
+        row[23] = 500.0;
+        row[24] = 25.0;
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must follow Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "nsrs_eos_contract_{}_{}.dat",
+            std::process::id(),
+            unique
+        ));
+
+        write_eos_with_mr(&[row], &[1.4], &[12.0], &[1.5], &[25.0], &path)
+            .expect("contract fixture must be writable");
+        let content = fs::read_to_string(&path).expect("contract fixture must be readable");
+        let _ = fs::remove_file(&path);
+
+        let mut lines = content.lines();
+        let header = lines.next().expect("writer must emit a header");
+        assert!(header.contains("33:P_X_MeV_fm3"));
+        assert!(header.contains("34:mr_mass_msun"));
+        assert!(header.contains("35:mr_radius_km"));
+        assert!(header.contains("36:mr_baryonic_mass_msun"));
+
+        let values: Vec<f64> = lines
+            .next()
+            .expect("writer must emit the matched EOS row")
+            .split_whitespace()
+            .map(|token| token.parse().expect("every EOS token must be numeric"))
+            .collect();
+        assert_eq!(values.len(), DATA_SIZE);
+        assert_eq!(values[RESULTS_SIZE], 1.4);
+        assert_eq!(values[RESULTS_SIZE + 1], 12.0);
+        assert_eq!(values[RESULTS_SIZE + 2], 1.5);
+    }
 }

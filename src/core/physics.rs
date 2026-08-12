@@ -450,29 +450,24 @@ impl HadronsMatter {
                 0.0
             };
 
-            let result = [
-                nbtd / 0.153,               //  0: n/n0 (adimensional)
-                ener_final,                 //  1: Energia Total [MeV/fm^3]
-                press_final,                //  2: Pressão Total [MeV/fm^3]
-                self.nl[0],                 //  3: e- [fm^-3]
-                self.nl[1],                 //  4: mu- [fm^-3]
-                self.nb[0],                 //  5: n [fm^-3]
-                self.nb[1],                 //  6: p [fm^-3]
-                self.nb[2],                 //  7: L0 [fm^-3]
-                self.nb[3],                 //  8: S- [fm^-3]
-                self.nb[4],                 //  9: S0 [fm^-3]
-                self.nb[5],                 // 10: S+ [fm^-3]
-                self.nb[6],                 // 11: X- [fm^-3]
-                self.nb[7],                 // 12: X0 [fm^-3]
-                vsigma,                     // 13: Campo Sigma [MeV]
-                vomega,                     // 14: Campo Omega [MeV]
-                vrho,                       // 15: Campo Rho [MeV]
-                self.m_eff[0] / self.m_nuc, // 16: m*/mN (adimensional)
-                self.mun,                   // 17: mu_n [adimensional no código atual]
-                mue,                        // 18: mu_e [adimensional no código atual]
-                ebsd,                       // 19: Densidade de energia magnética [MeV/fm^3]
-                mu_total_per_baryon,        // 20: Potencial químico total por bárion [mN]
-            ];
+            let density_factor = (self.m_nuc / HBAR_C).powi(3);
+            let mut result = [0.0; RESULTS_SIZE];
+            result[0] = nbtd / N0;
+            result[1] = ener_final;
+            result[2] = press_final;
+            result[3] = self.nl[0] * density_factor;
+            result[4] = self.nl[1] * density_factor;
+            for i in 0..8 {
+                result[5 + i] = self.nb[i] * density_factor;
+            }
+            result[13] = vsigma * self.m_nuc;
+            result[14] = vomega * self.m_nuc;
+            result[15] = vrho * self.m_nuc;
+            result[16] = self.m_eff[0];
+            result[17] = self.mun;
+            result[18] = mue;
+            result[19] = ebsd;
+            result[20] = mu_total_per_baryon;
             Some((x_final, result))
         } else {
             None

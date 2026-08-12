@@ -106,7 +106,7 @@ No caminho hadrônico (`HadronsMatter`), cada ponto em $\mu_n$ passa por:
 2. atualização do campo magnético efetivo (incluindo NLEM),
 3. cálculo de densidades bariônicas e leptônicas,
 4. cálculo de $\epsilon$ e $P$ totais,
-5. armazenamento em linha de saída (`RESULTS_SIZE = 21`).
+5. armazenamento em linha de saída (`RESULTS_SIZE = 34`).
 
 Após a EoS pronta:
 
@@ -119,7 +119,7 @@ Após a EoS pronta:
 
 ## Formato dos dados da EoS hadrônica
 
-`RESULTS_SIZE = 21`
+`RESULTS_SIZE = 34`
 
 Cada linha de saída do solver contém:
 
@@ -138,14 +138,54 @@ Cada linha de saída do solver contém:
 | 10 | $n_{\Sigma^+}$ [fm⁻³] |
 | 11 | $n_{\Xi^-}$ [fm⁻³] |
 | 12 | $n_{\Xi^0}$ [fm⁻³] |
-| 13 | Campo $\sigma$ |
-| 14 | Campo $\omega$ |
-| 15 | Campo $\rho$ |
+| 13 | Potencial escalar $g_\sigma\sigma$ [MeV] |
+| 14 | Potencial vetorial $g_\omega\omega_0$ [MeV] |
+| 15 | Potencial isovetorial $g_\rho\rho_{03}$ [MeV] |
 | 16 | $m^*/m_N$ |
-| 17 | $\mu_n$ |
-| 18 | $\mu_e$ |
+| 17 | $\mu_n/M_N$ |
+| 18 | $\mu_e/M_N$ |
 | 19 | Energia magnética $\epsilon_{mag}$ [MeV/fm³] |
-| 20 | Campo magnético local $B(n)$ |
+| 20 | Potencial químico fermiônico total por bárion dividido por $M_N$ |
+| 21 | $n_\chi$ [fm⁻³] |
+| 22 | $Y_\chi=n_\chi/n_B$ |
+| 23 | $m_\chi$ [MeV] |
+| 24 | $m_X$ [MeV] |
+| 25 | $\epsilon$ |
+| 26 | $g_D$ |
+| 27 | $X_0$ [MeV] |
+| 28 | $k_{F\chi}$ [MeV] |
+| 29 | $\mu_\chi$ [MeV] |
+| 30 | $\epsilon_\chi^{\rm kin}$ [MeV/fm³] |
+| 31 | $P_\chi^{\rm kin}$ [MeV/fm³] |
+| 32 | $\epsilon_X$ [MeV/fm³] |
+| 33 | $P_X$ [MeV/fm³] |
+
+As colunas 21–33 valem zero para motores sem setor escuro. Internamente,
+massas, momentos e potenciais são normalizados por `M_NUCLEON`; densidades por
+`M_NUCLEON³`; e energias/pressões por `M_NUCLEON⁴`. A saída aplica os fatores
+de `HBAR_C` necessários para as unidades indicadas acima.
+
+Quando `write_eos_with_mr` é usado, ele acrescenta `34:mr_mass_msun`,
+`35:mr_radius_km` e `36:mr_baryonic_mass_msun`, totalizando 37 colunas. Arquivos
+antigos com 21+3 colunas devem ser regenerados; apenas
+`darkphotons_single.py` mantém leitura legada explícita desse formato.
+
+### API de parâmetros escuros
+
+- `with_m_x(m_x)` e `with_m_chi(m_chi)`: massas físicas divididas por
+  `M_NUCLEON`.
+- `with_m_x_mev(m_x_mev)` e `with_m_chi_mev(m_chi_mev)`: massas em MeV,
+  convertidas uma única vez para a normalização interna.
+- `with_g_d(g_d)`, `with_epsilon(epsilon)` e `with_y_chi(y_chi)`: parâmetros
+  adimensionais independentes.
+- Os antigos `with_n_chi` e `with_n_chi_natural` foram removidos; `n_chi` é
+  agora estado calculado por `n_chi = y_chi * n_B`, não parâmetro constante.
+
+`validate_eos` aceita somente linhas uniformes com 34 colunas EOS ou 37 colunas
+EOS+M-R. Para linhas escuras, ele também verifica a relação de fração, a
+conversão entre `n_chi` e `kF_chi`, a definição de `mu_chi`, a solução neutra de
+Proca e `eps_X = P_X`; isso evita validar silenciosamente arquivos truncados ou
+com diagnósticos escuros corrompidos.
 
 ---
 

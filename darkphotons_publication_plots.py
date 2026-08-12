@@ -2,10 +2,8 @@
 """
 Publication-quality plots for dark photon EoS and TOV scan outputs.
 
-Expected columns (or close matches):
-['epsilon', 'm_x', 'g_d', 'n_chi', 'mun', 'n_n0', 'ener', 'press', 'n_e', 'n_mu',
- 'n_n', 'n_p', 'L0', 'Sm', 'S0', 'Sp', 'Xm', 'X0', 'sigma', 'omega', 'rho',
- 'm_eff', 'ebsd', 'bdd', 'Radius_km', 'Mass_Msun']
+Expected columns are the EOS diagnostics written by ``write_eos_with_mr``;
+the final three columns are always the M-R observables.
 """
 
 from __future__ import annotations
@@ -56,7 +54,7 @@ def read_table(path: str) -> pd.DataFrame:
 
 def parse_params_from_filename(filename: str) -> dict:
     match = re.search(
-        r"eps_(?P<eps>[^_]+)_mx_(?P<mx>[^_]+)_gd_(?P<gd>[^_]+)_nchi_(?P<nchi>[^.]+)",
+        r"eps_(?P<eps>[^_]+)_mx_(?P<mx>[^_]+)_gd_(?P<gd>[^_]+)_ychi_(?P<ychi>[-+0-9.eE]+)\.dat$",
         filename,
     )
     if not match:
@@ -69,10 +67,10 @@ def parse_params_from_filename(filename: str) -> dict:
             return float("nan")
 
     return {
-        "epsilon": to_float(match.group("eps")),
-        "m_x": to_float(match.group("mx")),
-        "g_d": to_float(match.group("gd")),
-        "n_chi": to_float(match.group("nchi")),
+        "scan_epsilon": to_float(match.group("eps")),
+        "scan_m_x_over_mN": to_float(match.group("mx")),
+        "scan_g_d": to_float(match.group("gd")),
+        "scan_Y_chi": to_float(match.group("ychi")),
     }
 
 
@@ -98,7 +96,20 @@ def load_eos_file(path: str) -> pd.DataFrame:
         "mun",
         "mue",
         "ebsd",
-        "bdd",
+        "mu_total",
+        "n_chi",
+        "Y_chi",
+        "m_chi",
+        "m_x",
+        "epsilon",
+        "g_d",
+        "vx0",
+        "kf_chi",
+        "mu_chi",
+        "ener_chi_kin",
+        "press_chi_kin",
+        "ener_X",
+        "press_X",
         "Mass_Msun",
         "Radius_km",
         "Mbaryon_Msun",
@@ -117,14 +128,13 @@ def load_eos_file(path: str) -> pd.DataFrame:
                 values = [float(val) for val in parts]
             except ValueError:
                 continue
-            records.append(values)
+            if len(values) == len(columns):
+                records.append(values)
 
     if not records:
         return pd.DataFrame()
 
-    max_len = max(len(row) for row in records)
-    used_cols = columns[:max_len]
-    return pd.DataFrame(records, columns=used_cols)
+    return pd.DataFrame(records, columns=columns)
 
 
 def load_eos_directory(path: str) -> pd.DataFrame:
@@ -162,6 +172,16 @@ def coerce_numeric(df: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
     return df
 
 
+def baseline_mask(df: pd.DataFrame) -> pd.Series:
+    """Return a boolean mask even for external CSV files without metadata."""
+    if "is_baseline" not in df.columns:
+        return pd.Series(False, index=df.index, dtype=bool)
+    values = df["is_baseline"]
+    if pd.api.types.is_bool_dtype(values):
+        return values.fillna(False)
+    return values.astype(str).str.strip().str.lower().isin({"1", "true", "yes"})
+
+
 def group_label(row: pd.Series, group_cols: Sequence[str]) -> str:
     parts = []
     for col in group_cols:
@@ -181,7 +201,6 @@ def plot_mr_diagram(
     df: pd.DataFrame,
     group_cols: Sequence[str],
     out_path: str,
-    n_chi_col: str = "n_chi",
 ) -> None:
     required = ["Radius_km", "Mass_Msun"]
     for col in required:
@@ -190,22 +209,26 @@ def plot_mr_diagram(
 
     fig, ax = plt.subplots(figsize=(9.0, 5.2))
 
-    baseline = df[df.get("is_baseline", False)].dropna(subset=required)
+    is_baseline = baseline_mask(df)
+    baseline = df[is_baseline].dropna(subset=required)
     if not baseline.empty:
-        base_curve = baseline.sort_values("Radius_km")
-        ax.plot(
-            base_curve["Radius_km"],
-            base_curve["Mass_Msun"],
-            color="black",
-            linewidth=2.2,
-            label="hadrons baseline",
-        )
+        baseline_keys = [col for col in ("eos_dir", "eos_file") if col in baseline.columns]
+        baseline_groups = baseline.groupby(baseline_keys) if baseline_keys else [(None, baseline)]
+        for index, (_, base_curve) in enumerate(baseline_groups):
+            base_curve = base_curve.sort_values("Radius_km")
+            ax.plot(
+                base_curve["Radius_km"],
+                base_curve["Mass_Msun"],
+                color="black",
+                linewidth=2.2,
+                label="hadrons baseline" if index == 0 else None,
+            )
 
-    dark = df[~df.get("is_baseline", False)].dropna(subset=required)
-    valid_cols = [col for col in group_cols if col in dark.columns]
-    if not valid_cols:
-        valid_cols = ["eos_file"]
-    grouped = dark.groupby(valid_cols)
+    dark = df[~is_baseline].dropna(subset=required)
+    curve_keys = [col for col in ("eos_dir", "eos_file") if col in dark.columns]
+    if not curve_keys:
+        curve_keys = [col for col in group_cols if col in dark.columns]
+    grouped = dark.groupby(curve_keys) if curve_keys else [(None, dark)]
     for _, block in grouped:
         block = block.sort_values("Radius_km")
         ax.plot(
@@ -249,20 +272,23 @@ def plot_eos(
     if data.empty:
         raise ValueError("No positive EoS data available for plotting.")
 
-    baseline = data[data.get("is_baseline", False)]
+    is_baseline = baseline_mask(data)
+    baseline = data[is_baseline]
     if not baseline.empty:
-        base_curve = baseline.sort_values("ener")
-        ax.plot(
-            base_curve["ener"],
-            base_curve["press"],
-            color="black",
-            linewidth=2.2,
-            label="hadrons baseline",
-        )
+        baseline_keys = [col for col in ("eos_dir", "eos_file") if col in baseline.columns]
+        baseline_groups = baseline.groupby(baseline_keys) if baseline_keys else [(None, baseline)]
+        for index, (_, base_curve) in enumerate(baseline_groups):
+            base_curve = base_curve.sort_values("ener")
+            ax.plot(
+                base_curve["ener"],
+                base_curve["press"],
+                color="black",
+                linewidth=2.2,
+                label="hadrons baseline" if index == 0 else None,
+            )
 
-    dark = data[~data.get("is_baseline", False)]
-    grouped = dark.groupby(group_col)
-    values = sorted([value for value, _ in grouped])
+    dark = data[~is_baseline]
+    values = sorted(dark[group_col].dropna().unique())
     if values:
         vmin = min(values)
         vmax = max(values)
@@ -271,7 +297,11 @@ def plot_eos(
         vmax = 1.0
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
     cmap = plt.get_cmap("viridis")
-    for value, block in grouped:
+    curve_keys = [col for col in ("eos_dir", "eos_file") if col in dark.columns]
+    if not curve_keys:
+        curve_keys = [group_col]
+    for _, block in dark.groupby(curve_keys):
+        value = float(block[group_col].iloc[0])
         block = block.sort_values("ener")
         ax.plot(
             block["ener"],
@@ -331,20 +361,30 @@ def plot_particle_fractions(
             data = data.loc[np.isclose(data[key], value)]
 
     data = data.dropna(subset=["n_n0"] + available)
-    data = data.sort_values("n_n0")
-
-    total = data[available].sum(axis=1)
-    total = total.replace(0.0, np.nan)
 
     fig, ax = plt.subplots(figsize=(7.6, 5.2))
 
     baryons = {"n_n", "n_p", "L0", "Sm", "S0", "Sp", "Xm", "X0"}
-    for col in available:
-        y = data[col] / total
-        if col in baryons:
-            ax.plot(data["n_n0"], y, linewidth=1.4, label=col)
-        else:
-            ax.plot(data["n_n0"], y, linewidth=1.4, linestyle="--", label=col)
+    curve_keys = [col for col in ("eos_dir", "eos_file") if col in data.columns]
+    grouped = data.groupby(curve_keys) if curve_keys else [(None, data)]
+    for curve_index, (_, block) in enumerate(grouped):
+        block = block.sort_values("n_n0")
+        baryon_columns = [col for col in available if col in baryons]
+        total = block[baryon_columns].sum(axis=1).replace(0.0, np.nan)
+        for col in available:
+            y = block[col] / total
+            label = col if curve_index == 0 else None
+            if col in baryons:
+                ax.plot(block["n_n0"], y, linewidth=1.0, alpha=0.65, label=label)
+            else:
+                ax.plot(
+                    block["n_n0"],
+                    y,
+                    linewidth=1.0,
+                    linestyle="--",
+                    alpha=0.65,
+                    label=label,
+                )
 
     ax.set_xlabel("n/n0")
     ax.set_ylabel("Particle fraction")
@@ -368,8 +408,8 @@ def plot_sound_speed(
 
     fig, ax = plt.subplots(figsize=(7.6, 5.2))
 
-    grouped = df.dropna(subset=required).groupby(group_col)
-    values = sorted([value for value, _ in grouped])
+    data = df.dropna(subset=required)
+    values = sorted(data[group_col].dropna().unique())
     if values:
         vmin = min(values)
         vmax = max(values)
@@ -378,7 +418,11 @@ def plot_sound_speed(
         vmax = 1.0
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
     cmap = plt.get_cmap("viridis")
-    for value, block in grouped:
+    curve_keys = [col for col in ("eos_dir", "eos_file") if col in data.columns]
+    if not curve_keys:
+        curve_keys = [group_col]
+    for _, block in data.groupby(curve_keys):
+        value = float(block[group_col].iloc[0])
         block = block.sort_values("n_n0").dropna(subset=["ener", "press", "n_n0"])
         ener = block["ener"].to_numpy()
         press = block["press"].to_numpy()
@@ -415,9 +459,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Publication plots for dark photon EoS/TOV scan")
     parser.add_argument("--input", default="output/darkphotons_scan")
     parser.add_argument("--out-dir", default="plots")
-    parser.add_argument("--group-cols", nargs="*", default=["n_chi", "epsilon"])
-    parser.add_argument("--eos-group", default="n_chi")
-    parser.add_argument("--sound-group", default="n_chi")
+    parser.add_argument("--group-cols", nargs="*", default=["Y_chi", "epsilon"])
+    parser.add_argument("--eos-group", default="Y_chi")
+    parser.add_argument("--sound-group", default="Y_chi")
     parser.add_argument("--fchi-slice", type=float, default=None)
     args = parser.parse_args()
 
@@ -436,15 +480,22 @@ def main() -> None:
 
     if os.path.isdir(input_path):
         df = load_eos_directory(input_path)
+    elif input_path.endswith(".dat"):
+        df = load_eos_file(input_path)
+        df["eos_file"] = os.path.basename(input_path)
+        df["eos_dir"] = os.path.dirname(input_path)
+        df["is_baseline"] = os.path.basename(input_path).startswith("eos_hadrons")
     else:
         df = read_table(input_path)
+    if "is_baseline" not in df.columns:
+        df["is_baseline"] = False
     df = coerce_numeric(
         df,
         [
             "epsilon",
             "m_x",
             "g_d",
-            "n_chi",
+            "Y_chi",
             "n_chi",
             "mun",
             "n_n0",
@@ -465,7 +516,8 @@ def main() -> None:
             "rho",
             "m_eff",
             "ebsd",
-            "bdd",
+            "mu_total",
+            "vx0",
             "Radius_km",
             "Mass_Msun",
         ],
@@ -487,7 +539,7 @@ def main() -> None:
 
     selector = None
     if args.fchi_slice is not None:
-        selector = ("n_chi", args.fchi_slice)
+        selector = ("Y_chi", args.fchi_slice)
 
     plot_particle_fractions(
         df,

@@ -38,17 +38,43 @@ pub const MV: f64 = 783.0 / M_NUCLEON; // Vector meson (Omega)
 pub const MR: f64 = 770.0 / M_NUCLEON; // Isovector meson (Rho)
 
 // Ative o magneton nuclear removendo o * 0.0
-pub const RNCM: f64 = QE / 2.0;
+pub const RNCM: f64 =
+    QE * M_NUCLEON / (2.0 * MP);
 
 // Valores baseados no Particle Data Group (PDG) para kappa = mu - q
-pub const AMMN: f64 = RNCM * -1.913; // Neutrão
-pub const AMMP: f64 = RNCM * 1.793; // Protão
-pub const AMML0: f64 = RNCM * -0.613; // Lambda0
-pub const AMMSM: f64 = RNCM * -0.160; // Sigma- (-1.16 - (-1))
-pub const AMMS0: f64 = RNCM * 0.649; // Sigma0 (Teórico)
-pub const AMMSP: f64 = RNCM * 1.458; // Sigma+ (2.458 - 1)
-pub const AMMXM: f64 = RNCM * 0.349; // Xi-    (-0.65 - (-1))
-pub const AMMX0: f64 = RNCM * -1.250; // Xi0
+pub const AMMN: f64 = 0.0;
+pub const AMMP: f64 = 0.0;
+pub const AMML0: f64 = 0.0;
+pub const AMMSM: f64 = 0.0;
+pub const AMMS0: f64 = 0.0;
+pub const AMMSP: f64 = 0.0;
+pub const AMMXM: f64 = 0.0;
+pub const AMMX0: f64 = 0.0;
+
+// pub const AMMN: f64 =
+//     RNCM * (-1.913);
+
+// pub const AMMP: f64 =
+//     RNCM * (2.793 - MP / 938.272081323);
+
+// pub const AMML0: f64 =
+//     RNCM * (-0.613);
+
+// pub const AMMSM: f64 =
+//     RNCM * (-1.160 + MP / 1193.0);
+
+// pub const AMMS0: f64 =
+//     RNCM * 0.649;
+
+// pub const AMMSP: f64 =
+//     RNCM * (2.458 - MP / 1193.0);
+
+// pub const AMMXM: f64 =
+//     RNCM * (-0.650 + MP / 1318.0);
+
+// pub const AMMX0: f64 =
+//     RNCM * (-1.250);
+
 
 // BDD Constants
 pub const BCE: f64 = ML[0] * ML[0] / QE;

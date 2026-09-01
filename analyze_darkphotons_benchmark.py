@@ -56,6 +56,12 @@ LINESTYLES = {
 
 N0_FM3 = 0.153
 
+# Janela convencional para diagramas massa-raio de estrelas de nêutrons.
+MR_RADIUS_LIMITS_KM = (8.0, 16.0)
+MR_MASS_LIMITS_MSUN = (0.0, 3.0)
+MR_RADIUS_TICK_STEP_KM = 2.0
+MR_MASS_TICK_STEP_MSUN = 0.5
+
 # Mapeamento padrão da saída darkphotons.
 DEFAULT_COLUMNS = {
     "nb_over_n0": 0,
@@ -572,6 +578,7 @@ def plot_eos(
     out_dir: Path,
     dpi: int,
     save_pdf: bool,
+    log_scale: bool = False,
 ) -> None:
     fig, ax = plt.subplots(figsize=(6.4, 4.8))
     any_curve = False
@@ -583,14 +590,16 @@ def plot_eos(
 
         energy = pd.to_numeric(df["energy"], errors="coerce").to_numpy(dtype=float)
         pressure = pd.to_numeric(df["pressure"], errors="coerce").to_numpy(dtype=float)
-        finite = np.isfinite(energy) & np.isfinite(pressure)
-        if not np.any(finite):
+        valid = np.isfinite(energy) & np.isfinite(pressure)
+        if log_scale:
+            valid &= (energy > 0.0) & (pressure > 0.0)
+        if np.count_nonzero(valid) < 2:
             continue
 
         any_curve = True
         ax.plot(
-            energy[finite],
-            pressure[finite],
+            energy[valid],
+            pressure[valid],
             linestyle=LINESTYLES[scenario],
             linewidth=1.8,
             label=SCENARIO_LABELS[scenario],
@@ -602,11 +611,18 @@ def plot_eos(
 
     ax.set_xlabel(r"$\varepsilon\;[\mathrm{MeV/fm^3}]$")
     ax.set_ylabel(r"$P\;[\mathrm{MeV/fm^3}]$")
-    ax.set_title(f"Equação de estado — {model}")
+    if log_scale:
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_title(f"Equação de estado (escala log–log) — {model}")
+        filename = f"eos_log_{model}"
+    else:
+        ax.set_title(f"Equação de estado — {model}")
+        filename = f"eos_{model}"
     ax.legend(frameon=False)
-    ax.grid(alpha=0.25)
+    ax.grid(which="both" if log_scale else "major", alpha=0.25)
 
-    save_figure(fig, out_dir / f"eos_{model}", dpi, save_pdf)
+    save_figure(fig, out_dir / filename, dpi, save_pdf)
 
 
 def plot_mr(
@@ -643,6 +659,22 @@ def plot_mr(
 
     ax.set_xlabel(r"$R\;[\mathrm{km}]$")
     ax.set_ylabel(r"$M\;[M_\odot]$")
+    ax.set_xlim(*MR_RADIUS_LIMITS_KM)
+    ax.set_ylim(*MR_MASS_LIMITS_MSUN)
+    ax.set_xticks(
+        np.arange(
+            MR_RADIUS_LIMITS_KM[0],
+            MR_RADIUS_LIMITS_KM[1] + MR_RADIUS_TICK_STEP_KM,
+            MR_RADIUS_TICK_STEP_KM,
+        )
+    )
+    ax.set_yticks(
+        np.arange(
+            MR_MASS_LIMITS_MSUN[0],
+            MR_MASS_LIMITS_MSUN[1] + MR_MASS_TICK_STEP_MSUN,
+            MR_MASS_TICK_STEP_MSUN,
+        )
+    )
     ax.set_title(f"Relação massa–raio — {model}")
     ax.legend(frameon=False)
     ax.grid(alpha=0.25)
@@ -1082,6 +1114,14 @@ def main() -> int:
             figures_dir,
             args.dpi,
             not args.no_pdf,
+        )
+        plot_eos(
+            model,
+            scenarios,
+            figures_dir,
+            args.dpi,
+            not args.no_pdf,
+            log_scale=True,
         )
 
         mr_available[model] = plot_mr(

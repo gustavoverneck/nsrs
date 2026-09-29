@@ -11,14 +11,16 @@ pub fn compute(
     vrho: f64,
 ) -> (f64, f64) {
     // 1. Energia dos mésons (Potenciais de campo)
-    // Inclui termos de massa e auto-interações (rb, rc para sigma e rxi para omega)
+    // Inclui termos de massa e auto-interações (rb, rc para sigma e rxi para omega).
+    // Para os campos vetoriais, eps = g_v*omega*n_B + g_rho*rho*n_3 - L_mesons, logo
+    // zeta/24 (g_v omega)^4 -> zeta/8 = 3 rxi/4 e Lambda_v(...)(...) -> 3 Lambda_v.
     let enerf = (vsigma / engine.model.gs).powi(2) / 2.0
         + (vomega / engine.model.gv).powi(2) / 2.0
         + (vrho / engine.model.gr).powi(2) / 2.0
         + engine.model.rb * vsigma.powi(3) / 3.0
         + engine.model.rc * vsigma.powi(4) / 4.0
-        + engine.model.rxi * vomega.powi(4) / 4.0
-        + engine.model.lambda_v * vomega.powi(2) * vrho.powi(2);
+        + 3.0 * engine.model.rxi * vomega.powi(4) / 4.0
+        + 3.0 * engine.model.lambda_v * vomega.powi(2) * vrho.powi(2);
 
     let mut enerbar = 0.0;
 

@@ -39,7 +39,11 @@ pub const GM3: ModelParams = ModelParams {
 /// zeta, and Lambda_v.  The solver uses the same normalized field variables as
 /// GM1/GM3, so kappa and lambda are converted into Boguta-Bodmer b and c by
 /// b = kappa / (2 M_N) and c = lambda / 6.  The omega self-coupling is stored
-/// as zeta / 6 so that the omega field equation contains -rxi * omega^3.
+/// as zeta / 6 so that the scaled omega field equation reads
+/// omega = C_v^2 (n_B - rxi omega^3 - 2 lambda_v omega rho^2), with the same
+/// C_v^2 = (g_v M_N / m_v)^2 factor that multiplies rb and rc in the sigma
+/// equation.  In the energy density these terms enter as 3 rxi omega^4 / 4
+/// (= zeta/8) and 3 lambda_v omega^2 rho^2.
 pub const FSU2: ModelParams = ModelParams {
     gs: (10.39684086634012 / 497.479) * M_NUCLEON,
     gv: (13.556891236563049 / 782.500) * M_NUCLEON,

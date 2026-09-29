@@ -300,10 +300,11 @@ impl HadronsMatter {
         for i in 0..8 {
             sum_baryon += self.nb[i] * self.xv_v[i];
         }
-        self.model.gv.powi(2) * sum_baryon
+        self.model.gv.powi(2)
+            * (sum_baryon
+                - self.model.rxi * vomega.powi(3)
+                - 2.0 * self.model.lambda_v * vomega * vrho.powi(2))
             - vomega
-            - self.model.rxi * vomega.powi(3)
-            - 2.0 * self.model.lambda_v * vomega * vrho.powi(2)
     }
 
     fn equation_rho(&self, vrho: f64, vomega: f64) -> f64 {
@@ -312,9 +313,9 @@ impl HadronsMatter {
             // A fonte para o rho é baseada no negativo do isospin
             sum_source += self.isospin_factor[i] * self.nb[i] * self.xv_r[i];
         }
-        self.model.gr.powi(2) * sum_source
+        self.model.gr.powi(2)
+            * (sum_source - 2.0 * self.model.lambda_v * vrho * vomega.powi(2))
             - vrho
-            - 2.0 * self.model.lambda_v * vrho * vomega.powi(2)
     }
 
     fn charge_neutrality(&self) -> f64 {
@@ -476,5 +477,129 @@ impl HadronsMatter {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::model::{FSU2, GM1};
+    use nalgebra::{Matrix3, Vector3};
+
+    /// Solves the three meson equations at fixed (mu_n, mu_e) with B = 0,
+    /// i.e. without imposing charge neutrality. Returns the fields and
+    /// (n_B, eps, P) in units of M_N^3 and M_N^4.
+    fn solve_fields(
+        engine: &mut HadronsMatter,
+        mun: f64,
+        mue: f64,
+        guess: [f64; 3],
+    ) -> Option<([f64; 3], f64, f64, f64)> {
+        engine.mun = mun;
+        let residual = |engine: &mut HadronsMatter, y: &Vector3<f64>| {
+            let f = engine.funcv(&[mue, y[0], y[1], y[2]]);
+            Vector3::new(f[0], f[1], f[2])
+        };
+        let mut y = Vector3::from(guess);
+        for _ in 0..200 {
+            let f = residual(engine, &y);
+            if f.norm() < 1e-13 {
+                let _ = engine.funcv(&[mue, y[0], y[1], y[2]]);
+                let (ener, press) = crate::core::eos::compute(engine, mue, y[0], y[1], y[2]);
+                return Some(([y[0], y[1], y[2]], engine.nbt, ener, press));
+            }
+            let mut jac = Matrix3::zeros();
+            for i in 0..3 {
+                let h = 1e-7 * (y[i].abs() + 1e-3);
+                let mut yh = y;
+                yh[i] += h;
+                jac.set_column(i, &((residual(engine, &yh) - f) / h));
+            }
+            let step = jac.lu().solve(&(-f))?;
+            let mut alpha = 1.0;
+            while alpha > 1e-6 && residual(engine, &(y + alpha * step)).norm() >= f.norm() {
+                alpha *= 0.5;
+            }
+            y += alpha * step;
+        }
+        None
+    }
+
+    /// Locates the symmetric-matter saturation point as the zero of P(mu_n)
+    /// on the dense branch. Returns (n0 [fm^-3], E/A [MeV], M*/M).
+    fn saturation_point(model: ModelParams) -> (f64, f64, f64) {
+        let mut engine = HadronsMatter::new(model, 0.0);
+        // Walk down the dense branch until the pressure changes sign.
+        let (mut mu_hi, mut g_hi) = (1.2, [0.0; 3]);
+        let mut mu = 1.2;
+        let mut guess = [0.4, 0.4, 0.0];
+        let mut mu_lo = loop {
+            let (fields, nb, _, press) =
+                solve_fields(&mut engine, mu, 0.0, guess).expect("dense branch must converge");
+            assert!(nb > 1e-5, "continuation fell onto the vacuum branch");
+            guess = fields;
+            if press < 0.0 {
+                break mu;
+            }
+            (mu_hi, g_hi) = (mu, fields);
+            mu -= if mu > 1.0 { 5e-3 } else { 5e-4 };
+        };
+        for _ in 0..50 {
+            let mid = 0.5 * (mu_hi + mu_lo);
+            let (fields, _, _, press) =
+                solve_fields(&mut engine, mid, 0.0, g_hi).expect("bisection point must converge");
+            if press > 0.0 {
+                (mu_hi, g_hi) = (mid, fields);
+            } else {
+                mu_lo = mid;
+            }
+        }
+        let (fields, nb, _, _) = solve_fields(&mut engine, mu_hi, 0.0, g_hi).unwrap();
+        let n0 = nb * (M_NUCLEON / HBAR_C).powi(3);
+        // At P = 0 the Gibbs relation gives eps/n_B = mu_n; the binding energy
+        // is measured from the mean bare nucleon mass (m_n != m_p here).
+        let m_avg = 0.5 * (MB[0] + MB[1]);
+        (n0, (mu_hi - m_avg) * M_NUCLEON, 1.0 - fields[0])
+    }
+
+    #[test]
+    fn gm1_saturation_matches_glendenning_moszkowski() {
+        let (n0, ea, mstar) = saturation_point(GM1);
+        assert!((n0 - 0.153).abs() < 0.002, "n0 = {n0}");
+        assert!((ea + 16.3).abs() < 0.1, "E/A = {ea}");
+        assert!((mstar - 0.70).abs() < 0.005, "M*/M = {mstar}");
+    }
+
+    #[test]
+    fn fsu2_saturation_matches_chen_piekarewicz() {
+        // Phys. Rev. C 90, 044305 (2014): n0 = 0.1505 fm^-3,
+        // E/A = -16.28 MeV, M*/M = 0.593.
+        let (n0, ea, mstar) = saturation_point(FSU2);
+        assert!((n0 - 0.1505).abs() < 0.002, "n0 = {n0}");
+        assert!((ea + 16.28).abs() < 0.1, "E/A = {ea}");
+        assert!((mstar - 0.593).abs() < 0.005, "M*/M = {mstar}");
+    }
+
+    #[test]
+    fn fsu2_pressure_is_consistent_with_field_equations() {
+        // At fixed mu_e, dP/dmu_n = n_B only if the meson field equations are
+        // the stationarity conditions of the energy functional in compute().
+        // A nonzero mu_e makes the matter asymmetric, so rho and the
+        // omega-rho coupling Lambda_v are exercised.
+        let mut engine = HadronsMatter::new(FSU2, 0.0);
+        let (mun, mue, dmu) = (1.08, 0.12, 1e-5);
+        let mut guess = [0.4, 0.4, -0.05];
+        for mu in [1.20, 1.15, 1.10, mun] {
+            guess = solve_fields(&mut engine, mu, mue, guess).expect("continuation").0;
+        }
+        let (fields, nb, _, _) = solve_fields(&mut engine, mun, mue, guess).unwrap();
+        assert!(fields[2].abs() > 1e-3, "rho field must be active");
+        let (_, _, _, p_plus) = solve_fields(&mut engine, mun + dmu, mue, fields).unwrap();
+        let (_, _, _, p_minus) = solve_fields(&mut engine, mun - dmu, mue, fields).unwrap();
+        let dp_dmu = (p_plus - p_minus) / (2.0 * dmu);
+        assert!(
+            ((dp_dmu - nb) / nb).abs() < 1e-5,
+            "dP/dmu_n = {dp_dmu}, n_B = {nb}"
+        );
     }
 }

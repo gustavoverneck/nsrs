@@ -62,10 +62,10 @@ fn tov_reproduces_uniform_density_schwarzschild_interior() {
             let proper_mass_exact = eps * 2.0 * PI * a.powi(3) * (x.asin() - x * (1.0 - x * x).sqrt());
 
             let tag = format!("eps={eps_mev} MeV/fm3, Pc/eps={ratio}");
-            assert!((radius / radius_exact - 1.0).abs() < 1e-6, "R: {tag}");
-            assert!((mass / mass_exact - 1.0).abs() < 1e-6, "M: {tag}");
+            assert!((radius / radius_exact - 1.0).abs() < 1e-8, "R: {tag}");
+            assert!((mass / mass_exact - 1.0).abs() < 1e-8, "M: {tag}");
             assert!(
-                (baryonic_mass / proper_mass_exact - 1.0).abs() < 1e-6,
+                (baryonic_mass / proper_mass_exact - 1.0).abs() < 1e-8,
                 "M_proper: {tag}"
             );
         }

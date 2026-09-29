@@ -258,7 +258,10 @@ pub fn integrate_star(
     let mut y = [pc_tov, 0.0, 0.0];
     let mut h = 1.0e-2;
     let r_end = 30000.0;
-    let eps = 3.0e-16;
+    // Tolerância relativa do passo adaptativo. Com a superfície localizada
+    // por bisseção abaixo, 1e-10 muda M e R de EoS realistas em < 1e-7
+    // relativo e é ~8x mais rápido que 3e-16 (ver tests/verification.rs).
+    let eps = 1.0e-10;
     let mut steps = 0u64;
     let max_steps = 90000u64;
 
@@ -284,15 +287,32 @@ pub fn integrate_star(
         if ynew[0] <= p_min {
             // Locate the surface inside the accepted step instead of
             // returning the overshot state.  A TOV point is successful only
-            // when this pressure event is actually reached.
+            // when this pressure event is actually reached.  The step size
+            // to the event P = p_min is found by bisection, re-integrating
+            // from (r, y) with the same Cash-Karp step, so the surface is as
+            // accurate as the integration itself.
             let pressure_drop = y[0] - ynew[0];
             if !pressure_drop.is_finite() || pressure_drop <= 0.0 {
                 return None;
             }
-            let fraction = ((y[0] - p_min) / pressure_drop).clamp(0.0, 1.0);
-            let surface_r = r + fraction * hdid;
-            let surface_m = y[1] + fraction * (ynew[1] - y[1]);
-            let surface_mb = y[2] + fraction * (ynew[2] - y[2]);
+            let (mut h_lo, mut h_hi) = (0.0, hdid);
+            let mut y_surface = y;
+            for _ in 0..60 {
+                let h_mid = 0.5 * (h_lo + h_hi);
+                let (y_mid, _) = rkck_step(r, y, h_mid, p_tov, eps_tov, rho_tov);
+                if !y_mid.iter().all(|value| value.is_finite()) {
+                    return None;
+                }
+                if y_mid[0] > p_min {
+                    h_lo = h_mid;
+                    y_surface = y_mid;
+                } else {
+                    h_hi = h_mid;
+                }
+            }
+            let surface_r = r + h_lo;
+            let surface_m = y_surface[1];
+            let surface_mb = y_surface[2];
 
             if surface_r.is_finite() && surface_m.is_finite() && surface_mb.is_finite() {
                 return Some((

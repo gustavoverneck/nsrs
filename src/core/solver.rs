@@ -25,8 +25,11 @@ pub enum EosTermination {
     ReachedUpperLimit,
     /// Corte intencional em densidade (n_B > 11 n0).
     DensityCap,
-    /// Corte intencional por causalidade (dP/deps > 1.1).
+    /// Corte intencional por causalidade (c_s^2 = dP/deps > 1).
     Acausal { mu_n_mev: f64, nb_over_n0: f64 },
+    /// Corte intencional: a massa efetiva do nêutron (coluna 16) chegou a
+    /// M*/M <= 0, fora da validade física do modelo de campo médio.
+    NonPositiveEffectiveMass { mu_n_mev: f64, nb_over_n0: f64 },
     /// Queda resolvida de eps ou P entre pontos consecutivos.
     NonMonotonic { mu_n_mev: f64, nb_over_n0: f64 },
     /// O Newton não convergiu nem com o passo mínimo; a EoS está truncada.
@@ -85,6 +88,11 @@ impl Solver {
         let mut last_mun = mun_inf; // último mun que convergiu
         let mut mun = mun_inf;
         let mut termination = EosTermination::ReachedUpperLimit;
+        // Apenas estas engines exportam M*/M do nêutron na coluna 16.
+        let exports_effective_mass = matches!(
+            self.engine,
+            EngineMode::Hadrons(_) | EngineMode::DarkPhotons(_)
+        );
         // Último ponto aceito, em (MeV, n_B/n0), para os diagnósticos.
         let last_point = |results: &[[f64; RESULTS_SIZE]]| {
             results
@@ -120,9 +128,18 @@ impl Solver {
             if let Some(point_result) = point_data {
                 last_mun = mun;
 
-                // Para a integração se a densidade bariônica ultrapassar 15 N0.
+                // Para a integração se a densidade bariônica ultrapassar 11 N0.
                 if point_result[0] * N0 > 11.0 * N0 {
                     termination = EosTermination::DensityCap;
+                    break;
+                }
+
+                if exports_effective_mass && point_result[16] <= 0.0 {
+                    let (mu_n_mev, nb_over_n0) = last_point(&results);
+                    termination = EosTermination::NonPositiveEffectiveMass {
+                        mu_n_mev,
+                        nb_over_n0,
+                    };
                     break;
                 }
 
@@ -141,7 +158,7 @@ impl Solver {
 
                     if resolved_matter && de > de_tol && dp > dp_tol {
                         let cs2 = dp / de;
-                        if cs2 > 1.1 {
+                        if cs2 > 1.0 {
                             let (mu_n_mev, nb_over_n0) = last_point(&results);
                             termination = EosTermination::Acausal {
                                 mu_n_mev,

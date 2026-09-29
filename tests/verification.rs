@@ -186,3 +186,20 @@ fn solver_reports_why_the_eos_ended() {
         other => panic!("expected a reported convergence failure, got {other:?}"),
     }
 }
+
+/// FSU2 tem lambda < 0 e, em alta densidade, M*/M do nêutron cruza zero. A
+/// EoS deve parar ali (depois de M_max, em ~6.2 n0) sem gravar linhas com
+/// massa efetiva não positiva.
+#[test]
+fn eos_stops_before_non_positive_effective_mass() {
+    let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(FSU2, 0.0)));
+    let rows = solver.solve();
+    assert!(rows.iter().all(|row| row[16] > 0.0));
+    match solver.termination() {
+        Some(t @ EosTermination::NonPositiveEffectiveMass { nb_over_n0, .. }) => {
+            assert!(!t.is_anomalous());
+            assert!(nb_over_n0 > 7.0, "stopped too early: nB/n0 = {nb_over_n0}");
+        }
+        other => panic!("expected NonPositiveEffectiveMass, got {other:?}"),
+    }
+}

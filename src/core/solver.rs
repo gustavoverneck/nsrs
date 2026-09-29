@@ -1,4 +1,4 @@
-use crate::core::constants::{N0, RESULTS_SIZE};
+use crate::core::constants::{M_NUCLEON, N0, RESULTS_SIZE};
 // src/core/solver.rs
 use crate::core::darkphotons::DarkPhotonsMatter;
 use crate::core::hybrid::HybridMatter;
@@ -17,18 +17,53 @@ pub enum EngineMode {
     DarkPhotons(DarkPhotonsMatter),
 }
 
+/// Motivo pelo qual a varredura em mu_n terminou. `mu_n_mev` é o potencial
+/// químico do último ponto aceito e `nb_over_n0` a densidade correspondente.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EosTermination {
+    /// A malha chegou a `mun_sup`.
+    ReachedUpperLimit,
+    /// Corte intencional em densidade (n_B > 11 n0).
+    DensityCap,
+    /// Corte intencional por causalidade (dP/deps > 1.1).
+    Acausal { mu_n_mev: f64, nb_over_n0: f64 },
+    /// Queda resolvida de eps ou P entre pontos consecutivos.
+    NonMonotonic { mu_n_mev: f64, nb_over_n0: f64 },
+    /// O Newton não convergiu nem com o passo mínimo; a EoS está truncada.
+    ConvergenceFailure { mu_n_mev: f64, nb_over_n0: f64 },
+}
+
+impl EosTermination {
+    /// Terminações que truncam a EoS sem que isso tenha sido pedido.
+    pub fn is_anomalous(&self) -> bool {
+        matches!(
+            self,
+            EosTermination::NonMonotonic { .. } | EosTermination::ConvergenceFailure { .. }
+        )
+    }
+}
+
 pub struct Solver {
     engine: EngineMode,
+    termination: Option<EosTermination>,
 }
 
 impl Solver {
     pub fn new(engine: EngineMode) -> Self {
-        Solver { engine }
+        Solver {
+            engine,
+            termination: None,
+        }
+    }
+
+    /// Motivo do término da última chamada a `solve()`.
+    pub fn termination(&self) -> Option<EosTermination> {
+        self.termination
     }
 
     pub fn solve(&mut self) -> Vec<[f64; RESULTS_SIZE]> {
         // Obtém limites e metadados conforme o modo da engine
-        let (mun_inf, mun_sup, n, _bg_val) = match &self.engine {
+        let (mun_inf, mun_sup, n, bg_val) = match &self.engine {
             EngineMode::Hadrons(h) => (h.mun_inf, h.mun_sup, h.n_points, h.bg),
             EngineMode::Quarks(q) => (q.mun_inf, q.mun_sup, q.n_points, q.bg),
             EngineMode::Hybrid(hyb) => (
@@ -49,6 +84,13 @@ impl Solver {
         let mut last_dark_x = [0.0; 5];
         let mut last_mun = mun_inf; // último mun que convergiu
         let mut mun = mun_inf;
+        let mut termination = EosTermination::ReachedUpperLimit;
+        // Último ponto aceito, em (MeV, n_B/n0), para os diagnósticos.
+        let last_point = |results: &[[f64; RESULTS_SIZE]]| {
+            results
+                .last()
+                .map_or((mun_inf * M_NUCLEON, 0.0), |r| (r[17] * M_NUCLEON, r[0]))
+        };
 
         while mun <= mun_sup + 1e-9 {
             // Tenta resolver o ponto com o mun atual
@@ -80,6 +122,7 @@ impl Solver {
 
                 // Para a integração se a densidade bariônica ultrapassar 15 N0.
                 if point_result[0] * N0 > 11.0 * N0 {
+                    termination = EosTermination::DensityCap;
                     break;
                 }
 
@@ -99,15 +142,21 @@ impl Solver {
                     if resolved_matter && de > de_tol && dp > dp_tol {
                         let cs2 = dp / de;
                         if cs2 > 1.1 {
-                            // println!(
-                            //     "Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}",
-                            //     cs2, mun
-                            // );
+                            let (mu_n_mev, nb_over_n0) = last_point(&results);
+                            termination = EosTermination::Acausal {
+                                mu_n_mev,
+                                nb_over_n0,
+                            };
                             break;
                         }
                     } else if resolved_matter && (de < -de_tol || dp < -dp_tol) {
                         // Queda resolvida de energia ou pressão: esta sim é
                         // incompatível com a ramificação monótona usada pela TOV.
+                        let (mu_n_mev, nb_over_n0) = last_point(&results);
+                        termination = EosTermination::NonMonotonic {
+                            mu_n_mev,
+                            nb_over_n0,
+                        };
                         break;
                     }
                 }
@@ -125,6 +174,11 @@ impl Solver {
                 // Falha na convergência: reduz o passo e tenta novamente a partir do último sucesso
                 dmub *= 0.5;
                 if dmub < min_dmub {
+                    let (mu_n_mev, nb_over_n0) = last_point(&results);
+                    termination = EosTermination::ConvergenceFailure {
+                        mu_n_mev,
+                        nb_over_n0,
+                    };
                     break;
                 }
                 mun = if results.is_empty() {
@@ -141,6 +195,17 @@ impl Solver {
             EngineMode::Hybrid(h) => h.eos_output.clone(),
             EngineMode::DarkPhotons(d) => d.eos_output.clone(),
         };
+
+        self.termination = Some(termination);
+        if termination.is_anomalous() {
+            eprintln!(
+                "Aviso: EoS truncada antes de mun_sup = {:.2} MeV (B = {:.3e} G, saída = {}): {:?}",
+                mun_sup * M_NUCLEON,
+                bg_val,
+                output_path.as_deref().unwrap_or("-"),
+                termination
+            );
+        }
 
         if let Some(path) = output_path {
             let eps_arr: Vec<f64> = results.iter().map(|r| r[1]).collect();

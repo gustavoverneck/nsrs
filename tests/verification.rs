@@ -5,7 +5,7 @@
 use nsrs::constants::{G_C2, M_NUCLEON, MEV_FM3_TO_MSUN_KM3, N0, RESULTS_SIZE};
 use nsrs::core::model::ModelParams;
 use nsrs::core::tov_solver::integrate_star;
-use nsrs::{EngineMode, FSU2, GM1, GM3, HadronsMatter, Solver};
+use nsrs::{EngineMode, EosTermination, FSU2, GM1, GM3, HadronsMatter, Solver};
 use std::f64::consts::PI;
 
 type Row = [f64; RESULTS_SIZE];
@@ -160,3 +160,29 @@ fn landau_quantization_recovers_isotropic_limit() {
 }
 
 const LANDAU_LIMIT_TOL: f64 = 1e-5;
+
+/// O solver precisa informar por que a EoS terminou. GM1/GM3 sem campo cobrem
+/// a malha inteira. GM3 com B = 1e18 G tem uma transição de primeira ordem na
+/// entrada da matéria (~941.4 MeV, ~0.05 n0) que a continuação em mu_n não
+/// atravessa; o truncamento deve ser reportado, não silencioso. Quando a
+/// construção de Maxwell for implementada, este caso deve passar a cobrir a
+/// malha inteira e o teste deve ser atualizado.
+#[test]
+fn solver_reports_why_the_eos_ended() {
+    for model in [GM1, GM3] {
+        let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(model, 0.0)));
+        solver.solve();
+        assert_eq!(solver.termination(), Some(EosTermination::ReachedUpperLimit));
+    }
+
+    let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(GM3, 1e18)));
+    solver.solve();
+    match solver.termination() {
+        Some(t @ EosTermination::ConvergenceFailure { mu_n_mev, nb_over_n0 }) => {
+            assert!(t.is_anomalous());
+            assert!((mu_n_mev - 941.4).abs() < 1.0, "mu_n = {mu_n_mev} MeV");
+            assert!(nb_over_n0 < 0.1, "nB/n0 = {nb_over_n0}");
+        }
+        other => panic!("expected a reported convergence failure, got {other:?}"),
+    }
+}

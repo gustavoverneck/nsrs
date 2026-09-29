@@ -117,17 +117,36 @@ $$
 que, sob neutralidade e a equação de Proca, recupera
 $P_{\rm dark}=P_\chi^{\rm kin}+m_X^2X_0^2/2$ sem dupla contagem.
 
-### Nota de normalização RMF legada
+### Normalização dos termos vetoriais não lineares (FSU2)
 
-Internamente, `gv` e `gr` representam $C_i=g_iM_N/m_i$, enquanto os termos
-não lineares de `equation_omega()` e `equation_rho()` mantêm a normalização
-histórica do projeto. Para FSU2 (`rxi` ou `lambda_v` não nulos), essas equações
-não são a derivada exata do funcional atualmente usado em `compute()`; na forma
-escalada faltariam fatores $C_\omega^2$ ou $C_\rho^2$ nos termos não lineares.
-GM1 e GM3 não são afetados porque ambos os coeficientes são zero. A presente
-alteração preserva deliberadamente essa normalização para que $Y_\chi=0$
-recupere o caminho hadrônico existente; uma correção deve modificar e validar
-em conjunto `physics.rs`, `eos.rs`, `darkphotons.rs` e as parametrizações.
+Internamente, `gv` e `gr` representam $C_i=g_iM_N/m_i$ e os campos são
+escalados como $v_\omega=g_\omega\omega_0/M_N$ e $v_\rho=g_\rho b_0/M_N$.
+Para a Lagrangiana de Chen & Piekarewicz,
+$\mathcal L\supset\frac{\zeta}{24}(g_\omega^2\omega_\mu\omega^\mu)^2
++\Lambda_v(g_\rho^2\mathbf b_\mu\cdot\mathbf b^\mu)(g_\omega^2\omega_\nu\omega^\nu)$,
+com `rxi` $=\zeta/6$ e `lambda_v` $=\Lambda_v$, as equações de campo são
+
+$$
+v_\omega=C_\omega^2\left(\sum_b x_{\omega b}n_b-\texttt{rxi}\,v_\omega^3
+-2\Lambda_v v_\omega v_\rho^2\right),\qquad
+v_\rho=C_\rho^2\left(\sum_b x_{\rho b}I_{3b}n_b-2\Lambda_v v_\rho v_\omega^2\right),
+$$
+
+com o mesmo fator $C^2$ que multiplica `rb` e `rc` na equação do $\sigma$.
+Como $\epsilon=\sum_b\epsilon_b^{\rm kin}+g_\omega\omega_0n_B+g_\rho b_0n_3-\mathcal L_{\rm mésons}$,
+os termos vetoriais entram na densidade de energia como
+
+$$
+\epsilon\supset\frac{v_\omega^2}{2C_\omega^2}+\frac{v_\rho^2}{2C_\rho^2}
++\frac{\zeta}{8}v_\omega^4+3\Lambda_v v_\omega^2v_\rho^2 .
+$$
+
+Com essa forma, FSU2 reproduz em matéria simétrica $n_0\simeq0.1505$ fm$^{-3}$,
+$E/A\simeq-16.28$ MeV e $M^*/M\simeq0.593$, e a pressão de Gibbs coincide com
+$n^2\,\partial(\epsilon/n)/\partial n$ (testes em `physics.rs`). GM1 e GM3 não
+são afetados porque `rxi` $=$ `lambda_v` $=0$. `physics.rs`, `eos.rs` e
+`darkphotons.rs` usam a mesma normalização, de modo que $Y_\chi=0$ continua
+recuperando o caminho hadrônico.
 
 ### Limites desta etapa de validação
 

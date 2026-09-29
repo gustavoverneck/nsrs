@@ -390,18 +390,17 @@ impl DarkPhotonsMatter {
 
     // Equações de Campo Vetorizadas para suportar as partículas com total precisão
     fn equation_omega(&self, vomega: f64, vrho: f64) -> f64 {
-        // Legacy RMF normalization retained for parity with HadronsMatter.
-        // For nonzero rxi/lambda_v (FSU2), these nonlinear terms are not the
-        // exact derivative of the energy functional used by compute(); see
-        // docs/PHYSICS.md before changing both visible-matter paths together.
+        // Same normalization as HadronsMatter: the nonlinear rxi/lambda_v
+        // terms carry the C_omega^2 factor, like rb/rc in equation_sigma().
         let mut sum_baryon = 0.0;
         for i in 0..8 {
             sum_baryon += self.nb[i] * self.xv_v[i];
         }
-        self.model.gv.powi(2) * sum_baryon
+        self.model.gv.powi(2)
+            * (sum_baryon
+                - self.model.rxi * vomega.powi(3)
+                - 2.0 * self.model.lambda_v * vomega * vrho.powi(2))
             - vomega
-            - self.model.rxi * vomega.powi(3)
-            - 2.0 * self.model.lambda_v * vomega * vrho.powi(2)
     }
 
     fn equation_rho(&self, vrho: f64, vomega: f64) -> f64 {
@@ -410,9 +409,9 @@ impl DarkPhotonsMatter {
             // A fonte para o rho é baseada no negativo do isospin
             sum_source += self.isospin_factor[i] * self.nb[i] * self.xv_r[i];
         }
-        self.model.gr.powi(2) * sum_source
+        self.model.gr.powi(2)
+            * (sum_source - 2.0 * self.model.lambda_v * vrho * vomega.powi(2))
             - vrho
-            - 2.0 * self.model.lambda_v * vrho * vomega.powi(2)
     }
 
     fn charge_neutrality(&self) -> f64 {
@@ -973,14 +972,16 @@ fn compute(
     vrho: f64,
 ) -> (f64, f64) {
     // 1. Energia dos mésons (Potenciais de campo)
-    // Inclui termos de massa e auto-interações (rb, rc para sigma e rxi para omega)
+    // Inclui termos de massa e auto-interações (rb, rc para sigma e rxi para omega).
+    // Para os campos vetoriais, eps = g_v*omega*n_B + g_rho*rho*n_3 - L_mesons, logo
+    // zeta/24 (g_v omega)^4 -> zeta/8 = 3 rxi/4 e Lambda_v(...)(...) -> 3 Lambda_v.
     let ener_mesons = (vsigma / engine.model.gs).powi(2) / 2.0
         + (vomega / engine.model.gv).powi(2) / 2.0
         + (vrho / engine.model.gr).powi(2) / 2.0
         + engine.model.rb * vsigma.powi(3) / 3.0
         + engine.model.rc * vsigma.powi(4) / 4.0
-        + engine.model.rxi * vomega.powi(4) / 4.0
-        + engine.model.lambda_v * vomega.powi(2) * vrho.powi(2);
+        + 3.0 * engine.model.rxi * vomega.powi(4) / 4.0
+        + 3.0 * engine.model.lambda_v * vomega.powi(2) * vrho.powi(2);
 
     let mut enerbar = 0.0;
 

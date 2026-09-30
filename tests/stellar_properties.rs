@@ -90,3 +90,24 @@ fn stars_follow_the_universal_i_love_relation() {
         assert!(checked > 50);
     }
 }
+
+/// URCA direto nucleônico: em matéria npe o limiar é Y_p = 1/9; com múons
+/// sobe até ~14.8% (Lattimer, Pethick, Prakash & Haensel, PRL 66, 2701
+/// (1991)). A EoS exportada é causal (c_s^2 <= 1) e tem Gamma > 0.
+#[test]
+fn direct_urca_threshold_and_causality() {
+    use nsrs::core::io_utils::derived_diagnostics;
+    for model in [GM1, GM3, FSU2] {
+        let rows = Solver::new(EngineMode::Hadrons(HadronsMatter::new(model, 0.0))).solve();
+        let derived = derived_diagnostics(&rows);
+        let onset = (0..rows.len())
+            .find(|&i| rows[i][0] > 1e-3 && derived[i].direct_urca_electron)
+            .expect("direct Urca must open in these models");
+        let y_p = derived[onset].proton_fraction;
+        assert!(y_p > 1.0 / 9.0 - 0.005 && y_p < 0.148 + 0.005, "Y_p at DU onset = {y_p}");
+        for (row, d) in rows.iter().zip(&derived).filter(|(r, _)| r[0] > 0.5) {
+            assert!(d.sound_speed_squared <= 1.0 + 1e-9, "c_s^2 = {} at nB/n0 = {}", d.sound_speed_squared, row[0]);
+            assert!(d.adiabatic_index > 0.0);
+        }
+    }
+}

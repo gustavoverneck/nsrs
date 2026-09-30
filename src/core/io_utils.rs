@@ -114,6 +114,54 @@ pub fn diagnostics_path(eos_path: &str) -> String {
     }
 }
 
+/// Grandezas derivadas por linha da EoS.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DerivedDiagnostics {
+    /// Velocidade do som ao quadrado dP/deps (diferença central na tabela,
+    /// com a pressão exportada na coluna 2).
+    pub sound_speed_squared: f64,
+    /// Índice adiabático Gamma = (eps + P)/P dP/deps.
+    pub adiabatic_index: f64,
+    /// Frações n_i/n_B de prótons, elétrons, múons e hyperons.
+    pub proton_fraction: f64,
+    pub electron_fraction: f64,
+    pub muon_fraction: f64,
+    pub hyperon_fraction: f64,
+    /// URCA direto nucleônico permitido (k_Fn <= k_Fp + k_Fl), com elétrons
+    /// e com múons (Lattimer, Pethick, Prakash & Haensel, PRL 66, 2701
+    /// (1991)). Momentos de Fermi isotrópicos (3 pi^2 n_i)^{1/3}.
+    pub direct_urca_electron: bool,
+    pub direct_urca_muon: bool,
+}
+
+pub fn derived_diagnostics(results: &[[f64; RESULTS_SIZE]]) -> Vec<DerivedDiagnostics> {
+    let n = results.len();
+    let kf = |density: f64| (3.0 * std::f64::consts::PI.powi(2) * density.max(0.0)).cbrt();
+    (0..n)
+        .map(|i| {
+            let row = &results[i];
+            let (lo, hi) = (i.saturating_sub(1), (i + 1).min(n.saturating_sub(1)));
+            let de = results[hi][1] - results[lo][1];
+            let cs2 = if hi > lo && de > 0.0 { (results[hi][2] - results[lo][2]) / de } else { 0.0 };
+            let (eps, p) = (row[1], row[2]);
+            let n_b = row[0] * crate::core::constants::N0;
+            let frac = |x: f64| if n_b > 0.0 { x / n_b } else { 0.0 };
+            let (n_e, n_mu, n_n, n_p) = (row[3], row[4], row[5], row[6]);
+            let (kn, kp) = (kf(n_n), kf(n_p));
+            DerivedDiagnostics {
+                sound_speed_squared: cs2,
+                adiabatic_index: if p > 0.0 { (eps + p) / p * cs2 } else { 0.0 },
+                proton_fraction: frac(n_p),
+                electron_fraction: frac(n_e),
+                muon_fraction: frac(n_mu),
+                hyperon_fraction: frac(row[7..13].iter().sum()),
+                direct_urca_electron: n_p > 0.0 && n_e > 0.0 && kn <= kp + kf(n_e),
+                direct_urca_muon: n_p > 0.0 && n_mu > 0.0 && kn <= kp + kf(n_mu),
+            }
+        })
+        .collect()
+}
+
 /// Escreve os diagnósticos por linha da EoS em `diagnostics_path(eos_path)`.
 pub fn write_diagnostics(
     results: &[[f64; RESULTS_SIZE]],
@@ -121,14 +169,27 @@ pub fn write_diagnostics(
     eos_path: &str,
 ) -> std::io::Result<()> {
     let mut file = fs::File::create(diagnostics_path(eos_path))?;
-    writeln!(file, "# 0:nB_over_n0 1:mu_n_MeV 2:magnetization_times_B_MeV_fm3")?;
-    for (row, diag) in results.iter().zip(diagnostics) {
+    writeln!(
+        file,
+        "# 0:nB_over_n0 1:mu_n_MeV 2:magnetization_times_B_MeV_fm3 3:cs2 4:Gamma \
+5:Y_p 6:Y_e 7:Y_mu 8:Y_hyperons 9:direct_urca_e 10:direct_urca_mu"
+    )?;
+    let derived = derived_diagnostics(results);
+    for ((row, diag), d) in results.iter().zip(diagnostics).zip(&derived) {
         writeln!(
             file,
-            "{:12.5e} {:12.5e} {:12.5e}",
+            "{:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {} {}",
             row[0],
             row[17] * crate::core::constants::M_NUCLEON,
-            diag.magnetization_b
+            diag.magnetization_b,
+            d.sound_speed_squared,
+            d.adiabatic_index,
+            d.proton_fraction,
+            d.electron_fraction,
+            d.muon_fraction,
+            d.hyperon_fraction,
+            d.direct_urca_electron as u8,
+            d.direct_urca_muon as u8
         )?;
     }
     Ok(())

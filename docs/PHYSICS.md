@@ -222,6 +222,22 @@ crosta BPS; colunas M, R, $M_B$, $P_c$, $C$, $z$, $k_2$, $\Lambda$, $I$ [$10^{45
 $\bar I$) e `x_diag.dat` (diagnósticos por linha da EoS). As colunas M-R anexadas a
 `x.dat` continuam sem crosta, como antes.
 
+## Propriedades de saturação e diagnósticos da EoS
+
+`core::nuclear::saturation_properties` resolve matéria simétrica ($\mu_e=0$) com o
+mesmo motor e localiza $P(\mu)=0$ no ramo denso: $E/A=\mu_n-\bar m_N$,
+$K=9n_0/(dn/d\mu)$ (pois $P=n^2\,d(E/A)/dn$),
+$J=k_F^2/6E_F^*+C_{\rho,\rm ef}^2n/8$ com $C_{\rho,\rm ef}^2=C_\rho^2/(1+2\Lambda_vC_\rho^2v_\omega^2)$
+e $L=3n_0\,dJ/dn$. Reproduz Chen & Piekarewicz (2014) para FSU2 (K = 237.5, J = 37.56,
+L = 112.6 MeV; artigo: 238.0, 37.62, 112.8) e Glendenning & Moszkowski (1991) para
+GM1/GM3.
+
+`io_utils::derived_diagnostics` (gravado em `x_diag.dat`) dá por linha $c_s^2=dP/d\epsilon$,
+$\Gamma=(\epsilon+P)/P\,c_s^2$, frações $Y_p$, $Y_e$, $Y_\mu$, $Y_{\rm hyp}$ e o critério de URCA
+direto nucleônico $k_{Fn}\le k_{Fp}+k_{F\ell}$ (Lattimer et al., PRL 66, 2701 (1991); momentos
+de Fermi isotrópicos). O binário `properties` resume saturação, estrelas, limiar de URCA e
+início dos hyperons para GM1, GM3 e FSU2.
+
 ## Setor escuro fermiônico
 
 O setor escuro é opcional em `HadronsMatter` (builders `with_y_chi`, `with_m_chi`,

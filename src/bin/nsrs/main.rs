@@ -11,6 +11,7 @@ mod dark;
 mod quarks;
 mod report;
 mod scan;
+mod study;
 mod tools;
 mod validate;
 
@@ -28,6 +29,13 @@ Varreduras (saída em output/):
                 ModMax, gamma = 1e-10 .. 9e-1.                      -> output/modmax/
   scan topology <GM1|GM3|FSU2> <B1> [B2 ...] [--prefix TAG] [--plot-only]
                 Topologia isotrópica x anisotrópica, com gráficos.   -> output/magtop/, results/magtop/
+
+Estudos (tabela para análise e publicação):
+  study log     <exp_min> <exp_max> <pontos_por_década> <B0_1> [B0_2 ...]
+                [--models GM1] [--topology aniso|iso|ambas] [--points 1500]
+                [--no-hyperons] [--save-eos] [--out results/study_log/summary.csv]
+                Impacto de Log(xi) na estrela, com Maxwell e sem tensão
+                do campo como referências.                         -> results/study_log/
 
 Setor escuro:
   dark scan        [--models GM1,GM3] [--b 1e17]  Grade 10^4 (epsilon, m_X, g_D, Y_chi). -> output/darkphotons_scan/
@@ -64,6 +72,7 @@ fn main() {
         ("scan", "log") => scan::log(tail),
         ("scan", "modmax") => scan::modmax(tail),
         ("scan", "topology") => scan::topology(tail),
+        ("study", "log") => study::log(tail),
         ("dark", "scan") => dark::scan(tail),
         ("dark", "benchmarks") => dark::benchmarks(tail),
         ("dark", "single") => dark::single(tail),

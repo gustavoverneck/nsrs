@@ -141,23 +141,17 @@ impl MagneticStress {
 /// em B, H B = 2 eps e P_perp = eps.
 pub fn magnetic_stress(nlem: NlemModel, b_gauss: f64) -> MagneticStress {
     let eps_maxwell = b_gauss * b_gauss / (8.0 * std::f64::consts::PI) / ERG_CM3_PER_MEV_FM3;
-    // (eps/eps_Maxwell, H B/eps_Maxwell)
-    let (energy_ratio, hb_ratio) = match nlem {
-        NlemModel::Maxwell => (1.0, 2.0),
-        NlemModel::Modmax(gamma) => {
-            let s = (-gamma).exp();
-            (s, 2.0 * s)
-        }
+    // eps/eps_Maxwell; H B/eps_Maxwell = 2 H/B.
+    let energy_ratio = match nlem {
+        NlemModel::Maxwell => 1.0,
+        NlemModel::Modmax(gamma) => (-gamma).exp(),
         NlemModel::Log(xi_gauss) => {
-            // eps = xi^2 ln(1 + x) e H = B / (1 + x), com x = B^2 / (2 xi^2).
+            // eps = xi^2 ln(1 + x), com x = B^2 / (2 xi^2).
             let x = b_gauss * b_gauss / (2.0 * xi_gauss * xi_gauss);
-            if x < 1e-12 {
-                (1.0 - 0.5 * x, 2.0 / (1.0 + x))
-            } else {
-                (x.ln_1p() / x, 2.0 / (1.0 + x))
-            }
+            if x < 1e-12 { 1.0 - 0.5 * x } else { x.ln_1p() / x }
         }
     };
+    let hb_ratio = 2.0 * nlem.h_over_b(b_gauss);
     let energy = eps_maxwell * energy_ratio;
     MagneticStress {
         energy,

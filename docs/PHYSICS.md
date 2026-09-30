@@ -118,6 +118,12 @@ termos em $dB/dn_B$ desprezados valem $\lesssim10^{-3}$ até $B_0=10^{18}$ G e
 
 ### Tensões do campo e eletrodinâmica não linear
 
+As partículas carregadas acoplam ao potencial vetor $A_\mu$ (acoplamento mínimo), portanto
+o espectro de Landau depende de $B=\nabla\times A$ em todos os modelos. A eletrodinâmica
+não linear altera apenas a energia e as tensões do próprio campo; no mesmo $B$, a matéria
+é idêntica à do caso de Maxwell (teste `nlem_changes_only_the_field_stress`). O campo
+prescrito (`bg` ou o perfil) é interpretado como $B$.
+
 Para um campo magnético estático puro com Lagrangiana $L(B)$, a densidade de
 energia é $\epsilon_B=-L$ e $H=d\epsilon_B/dB$. O tensor de tensões
 $\sigma_{ij}=H_iB_j-\delta_{ij}(HB-\epsilon_B)$ dá

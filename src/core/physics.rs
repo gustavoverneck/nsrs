@@ -23,18 +23,18 @@ pub enum MagneticTopology {
 }
 
 impl NlemModel {
-    /// Recebe o campo magnético original (bg, em Gauss) e retorna o campo
-    /// EFETIVO dos níveis de Landau. Para `Log`, csi (xi) também é em Gauss.
-    pub fn effective_bg(&self, bg: f64) -> f64 {
-        match self {
-            NlemModel::Maxwell => bg,
-
-            NlemModel::Modmax(csi) => {
-                // Fórmula: bg * exp(-csi)
-                bg * (-csi).exp()
-            }
-
-            NlemModel::Log(csi) => bg * (1.0 + bg.powi(2) / (2.0 * csi.powi(2))),
+    /// Razão H/B do campo auxiliar, H = d eps_B / dB, para um campo
+    /// magnético estático puro B (Gauss). Maxwell: 1; ModMax: e^{-gamma};
+    /// Log: 1/(1 + B^2/(2 xi^2)), com xi em Gauss (Soleng 1995).
+    ///
+    /// As partículas acoplam ao potencial vetor, portanto os níveis de Landau
+    /// usam B; a eletrodinâmica não linear entra apenas na energia e nas
+    /// tensões do campo (ver `core::magnetic::magnetic_stress`).
+    pub fn h_over_b(&self, b_gauss: f64) -> f64 {
+        match *self {
+            NlemModel::Maxwell => 1.0,
+            NlemModel::Modmax(gamma) => (-gamma).exp(),
+            NlemModel::Log(xi) => 1.0 / (1.0 + b_gauss * b_gauss / (2.0 * xi * xi)),
         }
     }
 }
@@ -208,7 +208,7 @@ impl HadronsMatter {
     /// Campo dos níveis de Landau a partir do campo local em Gauss.
     fn set_landau_field(&mut self, b_gauss: f64) {
         self.local_field_g = b_gauss;
-        self.b = self.nlem.effective_bg(b_gauss) / BCE_G * BCE;
+        self.b = b_gauss / BCE_G * BCE;
     }
     /// Define a topologia das linhas de campo magnético
     pub fn with_topology(mut self, top: MagneticTopology) -> Self {
@@ -216,17 +216,11 @@ impl HadronsMatter {
         self
     }
 
-    /// Builder para acoplar o Eletromagnetismo Não-Linear
+    /// Builder para acoplar o Eletromagnetismo Não-Linear. O campo dos
+    /// níveis de Landau continua sendo B (acoplamento mínimo); a NLEM altera a
+    /// energia e as tensões do campo.
     pub fn with_nlem(mut self, nlem: NlemModel) -> Self {
         self.nlem = nlem;
-
-        // 1. Calcula o campo macroscópico efetivo usando o Enum
-        let bg_effective = self.nlem.effective_bg(self.bg);
-
-        // 2. Recalcula o 'b' que vai para os Níveis de Landau usando o novo bg
-        let b0 = bg_effective / BCE_G;
-        self.b = b0 * BCE;
-
         self
     }
 

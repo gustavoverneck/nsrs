@@ -22,8 +22,9 @@ fn rel(a: f64, b: f64) -> f64 {
 
 /// O perfil padrão (`Constant`) deve reproduzir o código anterior à
 /// introdução dos perfis. Referências: linha 900 (nB/n0 ~ 3.58) das EoS
-/// geradas antes da mudança, para Maxwell (anisotrópico e isotrópico) e
-/// ModMax.
+/// geradas antes da mudança, para Maxwell (anisotrópico e isotrópico). A
+/// referência ModMax foi regenerada quando os níveis de Landau passaram a
+/// usar B em vez de e^{-gamma} B (acoplamento mínimo).
 #[test]
 fn constant_profile_reproduces_previous_results() {
     let cases: [(HadronsMatter, [f64; 3]); 3] = [
@@ -37,7 +38,7 @@ fn constant_profile_reproduces_previous_results() {
         ),
         (
             HadronsMatter::new(GM1, 1e18).with_nlem(NlemModel::Modmax(1.0)),
-            [3.58084024995308114e0, 5.90847791866545890e2, 1.08376515097844774e2],
+            [3.53452528898327190e0, 5.81608724074900010e2, 1.05372571197183376e2],
         ),
     ];
     for (engine, expected) in cases {
@@ -142,4 +143,24 @@ fn dexheimer_profile_weak_dipole_recovers_field_free_eos() {
         }
     }
     assert!(compared > 100);
+}
+
+/// A NLEM não altera o acoplamento das partículas ao campo: no mesmo B, a
+/// matéria (densidades, energia sem o campo) é idêntica à de Maxwell; só a
+/// energia e as tensões do campo mudam. Com xi pequeno, a EoS continua
+/// cobrindo a malha (antes os níveis de Landau recebiam B(1 + B^2/2xi^2)).
+#[test]
+fn nlem_changes_only_the_field_stress() {
+    let (maxwell, _) = solve(HadronsMatter::new(GM1, 1e18));
+    for nlem in [NlemModel::Modmax(1.0), NlemModel::Log(1e16), NlemModel::Log(1e18)] {
+        let (rows, termination) = solve(HadronsMatter::new(GM1, 1e18).with_nlem(nlem));
+        assert_eq!(termination, Some(EosTermination::ReachedUpperLimit), "{nlem:?}");
+        assert_eq!(rows.len(), maxwell.len(), "{nlem:?}");
+        for (row, reference) in rows.iter().zip(&maxwell) {
+            assert_eq!(row[0], reference[0], "{nlem:?}: n_B");
+            let matter = |r: &Row| r[1] - r[19];
+            let (a, b) = (matter(row), matter(reference));
+            assert!((a - b).abs() <= 1e-12 * a.abs().max(b.abs()) + 1e-12, "{nlem:?}: eps_matter {a} vs {b}");
+        }
+    }
 }

@@ -93,9 +93,12 @@ fn density_baryon_charged(
     let m = engine.m_eff[idx];
     let amm = engine.amm_b[idx];
 
+    // Deslocamento pelo fóton escuro (nulo sem mistura cinética).
+    let dark_shift = engine.dark_shift_for_charge(engine.charges_b[idx]);
     let ef = engine.mu_b[idx]
         - (engine.xv_v[idx] * vomega)
-        - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]);
+        - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx])
+        - dark_shift;
 
     engine.ef_b[idx] = ef;
 
@@ -203,7 +206,9 @@ fn density_baryon_charged(
 }
 
 pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
-    let mue = engine.mue;
+    // Energia de Fermi efetiva: mu_e menos o deslocamento do fóton escuro
+    // para carga -1 (nulo sem mistura cinética).
+    let mue = engine.mue - engine.dark_shift_for_charge(-1.0);
 
     // ZERA OS ESTADOS PARA EVITAR FANTASMAS
     engine.n_l[idx] = 0;

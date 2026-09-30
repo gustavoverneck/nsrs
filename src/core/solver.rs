@@ -83,7 +83,7 @@ impl Solver {
         let min_dmub = 1e-6; // passo mínimo aceitável
 
         let mut results: Vec<[f64; RESULTS_SIZE]> = Vec::with_capacity(n);
-        let mut last_visible_x = [0.0; 4];
+        let mut last_visible_x = [0.0; 5];
         let mut last_dark_x = [0.0; 5];
         let mut last_mun = mun_inf; // último mun que convergiu
         let mut mun = mun_inf;

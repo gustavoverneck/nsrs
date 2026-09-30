@@ -7,7 +7,12 @@ use crate::core::constants::{
 };
 use crate::core::magnetic::{FieldProfile, magnetic_stress};
 use crate::core::model::ModelParams;
-use nalgebra::{Matrix4, Vector4};
+use nalgebra::{SMatrix, SVector};
+
+/// Estado do Newton: (mu_e, g_s sigma, g_v omega, g_rho rho, X_0), todos
+/// divididos por M_N. Sem setor escuro, X_0 = 0.
+type StateVector = SVector<f64, 5>;
+type Jacobian = SMatrix<f64, 5, 5>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NlemModel {
@@ -102,6 +107,36 @@ pub struct HadronsMatter {
 
     pub eos_output: Option<String>,
 
+    // --- Setor escuro opcional (férmion de Dirac chi + fóton escuro X) ---
+    // Ver docs/PHYSICS.md, "Setor escuro fermiônico". Todos os parâmetros
+    // são nulos por padrão; nesse caso X_0 = 0 e a matéria é a hadrônica.
+    /// Mistura cinética (adimensional, |epsilon| < 1).
+    pub epsilon: f64,
+    /// Massa do fóton escuro / M_N.
+    pub m_x: f64,
+    /// Acoplamento U(1) escuro (adimensional).
+    pub g_d: f64,
+    /// Massa do férmion escuro / M_N.
+    pub m_chi: f64,
+    /// Fração imposta n_chi / n_B.
+    pub y_chi: f64,
+    /// Densidade escura (unidades de M_N^3).
+    pub n_chi: f64,
+    /// Momento de Fermi escuro / M_N.
+    pub kf_chi: f64,
+    /// Energia de Fermi escura / M_N.
+    pub ef_chi: f64,
+    /// Potencial químico escuro completo / M_N.
+    pub mu_chi: f64,
+    /// Energia cinética escura (M_N^4).
+    pub ener_chi_kin: f64,
+    /// Pressão cinética escura (M_N^4).
+    pub press_chi_kin: f64,
+    /// Potencial médio do fóton escuro / M_N.
+    pub v_x0: f64,
+    /// Se algum parâmetro escuro foi definido (controla as colunas 21-33).
+    pub dark_enabled: bool,
+
     /// Perfil do campo local (ver `core::magnetic`). Padrão: `Constant`.
     pub field_profile: FieldProfile,
     /// Campo local (Gauss) usado no último ponto resolvido.
@@ -191,10 +226,134 @@ impl HadronsMatter {
             isospin_factor: isospin_factor,
             eos_output: None,
 
+            epsilon: 0.0,
+            m_x: 1.0,
+            g_d: 0.0,
+            m_chi: 1.0,
+            y_chi: 0.0,
+            n_chi: 0.0,
+            kf_chi: 0.0,
+            ef_chi: 0.0,
+            mu_chi: 0.0,
+            ener_chi_kin: 0.0,
+            press_chi_kin: 0.0,
+            v_x0: 0.0,
+            dark_enabled: false,
+
             field_profile: FieldProfile::Constant,
             local_field_g: bg,
             last_nb_over_n0: 0.0,
         }
+    }
+
+    // --- Builders do setor escuro ---
+
+    pub fn with_epsilon(mut self, epsilon: f64) -> Self {
+        Self::kinetic_mixing_norm(epsilon);
+        self.epsilon = epsilon;
+        self.dark_enabled = true;
+        self
+    }
+
+    /// Massa do fóton escuro em unidades de M_N.
+    pub fn with_m_x(mut self, m_x: f64) -> Self {
+        assert!(
+            m_x.is_finite() && m_x > 0.0,
+            "dark photon mass m_x must be finite and positive"
+        );
+        self.m_x = m_x;
+        self.dark_enabled = true;
+        self
+    }
+
+    pub fn with_m_x_mev(self, m_x_mev: f64) -> Self {
+        assert!(
+            m_x_mev.is_finite() && m_x_mev > 0.0,
+            "dark photon mass m_x must be finite and positive"
+        );
+        self.with_m_x(m_x_mev / M_NUCLEON)
+    }
+
+    pub fn with_g_d(mut self, g_d: f64) -> Self {
+        assert!(g_d.is_finite(), "dark coupling g_d must be finite");
+        self.g_d = g_d;
+        self.dark_enabled = true;
+        self
+    }
+
+    /// Massa do férmion escuro em unidades de M_N.
+    pub fn with_m_chi(mut self, m_chi: f64) -> Self {
+        assert!(
+            m_chi.is_finite() && m_chi > 0.0,
+            "dark fermion mass m_chi must be finite and positive"
+        );
+        self.m_chi = m_chi;
+        self.dark_enabled = true;
+        self
+    }
+
+    pub fn with_m_chi_mev(self, m_chi_mev: f64) -> Self {
+        assert!(
+            m_chi_mev.is_finite() && m_chi_mev > 0.0,
+            "dark fermion mass m_chi must be finite and positive"
+        );
+        self.with_m_chi(m_chi_mev / M_NUCLEON)
+    }
+
+    pub fn with_y_chi(mut self, y_chi: f64) -> Self {
+        assert!(
+            y_chi.is_finite() && y_chi >= 0.0,
+            "dark number fraction y_chi must be finite and non-negative"
+        );
+        self.y_chi = y_chi;
+        self.dark_enabled = true;
+        self
+    }
+
+    pub(crate) fn kinetic_mixing_norm(epsilon: f64) -> f64 {
+        assert!(
+            epsilon.is_finite() && epsilon.abs() < 1.0,
+            "dark photon kinetic mixing epsilon must be finite and satisfy |epsilon| < 1"
+        );
+        (1.0 - epsilon.powi(2)).sqrt()
+    }
+
+    /// Deslocamento da energia de Fermi de um férmion visível de carga
+    /// `charge_units` (em unidades de e) pelo fóton escuro. Nulo sem mistura.
+    pub(crate) fn dark_shift_for_charge(&self, charge_units: f64) -> f64 {
+        self.epsilon * charge_units * self.qe * self.v_x0 / Self::kinetic_mixing_norm(self.epsilon)
+    }
+
+    pub(crate) fn update_dark_fermion_state(&mut self) {
+        use crate::core::darkphotons::{
+            dark_fermion_energy_density, dark_fermion_kf_from_density, dark_fermion_pressure,
+        };
+        if self.n_chi <= 0.0 {
+            self.n_chi = 0.0;
+            self.kf_chi = 0.0;
+            self.ef_chi = 0.0;
+            self.mu_chi = 0.0;
+            self.ener_chi_kin = 0.0;
+            self.press_chi_kin = 0.0;
+            return;
+        }
+
+        self.kf_chi = dark_fermion_kf_from_density(self.n_chi);
+        self.ef_chi = (self.kf_chi.powi(2) + self.m_chi.powi(2)).sqrt();
+        self.mu_chi = self.ef_chi + self.g_d * self.v_x0 / Self::kinetic_mixing_norm(self.epsilon);
+        self.ener_chi_kin = dark_fermion_energy_density(self.kf_chi, self.m_chi);
+        self.press_chi_kin = dark_fermion_pressure(self.kf_chi, self.m_chi);
+    }
+
+    /// Equação de Proca para X_0 com fontes escura e visível (off-shell).
+    pub(crate) fn dark_photon_residual(&self, charge_density: f64) -> f64 {
+        self.m_x.powi(2) * self.v_x0
+            - (self.g_d * self.n_chi + self.epsilon * self.qe * charge_density)
+                / Self::kinetic_mixing_norm(self.epsilon)
+    }
+
+    pub(crate) fn dark_vector_energy_density(&self) -> f64 {
+        0.5 * self.m_x.powi(2) * self.v_x0.powi(2)
     }
 
     /// Define o perfil do campo magnético local. Com `Bdd` e `Dexheimer2017`
@@ -242,19 +401,23 @@ impl HadronsMatter {
     }
 
     // Mapeamento das variáveis (vindo do solver)
-    pub fn mapping(&self, x: &[f64]) -> (f64, f64, f64, f64) {
+    /// (mu_e, vsigma, vomega, vrho, X_0). Aceita estados de 4 entradas
+    /// (sem setor escuro), com X_0 = 0.
+    pub fn mapping(&self, x: &[f64]) -> (f64, f64, f64, f64, f64) {
         let mue = x[0];
-        let vsigma = x[1]; // Removido o .sin().powi(2) que destruía o Jacobiano
+        let vsigma = x[1];
         let vomega = x[2];
         let vrho = x[3];
-        (mue, vsigma, vomega, vrho)
+        let v_x0 = x.get(4).copied().unwrap_or(0.0);
+        (mue, vsigma, vomega, vrho, v_x0)
     }
 
     // Função de resíduo (chamada pelo solver numérico)
-    pub fn funcv(&mut self, x: &[f64]) -> [f64; 4] {
-        let (mue, vsigma, vomega, vrho) = self.mapping(x);
+    pub fn funcv(&mut self, x: &[f64]) -> [f64; 5] {
+        let (mue, vsigma, vomega, vrho, v_x0) = self.mapping(x);
 
         self.mue = mue;
+        self.v_x0 = v_x0;
         self.mup = self.mun - mue;
         self.mu_b[0] = self.mun;
 
@@ -271,22 +434,29 @@ impl HadronsMatter {
         // calcular densidades
         crate::core::particles::calculate_all_densities(self, vomega, vrho);
 
+        self.n_chi = self.y_chi * self.nbt;
+        self.update_dark_fermion_state();
+
         let fsigma = self.equation_sigma(vsigma);
         let fomega = self.equation_omega(vomega, vrho);
         let frho = self.equation_rho(vrho, vomega);
         let charge_neutral = self.charge_neutrality();
+        // Linha de Proca escalada por m_X^2, para que a tolerância global
+        // controle o erro absoluto em X_0 mesmo para mediadores leves. Sem
+        // setor escuro (m_X = 1, g_d = epsilon = 0) ela se reduz a X_0 = 0.
+        let fdark = self.dark_photon_residual(charge_neutral) / self.m_x.powi(2);
 
-        [fsigma, fomega, frho, charge_neutral]
+        [fsigma, fomega, frho, charge_neutral, fdark]
     }
 
-    fn equation_sigma(&self, vsigma: f64) -> f64 {
+    pub(crate) fn equation_sigma(&self, vsigma: f64) -> f64 {
         let gs2 = self.model.gs.powi(2);
         gs2 * (self.rhosb - self.model.rb * vsigma.powi(2) - self.model.rc * vsigma.powi(3))
             - vsigma
     }
 
     // Equações de Campo Vetorizadas para suportar as partículas com total precisão
-    fn equation_omega(&self, vomega: f64, vrho: f64) -> f64 {
+    pub(crate) fn equation_omega(&self, vomega: f64, vrho: f64) -> f64 {
         let mut sum_baryon = 0.0;
         for i in 0..8 {
             sum_baryon += self.nb[i] * self.xv_v[i];
@@ -298,7 +468,7 @@ impl HadronsMatter {
             - vomega
     }
 
-    fn equation_rho(&self, vrho: f64, vomega: f64) -> f64 {
+    pub(crate) fn equation_rho(&self, vrho: f64, vomega: f64) -> f64 {
         let mut sum_source = 0.0;
         for i in 0..8 {
             // A fonte para o rho é baseada no negativo do isospin
@@ -309,7 +479,7 @@ impl HadronsMatter {
             - vrho
     }
 
-    fn charge_neutrality(&self) -> f64 {
+    pub(crate) fn charge_neutrality(&self) -> f64 {
         let charge_baryons: f64 = self
             .nb
             .iter()
@@ -328,7 +498,7 @@ impl HadronsMatter {
         &mut self,
         mun: f64,
         initial_x: &[f64],
-    ) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
+    ) -> Option<([f64; 5], [f64; RESULTS_SIZE])> {
         let profile = self.field_profile;
         let mu_b_mev = mun * self.m_nuc;
         let solution = if !profile.depends_on_density() {
@@ -341,7 +511,8 @@ impl HadronsMatter {
             // B depende de n_B, que depende de B: iteração de ponto fixo,
             // partindo da densidade do último ponto aceito.
             let mut nb_over_n0 = self.last_nb_over_n0;
-            let mut x = [initial_x[0], initial_x[1], initial_x[2], initial_x[3]];
+            let (mue, vs, vw, vr, x0) = self.mapping(initial_x);
+            let mut x = [mue, vs, vw, vr, x0];
             let mut converged = None;
             for _ in 0..200 {
                 let b_gauss = profile.local_field_g(nb_over_n0, mu_b_mev)?;
@@ -371,70 +542,77 @@ impl HadronsMatter {
         mun: f64,
         initial_x: &[f64],
         field_g: Option<f64>,
-    ) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
+    ) -> Option<([f64; 5], [f64; RESULTS_SIZE])> {
         self.mun = mun;
 
-        let mut x = Vector4::from_column_slice(initial_x);
+        let (mue0, vs0, vw0, vr0, x00) = self.mapping(initial_x);
+        let mut x = StateVector::from_column_slice(&[mue0, vs0, vw0, vr0, x00]);
         let tolerance = 1e-10;
         let max_iterations = 100;
         let mut converged = false;
 
         for _ in 0..max_iterations {
-            let f_val_arr = self.funcv(x.as_slice());
-            let f_val = Vector4::from_column_slice(&f_val_arr);
+            let f_val = StateVector::from_column_slice(&self.funcv(x.as_slice()));
             let f_norm = f_val.norm();
 
-            if f_norm < tolerance {
+            if f_norm.is_finite() && f_norm < tolerance {
                 converged = true;
                 break;
             }
+            if !f_norm.is_finite() {
+                break;
+            }
 
-            let mut j_matrix = Matrix4::zeros();
-
-            for i in 0..4 {
+            let mut j_matrix = Jacobian::zeros();
+            for i in 0..5 {
+                // Passo pequeno: perto de limiares de partículas, uma sonda
+                // maior pode atravessar dois ramos de densidade.
                 let h = 1e-8 * (x[i].abs() + 1e-2);
                 let mut x_temp = x;
                 x_temp[i] += h;
-
-                let f_temp_arr = self.funcv(x_temp.as_slice());
-                let f_temp = Vector4::from_column_slice(&f_temp_arr);
-
-                let column_derivative = (f_temp - f_val) / h;
-                j_matrix.set_column(i, &column_derivative);
+                let f_temp = StateVector::from_column_slice(&self.funcv(x_temp.as_slice()));
+                j_matrix.set_column(i, &((f_temp - f_val) / h));
             }
 
             let delta_x = match j_matrix.lu().solve(&(-f_val)) {
-                Some(step) => step,
-                None => break,
+                Some(step) if step.iter().all(|value| value.is_finite()) => step,
+                _ => break,
             };
 
             let mut alpha = 1.0;
             let mut step_accepted = false;
-
             for _ in 0..15 {
                 let x_try = x + alpha * delta_x;
-                let f_new_arr = self.funcv(x_try.as_slice());
-                let f_new = Vector4::from_column_slice(&f_new_arr);
-                let f_new_norm = f_new.norm();
-
-                if f_new_norm.is_nan() {
+                let f_new_norm = StateVector::from_column_slice(&self.funcv(x_try.as_slice())).norm();
+                if !f_new_norm.is_finite() {
                     alpha *= 0.5;
                     continue;
                 }
-
                 if f_new_norm < f_norm {
                     x = x_try;
                     step_accepted = true;
                     break;
                 }
-
                 alpha *= 0.5;
             }
 
             if !step_accepted {
-                x += 0.001 * delta_x;
-                let _ = self.funcv(x.as_slice()); // mantém estado interno consistente com x
+                // Perto do limiar vácuo-matéria as densidades são apenas
+                // diferenciáveis por partes; um passo amortecido evita que a
+                // continuação fique presa na raiz de vácuo.
+                let x_fallback = x + 0.001 * delta_x;
+                if !x_fallback.iter().all(|value| value.is_finite()) {
+                    break;
+                }
+                x = x_fallback;
+                let _ = self.funcv(x.as_slice());
             }
+        }
+
+        // Uma raiz alcançada pelo último passo permitido não é descartada.
+        if !converged {
+            let final_norm = StateVector::from_column_slice(&self.funcv(x.as_slice())).norm();
+            converged = final_norm.is_finite() && final_norm < tolerance;
         }
 
         if !converged {
@@ -444,8 +622,8 @@ impl HadronsMatter {
         // garante estado físico final consistente
         let _ = self.funcv(x.as_slice());
 
-        let x_final = [x[0], x[1], x[2], x[3]];
-        let (mue, vsigma, vomega, vrho) = self.mapping(&x_final);
+        let x_final = [x[0], x[1], x[2], x[3], x[4]];
+        let (mue, vsigma, vomega, vrho, _) = self.mapping(&x_final);
         let (ener, press) = crate::core::eos::compute(self, mue, vsigma, vomega, vrho);
 
         let nb_total = self.nb.iter().sum::<f64>();
@@ -484,7 +662,8 @@ impl HadronsMatter {
                 .zip(self.nb.iter())
                 .map(|(mu, n)| mu * n)
                 .sum::<f64>()
-                + mue * self.nl.iter().sum::<f64>();
+                + mue * self.nl.iter().sum::<f64>()
+                + self.mu_chi * self.n_chi;
             let mu_total_per_baryon = if self.nbt > 0.0 {
                 fermion_mu_density / self.nbt
             } else {
@@ -509,6 +688,22 @@ impl HadronsMatter {
             result[18] = mue;
             result[19] = ebsd;
             result[20] = mu_total_per_baryon;
+            if self.dark_enabled {
+                let dark_vector_energy = self.dark_vector_energy_density();
+                result[21] = self.n_chi * density_factor;
+                result[22] = self.y_chi;
+                result[23] = self.m_chi * self.m_nuc;
+                result[24] = self.m_x * self.m_nuc;
+                result[25] = self.epsilon;
+                result[26] = self.g_d;
+                result[27] = self.v_x0 * self.m_nuc;
+                result[28] = self.kf_chi * self.m_nuc;
+                result[29] = self.mu_chi * self.m_nuc;
+                result[30] = self.ener_chi_kin * factor_mev_fm3;
+                result[31] = self.press_chi_kin * factor_mev_fm3;
+                result[32] = dark_vector_energy * factor_mev_fm3;
+                result[33] = dark_vector_energy * factor_mev_fm3;
+            }
             Some((x_final, result))
         } else {
             None

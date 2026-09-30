@@ -103,7 +103,7 @@ Centro do setor hadrônico:
 No caminho hadrônico (`HadronsMatter`), cada ponto em $\mu_n$ passa por:
 
 1. solução numérica de variáveis de campo e potencial químico eletrônico,
-2. atualização do campo magnético efetivo (incluindo NLEM),
+2. definição do campo local $B$ pelo perfil (os níveis de Landau usam $B$; a NLEM entra só nas tensões do campo),
 3. cálculo de densidades bariônicas e leptônicas,
 4. cálculo de $\epsilon$ e $P$ totais,
 5. armazenamento em linha de saída (`RESULTS_SIZE = 34`).
@@ -273,10 +273,12 @@ Objetivo:
 ## Módulos principais (`src/core`)
 
 - `constants.rs`: constantes físicas e tamanhos de vetor.
-- `model.rs`: parametrizações hadrônicas (`GM1`, `GM3`).
+- `model.rs`: parametrizações hadrônicas (`GM1`, `GM3`, `FSU2`).
 - `particles.rs`: densidades e estrutura de níveis de Landau.
 - `eos.rs`: composição da EoS hadrônica.
-- `physics.rs`: motor físico hadrônico (inclui NLEM/topologia).
+- `physics.rs`: motor físico hadrônico `HadronsMatter` (NLEM, topologia, perfil de campo e setor escuro opcional).
+- `magnetic.rs`: perfis do campo local (`Constant`, `Bdd`, `Dexheimer2017`) e tensões do campo (Maxwell, ModMax, Log).
+- `darkphotons.rs`: gás de Dirac escuro; `DarkPhotonsMatter` é um apelido de `HadronsMatter`.
 - `solver.rs`: varredura em $\mu_n$ e controle adaptativo.
 - `tov_solver.rs`: integração de TOV e curva M-R.
 - `plotting.rs`: infraestrutura de gráficos.

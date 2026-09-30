@@ -149,7 +149,9 @@ $\epsilon_B$ e se torna negativa para $x\gtrsim3.9$ ($B\gtrsim2.8\,\xi$).
 
 ## Setor escuro fermiônico
 
-`DarkPhotonsMatter` acrescenta um férmion de Dirac eletricamente neutro $\chi$
+O setor escuro é opcional em `HadronsMatter` (builders `with_y_chi`, `with_m_chi`,
+`with_m_x`, `with_g_d`, `with_epsilon`; `DarkPhotonsMatter` é um apelido) e acrescenta
+um férmion de Dirac eletricamente neutro $\chi$
 e um fóton escuro físico massivo $X_\mu$. Após diagonalizar a mistura cinética,
 a convenção usada é
 
@@ -226,8 +228,8 @@ $$
 Com essa forma, FSU2 reproduz em matéria simétrica $n_0\simeq0.1505$ fm$^{-3}$,
 $E/A\simeq-16.28$ MeV e $M^*/M\simeq0.593$, e a pressão de Gibbs coincide com
 $n^2\,\partial(\epsilon/n)/\partial n$ (testes em `physics.rs`). GM1 e GM3 não
-são afetados porque `rxi` $=$ `lambda_v` $=0$. `physics.rs`, `eos.rs` e
-`darkphotons.rs` usam a mesma normalização, de modo que $Y_\chi=0$ continua
+são afetados porque `rxi` $=$ `lambda_v` $=0$. A matéria visível tem
+uma única implementação (`physics.rs`, `particles.rs`, `eos.rs`), de modo que $Y_\chi=0$ continua
 recuperando o caminho hadrônico.
 
 ### Limites desta etapa de validação

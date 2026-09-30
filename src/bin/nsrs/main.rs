@@ -12,6 +12,7 @@ mod quarks;
 mod report;
 mod scan;
 mod study;
+mod study_b;
 mod tools;
 mod validate;
 mod validation;
@@ -37,6 +38,12 @@ Estudos (tabela para análise e publicação):
                 [--no-hyperons] [--save-eos] [--out results/study_log/summary.csv]
                 Impacto de Log(xi) na estrela, com Maxwell e sem tensão
                 do campo como referências.                         -> results/study_log/
+
+  study b       [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
+                [--profiles constante,bdd] [--points 1500] [--mu-max 3.0] [--no-hyperons]
+                [--no-stability] [--delta 1e-4] [--out results/study_b]
+                Varredura completa em B (de 0 até quebrar): estrelas, cobertura da EoS
+                e estabilidade mecânica e magnética local.            -> results/study_b/
 
 Setor escuro:
   dark scan        [--models GM1,GM3] [--b 1e17]  Grade 10^4 (epsilon, m_X, g_D, Y_chi). -> output/darkphotons_scan/
@@ -76,6 +83,7 @@ fn main() {
         ("scan", "modmax") => scan::modmax(tail),
         ("scan", "topology") => scan::topology(tail),
         ("study", "log") => study::log(tail),
+        ("study", "b") => study_b::run(tail),
         ("dark", "scan") => dark::scan(tail),
         ("dark", "benchmarks") => dark::benchmarks(tail),
         ("dark", "single") => dark::single(tail),

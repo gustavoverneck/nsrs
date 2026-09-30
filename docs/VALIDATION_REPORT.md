@@ -1,6 +1,6 @@
 # Relatório de validação do NSRS
 
-> Gerado automaticamente por `cargo run --release --bin nsrs -- report validation` em 2026-09-30 (revisão 86558d8), em 25 s. Não edite à mão: rode o comando de novo.
+> Gerado automaticamente por `cargo run --release --bin nsrs -- report validation` em 2026-09-30 (revisão ba0f350), em 14 s. Não edite à mão: rode o comando de novo.
 
 Legenda: ✅ dentro do critério · ⚠️ tensão ou desvio conhecido · ❌ fora do critério · ℹ️ informativo (sem critério).
 
@@ -13,12 +13,12 @@ Critério nas comparações com incerteza publicada: |Δ| ≤ 1σ ✅, ≤ 2σ �
 | 1. Verificação numérica (soluções exatas e identidades) | 21 | 0 | 0 | 1 |
 | 2. Parametrizações contra os artigos originais | 25 | 1 | 0 | 0 |
 | 3. Relações universais e propriedades derivadas | 12 | 0 | 0 | 3 |
-| 4. Vínculos observacionais e empíricos | 37 | 26 | 15 | 0 |
+| 4. Vínculos observacionais e empíricos | 38 | 25 | 15 | 0 |
 | 5. Campo magnético: perfis e acoplamento | 3 | 0 | 0 | 1 |
 | 6. Eletrodinâmica não linear (NLEM) | 10 | 1 | 0 | 2 |
-| **Total** | **108** | **28** | **15** | **7** |
+| **Total** | **109** | **27** | **15** | **7** |
 
-Falhas de implementação (Seções 1–3, 5 e 6): **0**. Os ⚠️ e ❌ da Seção 4 (26 e 15) medem os **modelos** contra observações, não o código.
+Falhas de implementação (Seções 1–3, 5 e 6): **0**. Os ⚠️ e ❌ da Seção 4 (25 e 15) medem os **modelos** contra observações, não o código.
 
 ## 1. Verificação numérica (soluções exatas e identidades)
 
@@ -56,10 +56,10 @@ Gibbs–Duhem a T = 0: dP/dμ_n = n_B, com P = P∥ (a pressão termodinâmica, 
 | Neutralidade de carga, GM1, B = 0 | máx. \|q\|/tolerância = 0.00 | 0 | < 1 | ✅ |
 | Gibbs–Duhem, GM1, B = 10¹⁷ G (533 pontos com n_B ≥ 0.5 n₀) | p95 1.4e-4, máx. 1.5e-3 | identidade exata | p95 < 5e-4, máx. < 5e-3 | ✅ |
 | Neutralidade de carga, GM1, B = 10¹⁷ G | máx. \|q\|/tolerância = 0.01 | 0 | < 1 | ✅ |
-| Gibbs–Duhem, GM3, B = 0 (531 pontos com n_B ≥ 0.5 n₀) | p95 2.8e-5, máx. 7.0e-4 | identidade exata | p95 < 5e-4, máx. < 5e-3 | ✅ |
+| Gibbs–Duhem, GM3, B = 0 (530 pontos com n_B ≥ 0.5 n₀) | p95 3.1e-5, máx. 5.6e-4 | identidade exata | p95 < 5e-4, máx. < 5e-3 | ✅ |
 | Neutralidade de carga, GM3, B = 0 | máx. \|q\|/tolerância = 0.00 | 0 | < 1 | ✅ |
-| Gibbs–Duhem, GM3, B = 10¹⁷ G (532 pontos com n_B ≥ 0.5 n₀) | p95 1.3e-4, máx. 1.1e-3 | identidade exata | p95 < 5e-4, máx. < 5e-3 | ✅ |
-| Neutralidade de carga, GM3, B = 10¹⁷ G | máx. \|q\|/tolerância = 0.01 | 0 | < 1 | ✅ |
+| Gibbs–Duhem, GM3, B = 10¹⁷ G (531 pontos com n_B ≥ 0.5 n₀) | p95 1.1e-4, máx. 1.4e-3 | identidade exata | p95 < 5e-4, máx. < 5e-3 | ✅ |
+| Neutralidade de carga, GM3, B = 10¹⁷ G | máx. \|q\|/tolerância = 0.00 | 0 | < 1 | ✅ |
 | Gibbs–Duhem, FSU2, B = 0 (301 pontos com n_B ≥ 0.5 n₀) | p95 4.7e-5, máx. 3.5e-4 | identidade exata | p95 < 5e-4, máx. < 5e-3 | ✅ |
 | Neutralidade de carga, FSU2, B = 0 | máx. \|q\|/tolerância = 0.00 | 0 | < 1 | ✅ |
 | Gibbs–Duhem, FSU2, B = 10¹⁷ G (301 pontos com n_B ≥ 0.5 n₀) | p95 2.3e-4, máx. 1.0e-3 | identidade exata | p95 < 5e-4, máx. < 5e-3 | ✅ |
@@ -71,7 +71,7 @@ Gibbs–Duhem a T = 0: dP/dμ_n = n_B, com P = P∥ (a pressão termodinâmica, 
 | Grandeza | NSRS | Referência | Critério | |
 |---|---|---|---|:-:|
 | Limite B → 0 da soma sobre níveis de Landau (GM1, B = 10¹⁵ G, 532 pontos) | dif. rel. máx. em P e ε: 9.8e-7 | gás de Fermi isotrópico | < 1e-5 | ✅ |
-| Magnetização 𝓜B = B ∂P∥/∂B exportada (GM1, B = 3×10¹⁷ G, μ_n = 1.25 M_N) | dif. rel. 7.3e-7 | diferença finita com passo 10⁻⁴ (interno: 10⁻⁵); P⊥ = P∥ − 𝓜B [5] [6] | < 1e-5 | ✅ |
+| Magnetização 𝓜B = B ∂P∥/∂B exportada (GM1, B = 3×10¹⁷ G, μ_n = 1.25 M_N) | dif. rel. 1.0e-6 | diferença finita com passo 10⁻⁴ (interno: 10⁻⁵); P⊥ = P∥ − 𝓜B [5] [6] | < 1e-5 | ✅ |
 | Oscilações de de Haas–van Alphen: 𝓜B com passo 10⁻³ vs exportado (μ_n = 1.40 M_N, n_B ≈ 4 n₀) | dif. rel. 3.4e-2 | P(B) oscila quando níveis de Landau cruzam a superfície de Fermi | informativo | ℹ️ |
 
 
@@ -127,10 +127,10 @@ O raio de FSU2 difere do artigo porque o NSRS junta a tabela BPS [10] diretament
 | Grandeza | NSRS | Referência | Critério | |
 |---|---|---|---|:-:|
 | I-Love, GM1 com hyperons (379 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.84% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
-| I-Love, GM3 com hyperons (332 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.74% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
+| I-Love, GM3 com hyperons (331 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.73% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
 | I-Love, FSU2 com hyperons (205 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.78% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
 | I-Love, GM1 só núcleons (584 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.84% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
-| I-Love, GM3 só núcleons (515 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.74% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
+| I-Love, GM3 só núcleons (515 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.73% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
 | I-Love, FSU2 só núcleons (384 estrelas, 1 M☉ ≤ M ≤ M_max) | desvio máx. 0.78% | ajuste universal [11] | < 1% (declarado); ⚠️ até 1.5% | ✅ |
 
 
@@ -141,9 +141,9 @@ O raio de FSU2 difere do artigo porque o NSRS junta a tabela BPS [10] diretament
 | GM1: Y_p no limiar do URCA direto | 13.25% (n_B = 1.80 n₀) | 11.1% (npe) a 14.8% (npeμ) [13] | dentro da faixa ± 0.5% | ✅ |
 | GM1: c_s² máx. até o centro de M_max | 0.440 | causalidade | c_s² ≤ 1 e Γ > 0 | ✅ |
 | GM1: estrela de 1.4 M☉ (com hyperons) | R = 13.71 km, k₂ = 0.1040, Λ = 890, I = 1.827×10⁴⁵ g cm², z = 0.197 | ver Seção 4 (observações) | informativo | ℹ️ |
-| GM3: Y_p no limiar do URCA direto | 13.37% (n_B = 1.91 n₀) | 11.1% (npe) a 14.8% (npeμ) [13] | dentro da faixa ± 0.5% | ✅ |
+| GM3: Y_p no limiar do URCA direto | 13.34% (n_B = 1.91 n₀) | 11.1% (npe) a 14.8% (npeμ) [13] | dentro da faixa ± 0.5% | ✅ |
 | GM3: c_s² máx. até o centro de M_max | 0.400 | causalidade | c_s² ≤ 1 e Γ > 0 | ✅ |
-| GM3: estrela de 1.4 M☉ (com hyperons) | R = 13.03 km, k₂ = 0.0860, Λ = 571, I = 1.616×10⁴⁵ g cm², z = 0.210 | ver Seção 4 (observações) | informativo | ℹ️ |
+| GM3: estrela de 1.4 M☉ (com hyperons) | R = 13.00 km, k₂ = 0.0871, Λ = 571, I = 1.616×10⁴⁵ g cm², z = 0.211 | ver Seção 4 (observações) | informativo | ℹ️ |
 | FSU2: Y_p no limiar do URCA direto | 13.00% (n_B = 1.40 n₀) | 11.1% (npe) a 14.8% (npeμ) [13] | dentro da faixa ± 0.5% | ✅ |
 | FSU2: c_s² máx. até o centro de M_max | 0.230 | causalidade | c_s² ≤ 1 e Γ > 0 | ✅ |
 | FSU2: estrela de 1.4 M☉ (com hyperons) | R = 13.70 km, k₂ = 0.0865, Λ = 738, I = 1.731×10⁴⁵ g cm², z = 0.197 | ver Seção 4 (observações) | informativo | ℹ️ |
@@ -157,12 +157,12 @@ Vínculos de `input/observations/constraints.csv`. Distância d em desvios-padr�
 |---|---|:-:|:-:|:-:|:-:|:-:|:-:|
 | PSR J0348+0432 [14] | 2.01 (−0.04, +0.04), 68% | ✅ 1.994 (d = 0.4) | ✅ 2.359 (d = 0.0) | ❌ 1.700 (d = 7.8) | ✅ 2.015 (d = 0.0) | ❌ 1.598 (d = 10.3) | ✅ 2.071 (d = 0.0) |
 | PSR J0740+6620 (timing) [15] | 2.08 (−0.07, +0.07), 68.3% | ⚠️ 1.994 (d = 1.2) | ✅ 2.359 (d = 0.0) | ❌ 1.700 (d = 5.4) | ✅ 2.015 (d = 0.9) | ❌ 1.598 (d = 6.9) | ✅ 2.071 (d = 0.1) |
-| PSR J0030+0451 (Riley+2019) [16] | 12.71 (−1.19, +1.14), 68% | ✅ 13.718 (d = 0.9) | ✅ 13.721 (d = 0.9) | ✅ 13.117 (d = 0.4) | ✅ 13.173 (d = 0.4) | ✅ 13.734 (d = 1.0) | ⚠️ 13.981 (d = 1.1) |
-| PSR J0030+0451 (Miller+2019) [17] | 13.02 (−1.06, +1.24), 68% | ✅ 13.696 (d = 0.5) | ✅ 13.717 (d = 0.6) | ✅ 12.952 (d = 0.1) | ✅ 13.073 (d = 0.0) | ✅ 13.459 (d = 0.4) | ✅ 13.905 (d = 0.7) |
-| PSR J0740+6620 (Riley+2021) [18] | 12.39 (−0.98, +1.3), 68% | ⚠️ 11.942 (d = 1.3) | ✅ 13.270 (d = 0.7) | ❌ 11.085 (d = 5.8) | ⚠️ 11.325 (d = 1.5) | ❌ 12.141 (d = 7.2) | ✅ 12.321 (d = 0.1) |
-| PSR J0740+6620 (Miller+2021) [19] | 13.7 (−1.5, +2.6), 68% | ⚠️ 12.032 (d = 1.7) | ✅ 13.267 (d = 0.3) | ❌ 11.078 (d = 5.7) | ⚠️ 11.317 (d = 1.9) | ❌ 12.172 (d = 7.0) | ✅ 12.514 (d = 0.9) |
-| R(1.4 Msun) combined [19] | 12.45 (−0.65, +0.65), 68% (range of frameworks) | ⚠️ 13.709 (d = 1.9) | ⚠️ 13.720 (d = 2.0) | ✅ 13.030 (d = 0.9) | ⚠️ 13.121 (d = 1.0) | ⚠️ 13.700 (d = 1.9) | ❌ 13.948 (d = 2.3) |
-| GW170817 Lambda(1.4 Msun) [20] | 190 (−120, +390), 90% | ❌ 889.833 (d = 3.0) | ❌ 896.595 (d = 3.0) | ⚠️ 570.768 (d = 1.6) | ⚠️ 608.038 (d = 1.8) | ❌ 737.536 (d = 2.3) | ❌ 866.075 (d = 2.9) |
+| PSR J0030+0451 (Riley+2019) [16] | 12.71 (−1.19, +1.14), 68% | ✅ 13.718 (d = 0.9) | ✅ 13.721 (d = 0.9) | ✅ 13.086 (d = 0.3) | ✅ 13.141 (d = 0.4) | ✅ 13.734 (d = 1.0) | ⚠️ 13.981 (d = 1.1) |
+| PSR J0030+0451 (Miller+2019) [17] | 13.02 (−1.06, +1.24), 68% | ✅ 13.696 (d = 0.5) | ✅ 13.717 (d = 0.6) | ✅ 12.925 (d = 0.1) | ✅ 13.044 (d = 0.0) | ✅ 13.459 (d = 0.4) | ✅ 13.905 (d = 0.7) |
+| PSR J0740+6620 (Riley+2021) [18] | 12.39 (−0.98, +1.3), 68% | ⚠️ 11.942 (d = 1.3) | ✅ 13.270 (d = 0.7) | ❌ 11.072 (d = 5.8) | ⚠️ 11.315 (d = 1.5) | ❌ 12.141 (d = 7.2) | ✅ 12.321 (d = 0.1) |
+| PSR J0740+6620 (Miller+2021) [19] | 13.7 (−1.5, +2.6), 68% | ⚠️ 12.032 (d = 1.7) | ✅ 13.267 (d = 0.3) | ❌ 11.065 (d = 5.7) | ⚠️ 11.302 (d = 2.0) | ❌ 12.172 (d = 7.0) | ✅ 12.514 (d = 0.9) |
+| R(1.4 Msun) combined [19] | 12.45 (−0.65, +0.65), 68% (range of frameworks) | ⚠️ 13.709 (d = 1.9) | ⚠️ 13.720 (d = 2.0) | ✅ 12.999 (d = 0.8) | ✅ 13.089 (d = 1.0) | ⚠️ 13.700 (d = 1.9) | ❌ 13.948 (d = 2.3) |
+| GW170817 Lambda(1.4 Msun) [20] | 190 (−120, +390), 90% | ❌ 889.838 (d = 3.0) | ❌ 896.655 (d = 3.0) | ⚠️ 570.689 (d = 1.6) | ⚠️ 607.951 (d = 1.8) | ❌ 737.551 (d = 2.3) | ❌ 866.057 (d = 2.9) |
 | saturation density [fm^-3] [21] | 0.155 (−0.005, +0.005), 1 sigma | ✅ 0.153 (d = 0.4) | ✅ 0.153 (d = 0.4) | ✅ 0.153 (d = 0.4) | ✅ 0.153 (d = 0.4) | ✅ 0.150 (d = 0.9) | ✅ 0.150 (d = 0.9) |
 | binding energy E/A [MeV] [21] | -15.8 (−0.3, +0.3), 1 sigma | ⚠️ -16.310 (d = 1.7) | ⚠️ -16.310 (d = 1.7) | ⚠️ -16.304 (d = 1.7) | ⚠️ -16.304 (d = 1.7) | ⚠️ -16.262 (d = 1.5) | ⚠️ -16.262 (d = 1.5) |
 | incompressibility K [MeV] [21] | 230 (−20, +20), 1 sigma | ❌ 299.725 (d = 3.5) | ❌ 299.725 (d = 3.5) | ✅ 239.762 (d = 0.5) | ✅ 239.762 (d = 0.5) | ✅ 237.536 (d = 0.4) | ✅ 237.536 (d = 0.4) |
@@ -181,7 +181,7 @@ Perfis do campo local: BDD [23], B = B_surf + B₀[1 − exp(−β(n_B/n₀)^γ)
 | Grandeza | NSRS | Referência | Critério | |
 |---|---|---|---|:-:|
 | Dexheimer, Eq. (1): B(μ_B = 1000 MeV), μ = 3×10³² A m², M_B = 2.2 M☉ | 5.7771e17 G | 5.777×10¹⁷ G (coeficientes da Tabela 2) [24] | dif. rel. < 1e-3 | ✅ |
-| Dexheimer: dP/dμ = n_B + 𝓜 dB/dμ (GM1, n_B = 1, 2, 4, 6 n₀) | dif. rel. máx. 1.6e-7 | identidade termodinâmica com B = B(μ_B) | < 1e-6 | ✅ |
+| Dexheimer: dP/dμ = n_B + 𝓜 dB/dμ (GM1, n_B = 1, 2, 4, 6 n₀) | dif. rel. máx. 1.5e-7 | identidade termodinâmica com B = B(μ_B) | < 1e-6 | ✅ |
 | BDD: campo usado = B(n_B da própria solução) (GM1, B₀ = 10¹⁸ G) | dif. rel. máx. 2.7e-10 | perfil [23] | < 1e-8 | ✅ |
 | Dexheimer: efeito do campo na matéria sobre M_max (GM1, sem tensões do campo) | 1.9908 vs 1.9940 M☉ (-0.16%) | campo tratado na estrutura por Einstein–Maxwell | informativo | ℹ️ |
 
@@ -197,7 +197,7 @@ A NLEM altera só a energia e as tensões do próprio campo: P∥ = −ε_B e P�
 
 | Grandeza | NSRS | Referência | Critério | |
 |---|---|---|---|:-:|
-| P⊥ = HB − ε_B, Log(ξ = 2×10¹⁷ G), B de 10¹⁶ a 3×10¹⁸ G | dif. rel. máx. 3.1e-10 | H = dε_B/dB numérico [25] | < 1e-7 | ✅ |
+| P⊥ = HB − ε_B, Log(ξ = 2×10¹⁷ G), B de 10¹⁶ a 3×10¹⁸ G | dif. rel. máx. 8.3e-10 | H = dε_B/dB numérico [25] | < 1e-7 | ✅ |
 | Log com ξ ≫ B recupera Maxwell (B = 10¹⁵ G, ξ = 10²⁵ G) | dif. rel. 0.0e0 | limite x → 0 | < 1e-14 | ✅ |
 | Matéria idêntica a Maxwell no mesmo B (GM1, 3×10¹⁷ G; ModMax(1), Log(10¹⁶), Log(10¹⁸)) | dif. rel. máx. em n_B e ε_matéria: 1.1e-16 | acoplamento mínimo: Landau usa B | < 1e-12 | ✅ |
 

@@ -143,6 +143,8 @@ pub struct HadronsMatter {
     pub local_field_g: f64,
     /// n_B/n0 do último ponto aceito: chute da iteração do perfil BDD.
     last_nb_over_n0: f64,
+    /// M B = B dP/dB|_mu (MeV/fm^3) do último ponto resolvido.
+    pub magnetization_b: f64,
 }
 
 impl HadronsMatter {
@@ -243,6 +245,7 @@ impl HadronsMatter {
             field_profile: FieldProfile::Constant,
             local_field_g: bg,
             last_nb_over_n0: 0.0,
+            magnetization_b: 0.0,
         }
     }
 
@@ -543,6 +546,48 @@ impl HadronsMatter {
         initial_x: &[f64],
         field_g: Option<f64>,
     ) -> Option<([f64; 5], [f64; RESULTS_SIZE])> {
+        let x = self.newton(mun, initial_x)?;
+        let x_final = [x[0], x[1], x[2], x[3], x[4]];
+
+        // Magnetização: M B = B dP/dB a mu fixo (Landau), calculada com duas
+        // soluções em B (1 +- delta) partindo da solução convergida. Entra na
+        // pressão perpendicular da matéria, P_perp = P_par - M B (Ferrer et
+        // al. 2010; Strickland, Dexheimer & Menezes 2012).
+        self.magnetization_b = if self.b > 0.0 {
+            self.magnetization_times_field(mun, &x_final)?
+        } else {
+            0.0
+        };
+
+        // garante estado físico final consistente
+        let _ = self.funcv(&x_final);
+        self.assemble_point(x_final, field_g)
+    }
+
+    /// Pressão termodinâmica da matéria P = -Omega (MeV/fm^3) no estado atual.
+    fn matter_pressure_mev_fm3(&self, x: &[f64; 5]) -> f64 {
+        let (mue, vsigma, vomega, vrho, _) = self.mapping(x);
+        let (_, press) = crate::core::eos::compute(self, mue, vsigma, vomega, vrho);
+        press * self.m_nuc * (self.m_nuc / HBAR_C).powi(3)
+    }
+
+    fn magnetization_times_field(&mut self, mun: f64, x: &[f64; 5]) -> Option<f64> {
+        let (b, delta) = (self.b, 1e-5);
+        let mut pressure_at = |engine: &mut Self, scale: f64| -> Option<f64> {
+            engine.b = b * scale;
+            let xs = engine.newton(mun, x)?;
+            let xs = [xs[0], xs[1], xs[2], xs[3], xs[4]];
+            let _ = engine.funcv(&xs);
+            Some(engine.matter_pressure_mev_fm3(&xs))
+        };
+        let p_plus = pressure_at(self, 1.0 + delta);
+        let p_minus = pressure_at(self, 1.0 - delta);
+        self.b = b;
+        Some((p_plus? - p_minus?) / (2.0 * delta))
+    }
+
+    /// Newton amortecido para (mu_e, sigma, omega, rho, X_0) a mu_n fixo.
+    fn newton(&mut self, mun: f64, initial_x: &[f64]) -> Option<StateVector> {
         self.mun = mun;
 
         let (mue0, vs0, vw0, vr0, x00) = self.mapping(initial_x);
@@ -615,14 +660,15 @@ impl HadronsMatter {
             converged = final_norm.is_finite() && final_norm < tolerance;
         }
 
-        if !converged {
-            return None;
-        }
+        if converged { Some(x) } else { None }
+    }
 
-        // garante estado físico final consistente
-        let _ = self.funcv(x.as_slice());
-
-        let x_final = [x[0], x[1], x[2], x[3], x[4]];
+    /// Monta a linha de saída a partir do estado convergido (já aplicado).
+    fn assemble_point(
+        &mut self,
+        x_final: [f64; 5],
+        field_g: Option<f64>,
+    ) -> Option<([f64; 5], [f64; RESULTS_SIZE])> {
         let (mue, vsigma, vomega, vrho, _) = self.mapping(&x_final);
         let (ener, press) = crate::core::eos::compute(self, mue, vsigma, vomega, vrho);
 
@@ -650,7 +696,14 @@ impl HadronsMatter {
         });
         let stress = magnetic_stress(self.nlem, b_local_g);
         let ebsd = stress.energy;
-        let pmag_effective = stress.pressure(self.topology);
+        // Pressão do campo + termo de magnetização da matéria: anisotrópica,
+        // P_perp = P - M B; isotrópica (campo emaranhado), P - (2/3) M B.
+        let magnetization_weight = match self.topology {
+            MagneticTopology::Anisotropic => 1.0,
+            MagneticTopology::Isotropic => 2.0 / 3.0,
+        };
+        let pmag_effective =
+            stress.pressure(self.topology) - magnetization_weight * self.magnetization_b;
 
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + pmag_effective;

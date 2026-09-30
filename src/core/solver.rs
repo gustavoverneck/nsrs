@@ -46,9 +46,19 @@ impl EosTermination {
     }
 }
 
+/// Grandezas por ponto da EoS que não cabem no formato de 34 colunas.
+/// Exportadas em `<saída>_diag.dat` (ver `io_utils::write_diagnostics`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PointDiagnostics {
+    /// M B = B dP/dB a mu fixo (MeV/fm^3); já descontado da pressão
+    /// perpendicular exportada na coluna 2.
+    pub magnetization_b: f64,
+}
+
 pub struct Solver {
     engine: EngineMode,
     termination: Option<EosTermination>,
+    diagnostics: Vec<PointDiagnostics>,
 }
 
 impl Solver {
@@ -56,12 +66,19 @@ impl Solver {
         Solver {
             engine,
             termination: None,
+            diagnostics: Vec::new(),
         }
     }
 
     /// Motivo do término da última chamada a `solve()`.
     pub fn termination(&self) -> Option<EosTermination> {
         self.termination
+    }
+
+    /// Diagnósticos por linha da última chamada a `solve()` (mesma ordem das
+    /// linhas da EoS).
+    pub fn diagnostics(&self) -> &[PointDiagnostics] {
+        &self.diagnostics
     }
 
     pub fn solve(&mut self) -> Vec<[f64; RESULTS_SIZE]> {
@@ -83,6 +100,7 @@ impl Solver {
         let min_dmub = 1e-6; // passo mínimo aceitável
 
         let mut results: Vec<[f64; RESULTS_SIZE]> = Vec::with_capacity(n);
+        let mut diagnostics: Vec<PointDiagnostics> = Vec::with_capacity(n);
         let mut last_visible_x = [0.0; 5];
         let mut last_dark_x = [0.0; 5];
         let mut last_mun = mun_inf; // último mun que convergiu
@@ -127,6 +145,12 @@ impl Solver {
 
             if let Some(point_result) = point_data {
                 last_mun = mun;
+                let point_diagnostics = PointDiagnostics {
+                    magnetization_b: match &self.engine {
+                        EngineMode::Hadrons(h) | EngineMode::DarkPhotons(h) => h.magnetization_b,
+                        _ => 0.0,
+                    },
+                };
 
                 // Para a integração se a densidade bariônica ultrapassar 11 N0.
                 if point_result[0] * N0 > 11.0 * N0 {
@@ -179,6 +203,7 @@ impl Solver {
                 }
 
                 results.push(point_result);
+                diagnostics.push(point_diagnostics);
 
                 // Avança para o próximo mun
                 mun += dmub;
@@ -223,6 +248,15 @@ impl Solver {
                 termination
             );
         }
+
+        if let Some(path) = &output_path {
+            if let Err(error) =
+                crate::core::io_utils::write_diagnostics(&results, &diagnostics, path)
+            {
+                eprintln!("failed to write diagnostics for '{}': {error}", path);
+            }
+        }
+        self.diagnostics = diagnostics;
 
         if let Some(path) = output_path {
             let eps_arr: Vec<f64> = results.iter().map(|r| r[1]).collect();

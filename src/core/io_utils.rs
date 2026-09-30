@@ -68,6 +68,34 @@ fn sort_eos_data(rho: &mut Vec<f64>, eps: &mut Vec<f64>, p: &mut Vec<f64>) {
     *rho = combined.iter().map(|x| x.2).collect();
 }
 
+/// Caminho do arquivo de diagnósticos: `x.dat` -> `x_diag.dat`.
+pub fn diagnostics_path(eos_path: &str) -> String {
+    match eos_path.strip_suffix(".dat") {
+        Some(stem) => format!("{stem}_diag.dat"),
+        None => format!("{eos_path}_diag.dat"),
+    }
+}
+
+/// Escreve os diagnósticos por linha da EoS em `diagnostics_path(eos_path)`.
+pub fn write_diagnostics(
+    results: &[[f64; RESULTS_SIZE]],
+    diagnostics: &[crate::core::solver::PointDiagnostics],
+    eos_path: &str,
+) -> std::io::Result<()> {
+    let mut file = fs::File::create(diagnostics_path(eos_path))?;
+    writeln!(file, "# 0:nB_over_n0 1:mu_n_MeV 2:magnetization_times_B_MeV_fm3")?;
+    for (row, diag) in results.iter().zip(diagnostics) {
+        writeln!(
+            file,
+            "{:12.5e} {:12.5e} {:12.5e}",
+            row[0],
+            row[17] * crate::core::constants::M_NUCLEON,
+            diag.magnetization_b
+        )?;
+    }
+    Ok(())
+}
+
 pub fn write_eos_with_mr<P: AsRef<Path>>(
     results: &[[f64; RESULTS_SIZE]],
     masses: &[f64],

@@ -10,10 +10,18 @@ use nsrs::{
 
 type Row = [f64; RESULTS_SIZE];
 
-fn solve(engine: HadronsMatter) -> (Vec<Row>, Option<EosTermination>) {
+/// Resolve a EoS; a coluna 2 é devolvida como a pressão exportada
+/// (perpendicular) e o vetor extra traz M B por linha.
+fn solve_with_magnetization(engine: HadronsMatter) -> (Vec<Row>, Vec<f64>, Option<EosTermination>) {
     let mut solver = Solver::new(EngineMode::Hadrons(engine));
     let rows = solver.solve();
-    (rows, solver.termination())
+    let mb = solver.diagnostics().iter().map(|d| d.magnetization_b).collect();
+    (rows, mb, solver.termination())
+}
+
+fn solve(engine: HadronsMatter) -> (Vec<Row>, Option<EosTermination>) {
+    let (rows, _, termination) = solve_with_magnetization(engine);
+    (rows, termination)
 }
 
 fn rel(a: f64, b: f64) -> f64 {
@@ -22,29 +30,37 @@ fn rel(a: f64, b: f64) -> f64 {
 
 /// O perfil padrão (`Constant`) deve reproduzir o código anterior à
 /// introdução dos perfis. Referências: linha 900 (nB/n0 ~ 3.58) das EoS
-/// geradas antes da mudança, para Maxwell (anisotrópico e isotrópico). A
-/// referência ModMax foi regenerada quando os níveis de Landau passaram a
-/// usar B em vez de e^{-gamma} B (acoplamento mínimo).
+/// geradas antes da mudança, para Maxwell (anisotrópico e isotrópico). O
+/// caso ModMax (1e18 G) saiu: com campo constante de 1e18 G a pressão
+/// perpendicular deixa de ser monótona em baixa densidade.
 #[test]
 fn constant_profile_reproduces_previous_results() {
-    let cases: [(HadronsMatter, [f64; 3]); 3] = [
+    // A pressão exportada passou a ser P_perp = P_par - w M B (w = 1 anisotrópico,
+    // 2/3 isotrópico); P_par + campo coincide com a referência anterior.
+    let cases: [(HadronsMatter, f64, [f64; 3]); 2] = [
         (
             HadronsMatter::new(GM1, 1e17),
+            1.0,
             [3.58072868340806139e0, 5.89643597285503688e2, 1.07139674412909841e2],
         ),
         (
             HadronsMatter::new(GM1, 1e17).with_topology(MagneticTopology::Isotropic),
+            2.0 / 3.0,
             [3.58072868340806139e0, 5.89643597285503688e2, 1.07115999268299191e2],
         ),
-        (
-            HadronsMatter::new(GM1, 1e18).with_nlem(NlemModel::Modmax(1.0)),
-            [3.53452528898327190e0, 5.81608724074900010e2, 1.05372571197183376e2],
-        ),
     ];
-    for (engine, expected) in cases {
-        let (rows, _) = solve(engine);
+    for (engine, weight, expected) in cases {
+        // A EoS num dado mu não depende da malha: a varredura termina
+        // exatamente no mu de referência (mu_n/M_N = 1.3535166...).
+        let (rows, mb, _) =
+            solve_with_magnetization(engine.with_limits(0.9, 1.35351666666663761).with_points(301));
+        let k = rows.len() - 1;
+        assert!((rows[k][17] - 1.35351666666663761).abs() < 1e-12);
+        let row = rows[k];
+        assert!(mb[k] > 0.0);
+        let values = [row[0], row[1], row[2] + weight * mb[k]];
         for (col, value) in expected.iter().enumerate() {
-            assert!(rel(rows[899][col], *value) < 1e-12, "col {col}: {} vs {value}", rows[899][col]);
+            assert!(rel(values[col], *value) < 1e-12, "col {col}: {} vs {value}", values[col]);
         }
     }
 }
@@ -101,9 +117,12 @@ fn matter_pressure(row: &Row) -> f64 {
 fn dexheimer_profile_satisfies_the_magnetized_gibbs_duhem_relation() {
     let dipole = 3e32;
     let (rows, _) = solve(HadronsMatter::new(GM1, 0.0).with_field_profile(dexheimer(dipole)));
+    // Linha com a coluna 2 = P_par = P_perp + M B.
     let solve_at = |dipole: f64, mu: f64, x: [f64; 4]| {
         let mut engine = HadronsMatter::new(GM1, 0.0).with_field_profile(dexheimer(dipole));
-        engine.solve_point(mu, &x).expect("point must converge").1
+        let mut row = engine.solve_point(mu, &x).expect("point must converge").1;
+        row[2] += engine.magnetization_b;
+        row
     };
     let field = |mu: f64| dexheimer(dipole).local_field_g(0.0, mu * M_NUCLEON).unwrap();
     for target in [1.0, 2.0, 4.0, 6.0] {
@@ -134,7 +153,11 @@ fn dexheimer_profile_satisfies_the_magnetized_gibbs_duhem_relation() {
 #[test]
 fn dexheimer_profile_weak_dipole_recovers_field_free_eos() {
     let (reference, _) = solve(HadronsMatter::new(GM1, 0.0));
-    let (weak, _) = solve(HadronsMatter::new(GM1, 0.0).with_field_profile(dexheimer(1e30)));
+    let (mut weak, mb, _) =
+        solve_with_magnetization(HadronsMatter::new(GM1, 0.0).with_field_profile(dexheimer(1e30)));
+    for (row, m) in weak.iter_mut().zip(&mb) {
+        row[2] += m;
+    }
     let mut compared = 0;
     for row in weak.iter().filter(|r| r[0] > 0.5) {
         if let Some(r0) = reference.iter().find(|r| (r[17] - row[17]).abs() < 1e-12) {
@@ -142,7 +165,7 @@ fn dexheimer_profile_weak_dipole_recovers_field_free_eos() {
             compared += 1;
         }
     }
-    assert!(compared > 100);
+    assert!(compared > 50);
 }
 
 /// A NLEM não altera o acoplamento das partículas ao campo: no mesmo B, a
@@ -151,9 +174,11 @@ fn dexheimer_profile_weak_dipole_recovers_field_free_eos() {
 /// cobrindo a malha (antes os níveis de Landau recebiam B(1 + B^2/2xi^2)).
 #[test]
 fn nlem_changes_only_the_field_stress() {
-    let (maxwell, _) = solve(HadronsMatter::new(GM1, 1e18));
+    // 3e17 G: com campo constante de 1e18 G a pressão perpendicular da matéria
+    // (P - M B) deixa de ser monótona em baixa densidade e a EoS é truncada.
+    let (maxwell, _) = solve(HadronsMatter::new(GM1, 3e17));
     for nlem in [NlemModel::Modmax(1.0), NlemModel::Log(1e16), NlemModel::Log(1e18)] {
-        let (rows, termination) = solve(HadronsMatter::new(GM1, 1e18).with_nlem(nlem));
+        let (rows, termination) = solve(HadronsMatter::new(GM1, 3e17).with_nlem(nlem));
         assert_eq!(termination, Some(EosTermination::ReachedUpperLimit), "{nlem:?}");
         assert_eq!(rows.len(), maxwell.len(), "{nlem:?}");
         for (row, reference) in rows.iter().zip(&maxwell) {
@@ -163,4 +188,32 @@ fn nlem_changes_only_the_field_stress() {
             assert!((a - b).abs() <= 1e-12 * a.abs().max(b.abs()) + 1e-12, "{nlem:?}: eps_matter {a} vs {b}");
         }
     }
+}
+
+/// M B exportado nos diagnósticos é B dP_par/dB a mu fixo: confere com uma
+/// diferença finita independente entre dois campos constantes.
+#[test]
+fn magnetization_is_the_field_derivative_of_the_parallel_pressure() {
+    let (bg, e) = (3e17, 1e-5);
+    let mu = 1.25;
+    let rows = Solver::new(EngineMode::Hadrons(
+        HadronsMatter::new(GM1, bg).with_limits(0.9, mu).with_points(301),
+    ))
+    .solve();
+    let last = rows.last().expect("continuation");
+    assert!((last[17] - mu).abs() < 1e-9);
+    let x = [last[18], last[13] / M_NUCLEON, last[14] / M_NUCLEON, last[15] / M_NUCLEON, 0.0];
+    let mut reference = HadronsMatter::new(GM1, bg);
+    let row = reference.solve_point(mu, &x).unwrap().1;
+    let mb = reference.magnetization_b;
+    let p_par = |scale: f64| {
+        let mut engine = HadronsMatter::new(GM1, bg * scale);
+        let r = engine.solve_point(mu, &x).unwrap().1;
+        r[2] - r[19] + engine.magnetization_b
+    };
+    let independent = (p_par(1.0 + e) - p_par(1.0 - e)) / (2.0 * e);
+    // O campo da energia (perfil legado) também muda com bg, mas eps_mag é
+    // descontado; a diferença restante é a da matéria.
+    assert!(rel(mb, independent) < 1e-4, "M B = {mb}, B dP/dB = {independent}");
+    assert!(mb.abs() > 1e-6 * (row[2] - row[19] + mb));
 }

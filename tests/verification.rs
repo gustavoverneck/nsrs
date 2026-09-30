@@ -22,12 +22,20 @@ const COL_NXM: usize = 11;
 const COL_MU_N: usize = 17;
 const COL_EPS_MAG: usize = 19;
 
+/// Resolve a EoS e devolve as linhas com a coluna 2 convertida para a
+/// pressão ao longo do campo, P_par = P_perp + M B (a coluna exportada é a
+/// perpendicular, P_par - M B). É P_par = -Omega que obedece Gibbs-Duhem.
 fn solve_eos(model: ModelParams, b_gauss: f64) -> Vec<Row> {
-    Solver::new(EngineMode::Hadrons(HadronsMatter::new(model, b_gauss))).solve()
+    let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(model, b_gauss)));
+    let mut rows = solver.solve();
+    for (row, diag) in rows.iter_mut().zip(solver.diagnostics()) {
+        row[COL_P] += diag.magnetization_b;
+    }
+    rows
 }
 
 /// Pressão da matéria sem a contribuição macroscópica do campo. Com a
-/// topologia padrão (anisotrópica), P_mag = eps_mag (coluna 19).
+/// topologia padrão (anisotrópica) e Maxwell, P_mag = eps_mag (coluna 19).
 fn matter_pressure(row: &Row) -> f64 {
     row[COL_P] - row[COL_EPS_MAG]
 }
@@ -177,13 +185,18 @@ fn solver_reports_why_the_eos_ended() {
 
     let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(GM3, 1e18)));
     solver.solve();
+    // Com a magnetização em P_perp, a pressão perpendicular deixa de ser
+    // monótona logo antes da transição; ambos os términos são anômalos.
     match solver.termination() {
-        Some(t @ EosTermination::ConvergenceFailure { mu_n_mev, nb_over_n0 }) => {
+        Some(
+            t @ (EosTermination::ConvergenceFailure { mu_n_mev, nb_over_n0 }
+            | EosTermination::NonMonotonic { mu_n_mev, nb_over_n0 }),
+        ) => {
             assert!(t.is_anomalous());
             assert!((mu_n_mev - 941.4).abs() < 1.0, "mu_n = {mu_n_mev} MeV");
             assert!(nb_over_n0 < 0.1, "nB/n0 = {nb_over_n0}");
         }
-        other => panic!("expected a reported convergence failure, got {other:?}"),
+        other => panic!("expected a reported anomalous termination, got {other:?}"),
     }
 }
 

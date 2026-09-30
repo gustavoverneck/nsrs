@@ -11,5 +11,5 @@ pub use core::model::{FSU2, GM1, GM3};
 pub use core::physics::{HadronsMatter, MagneticTopology, NlemModel};
 pub use core::plotting::Artist;
 pub use core::quarks::QuarksMatter;
-pub use core::solver::{EngineMode, EosTermination, Solver};
+pub use core::solver::{EngineMode, EosTermination, PointDiagnostics, Solver};
 pub use core::tov_solver::generate_mr_curve;

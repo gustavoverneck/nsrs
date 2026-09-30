@@ -116,6 +116,32 @@ $n_0$ e $6n_0$ (verificado em `tests/magnetic_profiles.rs`). Para o perfil BDD, 
 termos em $dB/dn_B$ desprezados valem $\lesssim10^{-3}$ até $B_0=10^{18}$ G e
 ~2% em $B_0=5\times10^{18}$ G.
 
+### Magnetização e pressão anisotrópica da matéria
+
+A pressão termodinâmica da matéria, $P_\parallel=-\Omega$, é a pressão ao longo do
+campo. Perpendicularmente às linhas de campo,
+
+$$
+P_\perp=P_\parallel-\mathcal M B,\qquad
+\mathcal M B=B\left.\frac{\partial P_\parallel}{\partial B}\right|_{\mu}
+$$
+
+(Ferrer et al., PRC 82, 065802 (2010); Strickland, Dexheimer & Menezes, PRD 86,
+125032 (2012)). $\mathcal MB$ é calculado em cada ponto por diferença central com
+duas soluções em $B(1\pm10^{-5})$ a $\mu_n$ fixo (teste
+`magnetization_is_the_field_derivative_of_the_parallel_pressure`). A coluna 2 da EoS
+exporta a pressão usada na TOV: topologia anisotrópica,
+$P_\perp^{\rm matéria}+P_\perp^{\rm campo}$; isotrópica (campo emaranhado),
+$P_\parallel-\tfrac23\mathcal MB+(P_\parallel^{\rm campo}+2P_\perp^{\rm campo})/3$.
+$\mathcal MB$ por linha vai para `<saída>_diag.dat`; é $P_\parallel$ que obedece
+$dP/d\mu_n=n_B$.
+
+Com campo constante de $10^{18}$ G (perfil `Constant`), $\mathcal MB$ chega a ~40%
+da pressão da matéria em $n_B\sim0.04\,n_0$ e $P_\perp$ deixa de crescer com a
+densidade; a EoS é encerrada com `NonMonotonic`. Com os perfis dependentes de
+densidade a matéria diluída vê $\sim B_{\rm surf}$ e o efeito desaparece
+($|\mathcal MB/P|\lesssim2\%$ para BDD até $B_0=5\times10^{18}$ G).
+
 ### Tensões do campo e eletrodinâmica não linear
 
 As partículas carregadas acoplam ao potencial vetor $A_\mu$ (acoplamento mínimo), portanto

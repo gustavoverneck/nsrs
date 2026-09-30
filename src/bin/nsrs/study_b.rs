@@ -207,39 +207,44 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, config: &Config) -> 
             .with_points(config.points)
     };
     let factors = [1.0 + delta, 1.0 - delta, 1.0 + 0.5 * delta, 1.0 - 0.5 * delta];
-    let mut engines: Vec<HadronsMatter> = factors.iter().map(|&f| engine(f)).collect();
     let rows = &center.rows;
-    let mut points = Vec::new();
-    for i in 1..rows.len().saturating_sub(1) {
+    // Os pontos de densidade são independentes: também em paralelo (o rayon
+    // divide o trabalho entre este nível e o de B), o que evita que um B
+    // lento segure uma única thread no fim da fase.
+    let indices: Vec<usize> = (1..rows.len().saturating_sub(1)).filter(|&i| rows[i][0] >= 0.05).collect();
+    let points = indices.par_iter().with_max_len(1).filter_map(|&i| {
         let row = &rows[i];
-        if row[0] < 0.05 {
-            continue;
-        }
         let guess = [row[18], row[13] / M_NUCLEON, row[14] / M_NUCLEON, row[15] / M_NUCLEON, 0.0];
         // dP_m/dB = 𝓜B/B (erg/cm^3/G) em cada campo.
-        let slopes: Option<Vec<f64>> = engines
-            .iter_mut()
-            .zip(factors)
-            .map(|(e, f)| {
+        let slopes: Vec<f64> = factors
+            .iter()
+            .map(|&f| {
+                let mut e = engine(f);
                 e.solve_point(row[17], &guess)?;
                 Some(e.magnetization_b * ERG_PER_MEV_FM3 / (b * f))
             })
-            .collect();
-        let Some(slopes) = slopes else {
-            continue;
-        };
+            .collect::<Option<_>>()?;
         // s = 1 - 4 pi d(dP_m/dB)/dB.
         let s_of = |plus: f64, minus: f64, step: f64| 1.0 - 4.0 * std::f64::consts::PI * (plus - minus) / (2.0 * step * b);
         let dn = rows[i + 1][0] - rows[i - 1][0];
-        points.push(StabilityPoint {
+        Some(StabilityPoint {
             n: row[0],
             mu: row[17],
             s: s_of(slopes[0], slopes[1], delta),
             s_half: s_of(slopes[2], slopes[3], 0.5 * delta),
             dp_dn: if dn != 0.0 { (rows[i + 1][2] - rows[i - 1][2]) / dn } else { f64::NAN },
-        });
+        })
+    });
+    points.collect()
+}
+
+/// Barra de progresso por tarefa concluída.
+fn progress(total: usize) -> indicatif::ProgressBar {
+    let bar = indicatif::ProgressBar::new(total as u64);
+    if let Ok(style) = indicatif::ProgressStyle::with_template("  [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} (resta ~{eta})") {
+        bar.set_style(style);
     }
-    points
+    bar
 }
 
 /// `study b [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
@@ -298,15 +303,21 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         let jobs: Vec<(Profile, f64)> =
             profiles.iter().flat_map(|&p| fields.iter().map(move |&b| (p, b))).collect();
         println!("\n[{model_name}] estrelas: {} EoS...", jobs.len());
+        let bar = progress(jobs.len());
+        // with_max_len(1): cada (perfil, B) é uma tarefa; uma thread livre pega
+        // a próxima assim que termina (sem blocos contíguos de B).
         let results: Vec<(Profile, f64, Vec<String>, bool, f64)> = jobs
             .par_iter()
+            .with_max_len(1)
             .map(|&(profile, b)| {
                 let eos = solve(*model, b, profile, &config);
                 let lines = star_lines(model_name, profile, b, &eos, config.hyperons);
                 let n_max = eos.rows.iter().map(|r| r[0]).fold(0.0, f64::max);
+                bar.inc(1);
                 (profile, b, lines, eos.anomalous, n_max)
             })
             .collect();
+        bar.finish_and_clear();
         for (_, _, lines, _, _) in &results {
             for line in lines {
                 writeln!(stars_csv, "{line}").map_err(|e| e.to_string())?;
@@ -340,10 +351,17 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         for (model_name, model) in &models {
             let positive: Vec<f64> = fields.iter().copied().filter(|&b| b > 0.0).collect();
             println!("\n[{model_name}] estabilidade: {} valores de B, 4 pontos extras por densidade (delta = {delta:e} e delta/2)...", positive.len());
+            let bar = progress(positive.len());
             let maps: Vec<(f64, Vec<StabilityPoint>)> = positive
                 .par_iter()
-                .map(|&b| (b, stability_points(*model, b, delta, &config)))
+                .with_max_len(1)
+                .map(|&b| {
+                    let points = stability_points(*model, b, delta, &config);
+                    bar.inc(1);
+                    (b, points)
+                })
                 .collect();
+            bar.finish_and_clear();
             for (b, points) in &maps {
                 let unstable = points.iter().filter(|p| p.magnetically_unstable()).count();
                 let mechanical = points.iter().filter(|p| p.dp_dn < 0.0).count();

@@ -76,7 +76,7 @@ eletrodinâmica logarítmica). O código está em `src/core/magnetic.rs`.
 |---|---|---|---|
 | `Constant` (padrão) | $B$ central `bg` em todas as densidades | BDD com $B_{\rm surf}=10^{15}$ G, $B_0=$ `bg` | comportamento legado |
 | `Bdd` | $B(n_B)$ local | mesmo $B(n_B)$ | Bandyopadhyay, Chakrabarty & Pal, PRL 79, 2176 (1997) |
-| `Dexheimer2017` | $B(\mu_B)$ local | mesmo $B(\mu_B)$ | Dexheimer et al., PLB 773, 487 (2017) |
+| `Dexheimer2017` | $B(\mu_B)$ local | não entra (padrão) | Dexheimer et al., PLB 773, 487 (2017) |
 
 **BDD.** $B(n_B)=B_{\rm surf}+B_0\left[1-e^{-\beta(n_B/n_0)^\gamma}\right]$, com
 $\beta=0.01$, $\gamma=3$ e $B_{\rm surf}=10^{15}$ G (intensidade máxima de superfície
@@ -101,6 +101,15 @@ necessária: o centro da estrela de massa máxima tem $\mu_n\approx1584$ MeV (GM
 
 Limitações: o perfil é o da direção polar de uma estrela de massa bariônica e
 dipolo fixos, e é usado aqui numa TOV esférica e isotrópica.
+
+**Energia e tensões do campo na TOV** (`with_field_stress`). Por padrão entram para
+`Constant` e `Bdd` (prática da literatura com o perfil BDD) e não entram para
+`Dexheimer2017`: o ajuste vem de soluções de Einstein–Maxwell, em que o campo é
+tratado na estrutura, e é destinado à EoS microscópica. Como $B(m_N)\approx4\times10^{17}$ G
+para $\mu=3\times10^{32}$ A m², somar $B^2/8\pi\approx3$ MeV/fm³ à EoS criaria um envelope
+sem matéria ($M_{\max}=4.4\,M_\odot$, $R_{1.4}=38$ km para GM1). Sem as tensões, o campo
+na matéria muda $M_{\max}$ em −0.2% (GM1) e −0.1% (GM3). Note que a NLEM só atua pelas
+tensões do campo; para estudá-la com este perfil use `with_field_stress(true)`.
 
 **Aproximação termodinâmica.** Em cada ponto a EoS é resolvida com o campo local
 como parâmetro externo, como nas duas referências. Com $B=B(\mu_B)$,
@@ -137,8 +146,10 @@ $\mathcal MB$ por linha vai para `<saída>_diag.dat`; é $P_\parallel$ que obede
 $dP/d\mu_n=n_B$.
 
 Com campo constante de $10^{18}$ G (perfil `Constant`), $\mathcal MB$ chega a ~40%
-da pressão da matéria em $n_B\sim0.04\,n_0$ e $P_\perp$ deixa de crescer com a
-densidade; a EoS é encerrada com `NonMonotonic`. Com os perfis dependentes de
+da pressão da matéria em $n_B\sim0.04\,n_0$ e $P_\perp$ deixa de crescer (e pode ficar
+negativa) com a densidade. Os critérios de validade da varredura usam a pressão sem o
+termo de magnetização, que é monótona em $\mu$; a TOV ordena a EoS por $\epsilon$ e descarta
+os trechos em que $P_\perp$ não cresce (matéria uniforme instável, região da crosta). Com os perfis dependentes de
 densidade a matéria diluída vê $\sim B_{\rm surf}$ e o efeito desaparece
 ($|\mathcal MB/P|\lesssim2\%$ para BDD até $B_0=5\times10^{18}$ G).
 

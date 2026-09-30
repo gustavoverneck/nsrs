@@ -53,6 +53,9 @@ pub struct PointDiagnostics {
     /// M B = B dP/dB a mu fixo (MeV/fm^3); já descontado da pressão
     /// perpendicular exportada na coluna 2.
     pub magnetization_b: f64,
+    /// Pressão sem o termo de magnetização (MeV/fm^3); igual à coluna 2 para
+    /// motores sem campo na matéria. Usada nos critérios de validade.
+    pub stability_pressure: f64,
 }
 
 pub struct Solver {
@@ -145,10 +148,14 @@ impl Solver {
 
             if let Some(point_result) = point_data {
                 last_mun = mun;
-                let point_diagnostics = PointDiagnostics {
-                    magnetization_b: match &self.engine {
-                        EngineMode::Hadrons(h) | EngineMode::DarkPhotons(h) => h.magnetization_b,
-                        _ => 0.0,
+                let point_diagnostics = match &self.engine {
+                    EngineMode::Hadrons(h) | EngineMode::DarkPhotons(h) => PointDiagnostics {
+                        magnetization_b: h.magnetization_b,
+                        stability_pressure: h.stability_pressure,
+                    },
+                    _ => PointDiagnostics {
+                        magnetization_b: 0.0,
+                        stability_pressure: point_result[2],
                     },
                 };
 
@@ -172,13 +179,17 @@ impl Solver {
                 // representam uma instabilidade física e não devem encerrar a
                 // continuação da EOS.
                 if !results.is_empty() {
+                    // Pressão sem magnetização: monótona em mu para matéria
+                    // estável (dP/dmu = n_B), ao contrário de P_perp.
                     let prev = results.last().unwrap();
+                    let prev_pressure = diagnostics.last().unwrap().stability_pressure;
+                    let point_pressure = point_diagnostics.stability_pressure;
                     let de = point_result[1] - prev[1];
-                    let dp = point_result[2] - prev[2];
+                    let dp = point_pressure - prev_pressure;
                     let resolved_matter = prev[0] > 1e-6 && point_result[0] > 1e-6;
 
                     let de_tol = 1e-10 * point_result[1].abs().max(prev[1].abs()).max(1.0);
-                    let dp_tol = 1e-10 * point_result[2].abs().max(prev[2].abs()).max(1.0);
+                    let dp_tol = 1e-10 * point_pressure.abs().max(prev_pressure.abs()).max(1.0);
 
                     if resolved_matter && de > de_tol && dp > dp_tol {
                         let cs2 = dp / de;

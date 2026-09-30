@@ -145,6 +145,13 @@ pub struct HadronsMatter {
     last_nb_over_n0: f64,
     /// M B = B dP/dB|_mu (MeV/fm^3) do último ponto resolvido.
     pub magnetization_b: f64,
+    /// Pressão total sem o termo de magnetização (MeV/fm^3) do último ponto:
+    /// a pressão termodinâmica, monótona em mu, usada nos critérios de
+    /// validade da varredura.
+    pub stability_pressure: f64,
+    /// Se a energia e as tensões do próprio campo entram na EoS da TOV.
+    /// `None`: padrão do perfil (`FieldProfile::field_stress_in_eos`).
+    field_stress_override: Option<bool>,
 }
 
 impl HadronsMatter {
@@ -246,6 +253,8 @@ impl HadronsMatter {
             local_field_g: bg,
             last_nb_over_n0: 0.0,
             magnetization_b: 0.0,
+            stability_pressure: 0.0,
+            field_stress_override: None,
         }
     }
 
@@ -365,6 +374,21 @@ impl HadronsMatter {
     pub fn with_field_profile(mut self, profile: FieldProfile) -> Self {
         self.field_profile = profile;
         self
+    }
+
+    /// Inclui (ou não) a energia e as tensões do próprio campo, B^2/8pi e
+    /// suas generalizações NLEM, na EoS usada pela TOV. Sem esta chamada vale
+    /// o padrão do perfil. A matéria (Landau e magnetização) usa o campo em
+    /// qualquer caso.
+    pub fn with_field_stress(mut self, include: bool) -> Self {
+        self.field_stress_override = Some(include);
+        self
+    }
+
+    /// Se a energia/tensão do campo entra na EoS deste motor.
+    pub fn field_stress_in_eos(&self) -> bool {
+        self.field_stress_override
+            .unwrap_or_else(|| self.field_profile.field_stress_in_eos())
     }
 
     /// Campo dos níveis de Landau a partir do campo local em Gauss.
@@ -694,7 +718,15 @@ impl HadronsMatter {
                 )
             }
         });
-        let stress = magnetic_stress(self.nlem, b_local_g);
+        let stress = if self.field_stress_in_eos() {
+            magnetic_stress(self.nlem, b_local_g)
+        } else {
+            crate::core::magnetic::MagneticStress {
+                energy: 0.0,
+                p_parallel: 0.0,
+                p_perpendicular: 0.0,
+            }
+        };
         let ebsd = stress.energy;
         // Pressão do campo + termo de magnetização da matéria: anisotrópica,
         // P_perp = P - M B; isotrópica (campo emaranhado), P - (2/3) M B.
@@ -708,7 +740,13 @@ impl HadronsMatter {
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + pmag_effective;
 
-        if ener_final >= 0.0 && press_final >= 0.0 {
+        // P_perp pode ficar negativa na matéria diluída em campo forte
+        // (M B > P); a validade do ponto é julgada pela pressão sem o termo de
+        // magnetização. A TOV descarta os trechos em que P_perp não cresce.
+        self.stability_pressure = press_final + magnetization_weight * self.magnetization_b;
+        // Tolerância absoluta de 1e-12 MeV/fm^3: no limiar vácuo-matéria o
+        // cancelamento em P = sum(mu n) - eps pode dar ~-1e-22.
+        if ener_final >= -1e-12 && self.stability_pressure >= -1e-12 {
             let fermion_mu_density = self
                 .mu_b
                 .iter()

@@ -100,6 +100,17 @@ impl FieldProfile {
         }
     }
 
+    /// Se a energia e as tensões do próprio campo entram, por padrão, na EoS
+    /// usada pela TOV. `Constant` e `Bdd`: sim (prática da literatura com o
+    /// perfil BDD). `Dexheimer2017`: não; o ajuste vem de soluções de
+    /// Einstein-Maxwell, nas quais o campo é tratado na estrutura, e é
+    /// destinado apenas à EoS microscópica ("to be used as input in
+    /// microscopic calculations"). Com B(m_N) ~ 4e17 G na superfície, somar
+    /// B^2/8pi ~ 3 MeV/fm^3 à EoS criaria um envelope sem matéria.
+    pub fn field_stress_in_eos(&self) -> bool {
+        !matches!(self, FieldProfile::Dexheimer2017 { .. })
+    }
+
     /// Se o campo depende de n_B e precisa de iteração em cada ponto.
     pub fn depends_on_density(&self) -> bool {
         matches!(self, FieldProfile::Bdd { .. })

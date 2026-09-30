@@ -405,7 +405,11 @@ pub fn unify_with_crust(
         .zip(raw_rho.into_iter())
         .map(|((p, eps), rho)| (p, eps, rho))
         .collect();
-    combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Ordena pela densidade de energia, que cresce com a densidade em qualquer
+    // EoS; pontos em que P não cresce (p.ex. P_perp com magnetização na
+    // matéria diluída) são descartados pelo filtro abaixo. Para uma EoS
+    // monótona o resultado é idêntico ao da ordenação por P.
+    combined.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut final_eps = Vec::with_capacity(combined.len());
     let mut final_p = Vec::with_capacity(combined.len());
@@ -573,7 +577,11 @@ fn clean_eos_with_rho(eps: &[f64], p: &[f64], rho: &[f64]) -> (Vec<f64>, Vec<f64
         .map(|((p, eps), rho)| (p, eps, rho))
         .collect();
 
-    combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Ordena pela densidade de energia, que cresce com a densidade em qualquer
+    // EoS; pontos em que P não cresce (p.ex. P_perp com magnetização na
+    // matéria diluída) são descartados pelo filtro abaixo. Para uma EoS
+    // monótona o resultado é idêntico ao da ordenação por P.
+    combined.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut safe_p = Vec::with_capacity(combined.len());
     let mut safe_eps = Vec::with_capacity(combined.len());

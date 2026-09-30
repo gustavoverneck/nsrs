@@ -217,3 +217,35 @@ fn magnetization_is_the_field_derivative_of_the_parallel_pressure() {
     assert!(rel(mb, independent) < 1e-4, "M B = {mb}, B dP/dB = {independent}");
     assert!(mb.abs() > 1e-6 * (row[2] - row[19] + mb));
 }
+
+/// O perfil de Dexheimer é entrada apenas da EoS microscópica: por padrão a
+/// energia e as tensões do campo não entram na EoS da TOV (coluna 19 nula e
+/// vácuo com P = 0). Com dipolo de 3e32 A m^2 o efeito do campo na matéria
+/// muda a massa máxima em menos de 1%.
+#[test]
+fn dexheimer_profile_excludes_field_stress_by_default() {
+    use nsrs::core::tov_solver::generate_mr_curve;
+    let max_mass = |rows: &[Row]| {
+        let e: Vec<f64> = rows.iter().map(|r| r[1]).collect();
+        let p: Vec<f64> = rows.iter().map(|r| r[2]).collect();
+        let n: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+        generate_mr_curve(&e, &p, &n, true).0.into_iter().fold(0.0, f64::max)
+    };
+    let (field_free, _) = solve(HadronsMatter::new(GM1, 0.0));
+    let (rows, termination) =
+        solve(HadronsMatter::new(GM1, 0.0).with_field_profile(dexheimer(3e32)));
+    assert_eq!(termination, Some(EosTermination::ReachedUpperLimit));
+    assert!(rows.iter().all(|r| r[19] == 0.0));
+    assert!(rows.iter().filter(|r| r[0] == 0.0).all(|r| r[2].abs() < 1e-12));
+    let (m0, m) = (max_mass(&field_free), max_mass(&rows));
+    assert!(rel(m, m0) < 1e-2, "M_max {m} vs {m0}");
+
+    // Com as tensões do campo explicitamente incluídas, B(m_N) ~ 4e17 G
+    // cria um envelope sem matéria (vácuo com P > 0).
+    let (with_stress, _) = solve(
+        HadronsMatter::new(GM1, 0.0)
+            .with_field_profile(dexheimer(3e32))
+            .with_field_stress(true),
+    );
+    assert!(with_stress.iter().filter(|r| r[0] == 0.0).all(|r| r[2] > 1.0));
+}

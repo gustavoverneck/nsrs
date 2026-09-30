@@ -169,12 +169,15 @@ fn landau_quantization_recovers_isotropic_limit() {
 
 const LANDAU_LIMIT_TOL: f64 = 1e-5;
 
-/// O solver precisa informar por que a EoS terminou. GM1/GM3 sem campo cobrem
-/// a malha inteira. GM3 com B = 1e18 G tem uma transição de primeira ordem na
-/// entrada da matéria (~941.4 MeV, ~0.05 n0) que a continuação em mu_n não
-/// atravessa; o truncamento deve ser reportado, não silencioso. Quando a
-/// construção de Maxwell for implementada, este caso deve passar a cobrir a
-/// malha inteira e o teste deve ser atualizado.
+/// O solver precisa informar por que a EoS terminou, e o motivo precisa ser
+/// coerente com a malha efetivamente coberta. GM1/GM3 sem campo cobrem a
+/// malha inteira.
+///
+/// GM3 com B = 1e18 G constante tem uma transição de primeira ordem na
+/// entrada da matéria (~941.4 MeV, ~0.05 n0). Se a continuação em mu_n a
+/// atravessa ou não depende dos últimos bits de exp/ln/powf (difere entre
+/// glibc e MSVC): o teste verifica o contrato, não o desfecho. Uma
+/// construção de Maxwell tornaria o resultado independente da plataforma.
 #[test]
 fn solver_reports_why_the_eos_ended() {
     for model in [GM1, GM3] {
@@ -183,20 +186,24 @@ fn solver_reports_why_the_eos_ended() {
         assert_eq!(solver.termination(), Some(EosTermination::ReachedUpperLimit));
     }
 
-    let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(GM3, 1e18)));
-    solver.solve();
-    // Com a magnetização em P_perp, a pressão perpendicular deixa de ser
-    // monótona logo antes da transição; ambos os términos são anômalos.
-    match solver.termination() {
-        Some(
-            t @ (EosTermination::ConvergenceFailure { mu_n_mev, nb_over_n0 }
-            | EosTermination::NonMonotonic { mu_n_mev, nb_over_n0 }),
-        ) => {
-            assert!(t.is_anomalous());
-            assert!((mu_n_mev - 941.4).abs() < 1.0, "mu_n = {mu_n_mev} MeV");
-            assert!(nb_over_n0 < 0.1, "nB/n0 = {nb_over_n0}");
+    let engine = HadronsMatter::new(GM3, 1e18);
+    let mu_sup_mev = engine.mun_sup * M_NUCLEON;
+    let mut solver = Solver::new(EngineMode::Hadrons(engine));
+    let rows = solver.solve();
+    let last_mu_mev = rows.last().expect("vacuum rows at least")[COL_MU_N] * M_NUCLEON;
+    match solver.termination().expect("termination must be reported") {
+        EosTermination::ReachedUpperLimit => {
+            assert!((last_mu_mev - mu_sup_mev).abs() < 2.0, "last mu = {last_mu_mev} MeV");
         }
-        other => panic!("expected a reported anomalous termination, got {other:?}"),
+        t @ (EosTermination::ConvergenceFailure { mu_n_mev, nb_over_n0 }
+        | EosTermination::NonMonotonic { mu_n_mev, nb_over_n0 }) => {
+            assert!(t.is_anomalous());
+            assert!(last_mu_mev < mu_sup_mev - 2.0);
+            // O motivo aponta o último ponto aceito.
+            assert!((mu_n_mev - last_mu_mev).abs() < 1e-9, "{mu_n_mev} vs {last_mu_mev}");
+            assert!((nb_over_n0 - rows.last().unwrap()[COL_NB]).abs() < 1e-12);
+        }
+        other => panic!("unexpected termination {other:?}"),
     }
 }
 

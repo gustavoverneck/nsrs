@@ -1,6 +1,5 @@
-// src/bin/validate_eos.rs
+// Validação de arquivos de EoS: `nsrs validate` (antigo binário validate_eos).
 
-use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -117,20 +116,26 @@ struct FileReport {
     checks: Vec<Check>,
 }
 
-fn main() {
-    let config = match parse_args() {
-        Ok(config) => config,
+/// Ponto de entrada de `nsrs validate`; devolve o código de saída
+/// (0 ok, 1 falhas ou avisos com --strict, 2 erro de uso ou de E/S).
+pub fn run(args: &[String]) -> i32 {
+    let config = match parse_args(args) {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            print_usage();
+            return 0;
+        }
         Err(message) => {
             eprintln!("{message}");
             print_usage();
-            std::process::exit(2);
+            return 2;
         }
     };
 
     let files = collect_inputs(&config.inputs);
     if files.is_empty() {
         eprintln!("No .dat EoS files found.");
-        std::process::exit(2);
+        return 2;
     }
 
     let mut reports = Vec::new();
@@ -143,27 +148,25 @@ fn main() {
     if let Some(csv_path) = &config.csv_path {
         if let Err(err) = write_csv(&reports, csv_path) {
             eprintln!("Could not write CSV {}: {err}", csv_path.display());
-            std::process::exit(2);
+            return 2;
         }
         println!("\nCSV report written to {}", csv_path.display());
     }
 
     let failed = reports.iter().any(|r| r.overall == Severity::Fail);
     let warned = reports.iter().any(|r| r.overall == Severity::Warn);
-    if failed || (config.strict && warned) {
-        std::process::exit(1);
-    }
+    if failed || (config.strict && warned) { 1 } else { 0 }
 }
 
-fn parse_args() -> Result<Config, String> {
+/// `Ok(None)` quando a ajuda foi pedida.
+fn parse_args(raw: &[String]) -> Result<Option<Config>, String> {
     let mut config = Config::default();
-    let mut args = env::args().skip(1);
+    let mut args = raw.iter().cloned();
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
-                print_usage();
-                std::process::exit(0);
+                return Ok(None);
             }
             "--csv" => {
                 config.csv_path = Some(PathBuf::from(next_value(&mut args, "--csv")?));
@@ -211,7 +214,7 @@ fn parse_args() -> Result<Config, String> {
         return Err("--r208-min must be smaller than --r208-max".to_string());
     }
 
-    Ok(config)
+    Ok(Some(config))
 }
 
 fn next_value(args: &mut impl Iterator<Item = String>, opt: &str) -> Result<String, String> {
@@ -231,7 +234,7 @@ fn parse_f64(text: String, opt: &str) -> Result<f64, String> {
 
 fn print_usage() {
     eprintln!(
-        "Usage: cargo run --bin validate_eos -- [OPTIONS] <eos.dat|directory>...\n\
+        "Usage: nsrs validate [OPTIONS] <eos.dat|directory>...\n\
 \n\
 Options:\n\
   --csv <path>                 Write machine-readable validation report\n\

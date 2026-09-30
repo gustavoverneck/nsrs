@@ -18,11 +18,7 @@
     - [`src/core/io_utils.rs`](#srccoreio_utilsrs)
   - [Fluxo numérico principal](#fluxo-numérico-principal)
   - [Formato dos dados da EoS hadrônica](#formato-dos-dados-da-eos-hadrônica)
-  - [Binaries principais (`src/bin`)](#binaries-principais-srcbin)
-  - [`magtop`](#magtop)
-  - [`nlem_limits`](#nlem_limits)
-  - [`tov`](#tov)
-  - [`bdd`](#bdd)
+  - [Executável `nsrs` (`src/bin/nsrs`)](#executável-nsrs-srcbinnsrs)
   - [Módulos principais (`src/core`)](#módulos-principais-srccore)
   - [Quarks e híbridas (em desenvolvimento)](#quarks-e-híbridas-em-desenvolvimento)
   - [Diretórios de saída](#diretórios-de-saída)
@@ -181,7 +177,7 @@ antigos com 21+3 colunas devem ser regenerados; apenas
 - Os antigos `with_n_chi` e `with_n_chi_natural` foram removidos; `n_chi` é
   agora estado calculado por `n_chi = y_chi * n_B`, não parâmetro constante.
 
-`validate_eos` aceita somente linhas uniformes com 34 colunas EOS ou 37 colunas
+`nsrs validate` aceita somente linhas uniformes com 34 colunas EOS ou 37 colunas
 EOS+M-R. Para linhas escuras, ele também verifica a relação de fração, a
 conversão entre `n_chi` e `kF_chi`, a definição de `mu_chi`, a solução neutra de
 Proca e `eps_X = P_X`; isso evita validar silenciosamente arquivos truncados ou
@@ -189,84 +185,49 @@ com diagnósticos escuros corrompidos.
 
 ---
 
-## Binaries principais (`src/bin`)
+## Executável `nsrs` (`src/bin/nsrs`)
 
-## `magtop`
+Todas as campanhas e ferramentas ficam num único executável com subcomandos:
 
-Arquivo: `src/bin/magtop.rs`
+```
+cargo run --release --bin nsrs -- <comando> [argumentos]
+cargo run --release --bin nsrs -- help
+```
 
-Objetivo:
+| Comando | Faz | Saída | Substitui |
+|---|---|---|---|
+| `scan b [--models GM1,GM3,FSU2] [--points 100] [--bmin Bc] [--bmax 3e18]` | EoS em função do campo constante (0 e malha log de `bmin` a `bmax`) | `output/b/` | `b` |
+| `scan log <exp_min> <exp_max> <pontos_por_década> <B...>` | NLEM logarítmica, $\xi=10^{exp}$ | `output/nlem_log/` | `nlem_log` |
+| `scan modmax <B...>` | ModMax, $\gamma = \{1..9\}\times10^{-10..-1}$, com `summary.csv` | `output/modmax/` | `nlem_modmax` |
+| `scan topology <modelo> <B...> [--prefix TAG] [--plot-only]` | isotrópica x anisotrópica: EoS, M-R e populações | `output/magtop/`, `results/magtop/` | `magtop` |
+| `dark scan [--models GM1,GM3] [--b 1e17]` | grade $10^4$ em $(\epsilon, m_X, g_D, Y_\chi)$ | `output/darkphotons_scan/` | `darkphotons` |
+| `dark benchmarks [--models GM1,GM3]` | cenários H0, S1-S3 (Kumar et al.), `summary.csv` transacional | `output/darkphotons_benchmarks/` | `darkphotons_base` |
+| `dark single` | GM1, $B=10^{17}$ G, um ponto do setor escuro | `output/darkphotons/GM1/` | `single_darkphotons` |
+| `quarks bag` | estrelas de quarks (MIT bag), varrendo $B_{bag}$ e $g_v$ | `results/bag_var_*.svg`, `results/gv_var_*.svg` | `bag_model` |
+| `quarks hybrid` | hádrons x quarks x híbrida (Maxwell) | `results/comparison_*.svg` | `hybrid` |
+| `report properties` | saturação, $M_{max}$, $R_{1.4}$, $\Lambda_{1.4}$, $I_{1.4}$, URCA, hyperons, $c_s^2$ | terminal | `properties` |
+| `report observations [constraints.csv]` | confronto com vínculos observacionais | `results/observations_report.csv` | `observations` |
+| `validate <eos.dat\|pasta>... [opções]` | verificações de arquivos de EoS (`validate --help`) | terminal, `--csv` | `validate_eos` |
+| `tov <eos.dat>` | curva M-R de uma EoS em arquivo | `results/mr_<nome>.svg` | `tov` |
+| `plot <eos.dat> <saida.png> <col_x> <col_y>` | uma coluna contra outra (índices a partir de 0) | PNG | `bdd` |
 
-- comparar topologias magnéticas (`Isotropic` vs `Anisotropic`) em vários campos $B$,
-- produzir EoS, curvas M-R e população de partículas por topologia.
+Opção comum às varreduras: `--threads N` (padrão: todos os núcleos). Os
+caminhos de saída e as malhas são os mesmos dos executáveis antigos. O
+antigo `nlem_log_limits` foi removido: ele escolhia $\xi$ a partir de um campo
+efetivo $B_{\rm ef}=B/(1+B^2/2\xi^2)$ nos níveis de Landau, premissa que não
+vale mais (os níveis de Landau usam $B$ e a NLEM entra só na tensão do campo;
+ver PHYSICS.md). `scan log` cobre a varredura em $\xi$.
 
-CLI:
+Organização do código: `main.rs` (despacho e ajuda), `cli.rs` (argumentos),
+`scan.rs`, `dark.rs`, `quarks.rs`, `report.rs`, `tools.rs` (`tov`, `plot`) e
+`validate.rs`.
 
-- `--plot-only`: reaproveita EoS já calculadas.
-- `--prefix TAG`: organiza campanhas com prefixo de nome.
+### `scan topology`
 
-Fluxo:
-
-1. cria dois motores hadrônicos por valor de $B$ (iso/aniso),
-2. resolve em paralelo com `solve_batch`,
-3. salva `eos.dat` por topologia,
-4. reconstrói vetores para TOV,
-5. extrai massa máxima e raio correspondente,
-6. plota EoS, M-R e população de partículas.
-
----
-
-## `nlem_limits`
-
-Arquivo: `src/bin/nlem_limits.rs`
-
-Objetivo:
-
-- varrer o parâmetro NLEM logarítmico $\xi$ para diferentes campos magnéticos,
-- estudar impacto em observáveis estelares.
-
-CLI:
-
-- `--plot-only`
-- `<GM1|GM3> <exp_min> <exp_max> <B1> <B2> ...`
-
-Malha de $\xi$:
-
-- usa pontos intercalados $1.0\times 10^k$ e $5.0\times 10^k$.
-
-Observáveis extraídos:
-
-- massa máxima,
-- raio no ponto de massa máxima,
-- densidade central,
-- massa efetiva central,
-- energia magnética central.
-
----
-
-## `tov`
-
-Arquivo: `src/bin/tov.rs`
-
-Objetivo:
-
-- ler um `eos.dat` e gerar curva M-R diretamente.
-
-Fluxo:
-
-1. leitura com `read_eos_file()`,
-2. integração TOV com `generate_mr_curve`,
-3. saída em `results/mr_<nome>.svg`.
-
----
-
-## `bdd`
-
-Arquivo: `src/bin/bdd.rs`
-
-Objetivo:
-
-- utilitário de plot coluna vs coluna (PNG), útil para inspeção rápida de tabelas numéricas.
+- compara topologias magnéticas (`Isotropic` vs `Anisotropic`) em vários campos $B$;
+- `--plot-only` reaproveita EoS já calculadas; `--prefix TAG` organiza campanhas;
+- salva `eos.dat` por topologia, extrai massa máxima e raio correspondente e
+  plota EoS, M-R e população de partículas.
 
 ---
 
@@ -281,9 +242,9 @@ Objetivo:
 - `darkphotons.rs`: gás de Dirac escuro; `DarkPhotonsMatter` é um apelido de `HadronsMatter`.
 - `nuclear.rs`: propriedades de saturação (n0, E/A, K, J, L, M*/M).
 - `tov_solver.rs` também integra maré (k2, Λ) e rotação lenta (I); `generate_star_sequence` devolve `StarProperties`.
-- Saídas com `with_eos_output("x.dat")`: `x.dat` (EoS, 34 + 3 colunas M-R sem crosta), `x_stars.dat` (estrelas com crosta: M, R, M_B, P_c, C, z, k2, Λ, I, Ī) e `x_diag.dat` (M·B, c_s², Γ, frações, URCA direto).
-- Binário `properties`: relatório de saturação e propriedades estelares dos modelos.
-- `observations.rs` e binário `observations`: confronto com vínculos observacionais e empíricos (`input/observations/constraints.csv`), relatório em `results/observations_report.csv`.
+- Saídas com `with_eos_output("x.dat")`: `x.dat` (EoS, 34 + 3 colunas M-R sem crosta), `x_stars.txt` (estrelas com crosta: M, R, M_B, P_c, C, z, k2, Λ, I, Ī) e `x_diag.txt` (M·B, c_s², Γ, frações, URCA direto).
+- `nsrs report properties`: relatório de saturação e propriedades estelares dos modelos.
+- `observations.rs` e `nsrs report observations`: confronto com vínculos observacionais e empíricos (`input/observations/constraints.csv`), relatório em `results/observations_report.csv`.
 - `solver.rs`: varredura em $\mu_n$ e controle adaptativo.
 - `tov_solver.rs`: integração de TOV e curva M-R.
 - `plotting.rs`: infraestrutura de gráficos.
@@ -295,11 +256,11 @@ Objetivo:
 
 As rotas de **quarks** e **híbridas** existem no código, mas neste momento são tratadas como trilhas em desenvolvimento nesta documentação:
 
-- `quarks` (`src/core/quarks.rs`, `src/bin/bag_model.rs`):
+- `quarks` (`src/core/quarks.rs`, `nsrs quarks bag`):
   - implementação baseada em MIT Bag com acoplamento vetorial,
   - foco em matéria de quarks pura e varreduras de parâmetros (`bag_constant`, `gv`).
 
-- `hybrid` (`src/core/hybrid.rs`, `src/bin/hybrid.rs`):
+- `hybrid` (`src/core/hybrid.rs`, `nsrs quarks hybrid`):
   - combina fase hadrônica e fase de quarks,
   - usa construção de Maxwell para decidir a fase estável ao longo de $\mu_n$.
 
@@ -321,11 +282,12 @@ Regra prática:
 
 Exemplos:
 
-- `cargo run --bin magtop -- GM1 1e16 5e17 1e18`
-- `cargo run --bin magtop -- --plot-only --prefix novo GM1 1e17 1e18`
-- `cargo run --bin nlem_limits -- GM1 8 28 1e15 5e16 1e17`
-- `cargo run --bin nlem_limits -- --plot-only GM1 8 28 1e15`
-- `cargo run --bin tov output/magtop/GM1/B_1.00e17/isotropic/eos.dat`
+- `cargo run --release --bin nsrs -- scan topology GM1 1e16 5e17 1e18`
+- `cargo run --release --bin nsrs -- scan topology GM1 1e17 1e18 --plot-only --prefix novo`
+- `cargo run --release --bin nsrs -- scan log 15 20 2 1e17 1e18 --models GM1`
+- `cargo run --release --bin nsrs -- tov output/magtop/GM1/B_1.00e17/isotropic/eos.dat`
+- `cargo run --release --bin nsrs -- validate output/magtop/GM1 --csv results/validacao.csv`
+- `cargo run --release --bin nsrs -- report observations`
 
 ---
 

@@ -1,20 +1,22 @@
-// src/bin/properties.rs
-//
-// Relatório de propriedades nucleares e estelares dos modelos (B = 0):
-// saturação (n0, E/A, K, J, L, M*/M), sequência estelar com crosta
-// (M_max, R_1.4, Lambda_1.4, I_1.4, z_1.4), limiar de URCA direto, início
-// dos hyperons e c_s^2 máximo no ramo estável.
-//
-// Uso: cargo run --release --bin properties
+// Relatórios de validação (substitui os binários properties e observations).
+
+use std::io::Write;
 
 use nsrs::core::io_utils::derived_diagnostics;
 use nsrs::core::nuclear::saturation_properties;
+use nsrs::core::observations::{Status, assess, load_constraints};
 use nsrs::core::tov_solver::generate_star_sequence;
 use nsrs::{EngineMode, FSU2, GM1, GM3, HadronsMatter, Solver};
 
+use crate::cli::{Args, create_dir};
+
 const HYPERONS: [&str; 6] = ["Lambda", "Sigma-", "Sigma0", "Sigma+", "Xi-", "Xi0"];
 
-fn main() {
+/// `report properties`: propriedades nucleares e estelares dos modelos (B = 0):
+/// saturação (n0, E/A, K, J, L, M*/M), sequência estelar com crosta
+/// (M_max, R_1.4, Lambda_1.4, I_1.4, z_1.4), limiar de URCA direto, início
+/// dos hyperons e c_s^2 máximo no ramo estável.
+pub fn properties(_raw: &[String]) -> Result<(), String> {
     for (name, model) in [("GM1", GM1), ("GM3", GM3), ("FSU2", FSU2)] {
         println!("== {name}");
         match saturation_properties(model) {
@@ -109,4 +111,71 @@ fn main() {
             println!("  c_s^2 máximo até o centro de M_max: {cs2_max:.3}");
         }
     }
+    Ok(())
+}
+
+/// `report observations [constraints.csv]`: Nível 3, confronto de GM1, GM3 e
+/// FSU2 (com e sem hyperons, B = 0) com os vínculos observacionais. Imprime a
+/// tabela e grava results/observations_report.csv.
+pub fn observations(raw: &[String]) -> Result<(), String> {
+    let args = Args::parse(raw, &[])?;
+    let path = args
+        .positional
+        .first()
+        .map(String::as_str)
+        .unwrap_or("input/observations/constraints.csv");
+    let constraints = load_constraints(path).map_err(|e| format!("falha ao ler '{path}': {e}"))?;
+
+    create_dir("results")?;
+    let mut csv = std::fs::File::create("results/observations_report.csv")
+        .map_err(|e| format!("results/observations_report.csv: {e}"))?;
+    writeln!(csv, "model,hyperons,constraint,model_value,value,err_minus,err_plus,credibility,distance_sigma,status,reference,doi")
+        .unwrap();
+
+    println!("Critério: d <= 1 compatível, 1 < d <= 2 tensão, d > 2 excluído (d em desvios-padrão).");
+    for (name, model) in [("GM1", GM1), ("GM3", GM3), ("FSU2", FSU2)] {
+        let saturation = saturation_properties(model);
+        for hyperons in [true, false] {
+            let engine = HadronsMatter::new(model, 0.0)
+                .with_hyperons(hyperons)
+                .with_limits(0.02, 3.0)
+                .with_points(2000);
+            let rows = Solver::new(EngineMode::Hadrons(engine)).solve();
+            let e: Vec<f64> = rows.iter().map(|r| r[1]).collect();
+            let p: Vec<f64> = rows.iter().map(|r| r[2]).collect();
+            let n: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+            let stars = generate_star_sequence(&e, &p, &n, true);
+
+            let tag = if hyperons { "com hyperons" } else { "só núcleons" };
+            println!("\n== {name} ({tag})");
+            let (mut ok, mut tension, mut excluded) = (0, 0, 0);
+            for c in &constraints {
+                match assess(c, &stars, saturation.as_ref()) {
+                    Some(a) => {
+                        match a.status {
+                            Status::Compatible => ok += 1,
+                            Status::Tension => tension += 1,
+                            Status::Excluded => excluded += 1,
+                        }
+                        println!(
+                            "  {:<34} modelo {:>9.4} | obs {:>8.3} (-{}, +{}) {:<10} d = {:>5.2}  {}",
+                            a.label, a.model_value, c.value, c.err_minus, c.err_plus,
+                            c.credibility.replace(" sigma", "σ"), a.distance, a.status.label()
+                        );
+                        writeln!(
+                            csv,
+                            "{name},{hyperons},\"{}\",{:.6},{},{},{},\"{}\",{:.4},{},\"{}\",{}",
+                            a.label, a.model_value, c.value, c.err_minus, c.err_plus,
+                            c.credibility, a.distance, a.status.label(), c.reference, c.doi
+                        )
+                        .unwrap();
+                    }
+                    None => println!("  {:<34} não comparável (massa acima da máxima do modelo)", c.label),
+                }
+            }
+            println!("  resumo: {ok} compatíveis, {tension} em tensão, {excluded} excluídos");
+        }
+    }
+    println!("\nRelatório gravado em results/observations_report.csv");
+    Ok(())
 }

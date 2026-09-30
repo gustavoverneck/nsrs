@@ -3,6 +3,7 @@ pub mod darkphotons;
 pub mod eos;
 pub mod hybrid;
 pub mod io_utils;
+pub mod magnetic;
 pub mod model;
 pub mod particles;
 pub mod physics;

@@ -239,20 +239,24 @@ impl QuarksMatter {
         let press_conv = p_u + p_d + p_s + p_e + p_mu - self.bag_constant + meson_energy;
 
         // --- CONTRIBUIÇÃO MAGNÉTICA (NLEM) ---
-        let bsurf = 1e11;
-        let btsl = self.bg * 1e-4;
-
+        // Perfil BDD (B_surf = 1e15 G, B0 = bg), campo em Gauss; pressão
+        // perpendicular às linhas de campo (topologia anisotrópica).
         let bdd = if self.bg == 0.0 {
             0.0
         } else {
-            bsurf + btsl * (1.0 - (-BDD_BETAA * (nb_total / N0).powf(BDD_ALPHAA)).exp())
+            crate::core::magnetic::bdd_field_g(
+                crate::core::magnetic::B_SURFACE_G,
+                self.bg,
+                BDD_BETAA,
+                BDD_ALPHAA,
+                nb_total / N0,
+            )
         };
-        let ebsi_maxwell = bdd.powi(2) / (8.0 * PI * 1e-7);
-        let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
-        let ebsd = ebsi_nlem / 1.602176634e32;
+        let stress = crate::core::magnetic::magnetic_stress(self.nlem, bdd);
+        let ebsd = stress.energy;
 
         let ener_final = ener_conv + ebsd;
-        let press_final = press_conv + ebsd;
+        let press_final = press_conv + stress.p_perpendicular;
 
         // Tratamento para evitar pressões negativas
         if press_final <= 0.0 {

@@ -5,6 +5,7 @@ use crate::core::constants::{
     AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA,
     HBAR_C, M_NUCLEON, MAX_LANDAU_LIMIT, MB, ML, N0, QE, RESULTS_SIZE,
 };
+use crate::core::magnetic::{FieldProfile, magnetic_stress};
 use crate::core::model::ModelParams;
 use nalgebra::{Matrix4, Vector4};
 
@@ -17,13 +18,13 @@ pub enum NlemModel {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MagneticTopology {
-    Isotropic,   // (P_mag = 1/3 eps_mag)
-    Anisotropic, // (P_mag = eps_mag)
+    Isotropic,   // campo emaranhado: P_mag = (P_par + 2 P_perp)/3 (Maxwell: eps/3)
+    Anisotropic, // P_mag = P_perp (Maxwell: eps)
 }
 
 impl NlemModel {
-    /// Recebe o campo magnético original (bg) e retorna o campo magnético
-    /// EFETIVO alterado pelo modelo não-linear.
+    /// Recebe o campo magnético original (bg, em Gauss) e retorna o campo
+    /// EFETIVO dos níveis de Landau. Para `Log`, csi (xi) também é em Gauss.
     pub fn effective_bg(&self, bg: f64) -> f64 {
         match self {
             NlemModel::Maxwell => bg,
@@ -34,35 +35,6 @@ impl NlemModel {
             }
 
             NlemModel::Log(csi) => bg * (1.0 + bg.powi(2) / (2.0 * csi.powi(2))),
-        }
-    }
-
-    /// Calcula a Densidade de Energia Magnética Macroscópica da NLEM
-    /// Essa é a energia real que curva o espaço-tempo na equação TOV.
-    pub fn magnetic_energy(&self, bg: f64, ebsi_maxwell: f64) -> f64 {
-        match self {
-            NlemModel::Maxwell => ebsi_maxwell,
-
-            NlemModel::Modmax(csi) => {
-                // ε_MM = ε_Max * e^(-csi)
-                ebsi_maxwell * (-csi).exp()
-            }
-
-            NlemModel::Log(csi) => {
-                let bg_sq = bg.powi(2);
-                let csi_sq = csi.powi(2);
-
-                // x = B^2 / (2 * csi^2)
-                let x = bg_sq / (2.0 * csi_sq);
-
-                // Limite de segurança matemático para x muito próximo de zero
-                if x < 1e-15 {
-                    ebsi_maxwell
-                } else {
-                    // Usamos ln_1p(x) que calcula ln(1 + x)
-                    ebsi_maxwell * (x.ln_1p() / x)
-                }
-            }
         }
     }
 }
@@ -129,6 +101,13 @@ pub struct HadronsMatter {
     pub isospin_factor: [f64; 8],
 
     pub eos_output: Option<String>,
+
+    /// Perfil do campo local (ver `core::magnetic`). Padrão: `Constant`.
+    pub field_profile: FieldProfile,
+    /// Campo local (Gauss) usado no último ponto resolvido.
+    pub local_field_g: f64,
+    /// n_B/n0 do último ponto aceito: chute da iteração do perfil BDD.
+    last_nb_over_n0: f64,
 }
 
 impl HadronsMatter {
@@ -211,7 +190,25 @@ impl HadronsMatter {
 
             isospin_factor: isospin_factor,
             eos_output: None,
+
+            field_profile: FieldProfile::Constant,
+            local_field_g: bg,
+            last_nb_over_n0: 0.0,
         }
+    }
+
+    /// Define o perfil do campo magnético local. Com `Bdd` e `Dexheimer2017`
+    /// o campo local entra nos níveis de Landau e na energia magnética; o
+    /// argumento `bg` de `new()` deixa de ser usado.
+    pub fn with_field_profile(mut self, profile: FieldProfile) -> Self {
+        self.field_profile = profile;
+        self
+    }
+
+    /// Campo dos níveis de Landau a partir do campo local em Gauss.
+    fn set_landau_field(&mut self, b_gauss: f64) {
+        self.local_field_g = b_gauss;
+        self.b = self.nlem.effective_bg(b_gauss) / BCE_G * BCE;
     }
     /// Define a topologia das linhas de campo magnético
     pub fn with_topology(mut self, top: MagneticTopology) -> Self {
@@ -332,11 +329,54 @@ impl HadronsMatter {
         charge_baryons + charge_leptons
     }
 
-    // Resolve para um dado mun e chute inicial, retorna solução e resultado
+    /// Resolve para um dado mun e chute inicial, retorna solução e resultado.
     pub fn solve_point(
         &mut self,
         mun: f64,
         initial_x: &[f64],
+    ) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
+        let profile = self.field_profile;
+        let mu_b_mev = mun * self.m_nuc;
+        let solution = if !profile.depends_on_density() {
+            let field = profile.local_field_g(0.0, mu_b_mev);
+            if let Some(b_gauss) = field {
+                self.set_landau_field(b_gauss);
+            }
+            self.solve_point_with_field(mun, initial_x, field)
+        } else {
+            // B depende de n_B, que depende de B: iteração de ponto fixo,
+            // partindo da densidade do último ponto aceito.
+            let mut nb_over_n0 = self.last_nb_over_n0;
+            let mut x = [initial_x[0], initial_x[1], initial_x[2], initial_x[3]];
+            let mut converged = None;
+            for _ in 0..200 {
+                let b_gauss = profile.local_field_g(nb_over_n0, mu_b_mev)?;
+                self.set_landau_field(b_gauss);
+                let (x_new, result) = self.solve_point_with_field(mun, &x, Some(b_gauss))?;
+                let change = (result[0] - nb_over_n0).abs();
+                x = x_new;
+                nb_over_n0 = result[0];
+                if change <= 1e-10 * nb_over_n0.max(1e-6) {
+                    converged = Some((x_new, result));
+                    break;
+                }
+            }
+            converged
+        };
+        if let Some((_, result)) = &solution {
+            self.last_nb_over_n0 = result[0];
+        }
+        solution
+    }
+
+    /// Resolve um ponto com o campo dos níveis de Landau já definido em
+    /// `self.b`. `field_g` é o campo local usado na energia magnética; `None`
+    /// usa o perfil legado do modo `Constant`.
+    pub fn solve_point_with_field(
+        &mut self,
+        mun: f64,
+        initial_x: &[f64],
+        field_g: Option<f64>,
     ) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
         self.mun = mun;
 
@@ -421,22 +461,24 @@ impl HadronsMatter {
         let ener_conv = ener * factor_mev_fm3;
         let press_conv = press * factor_mev_fm3;
 
-        let bsurf = 1e11;
-        let btsl = self.bg * 1e-4;
-        let bdd = if self.bg == 0.0 {
-            0.0
-        } else {
-            bsurf + btsl * (1.0 - (-BDD_BETAA * (nbtd / N0).powf(BDD_ALPHAA)).exp())
-        };
-
-        let ebsi_maxwell = bdd.powi(2) / (8.0 * std::f64::consts::PI * 1e-7);
-        let ebsi_nlem = self.nlem.magnetic_energy(bdd, ebsi_maxwell);
-        let ebsd = ebsi_nlem / 1.602176634e32;
-
-        let pmag_effective = match self.topology {
-            MagneticTopology::Isotropic => ebsd / 3.0,
-            MagneticTopology::Anisotropic => ebsd,
-        };
+        // Campo local da energia magnética. No modo `Constant` (legado) é o
+        // perfil BDD com B_surf = 1e15 G e B0 = bg, nulo se bg = 0.
+        let b_local_g = field_g.unwrap_or_else(|| {
+            if self.bg == 0.0 {
+                0.0
+            } else {
+                crate::core::magnetic::bdd_field_g(
+                    crate::core::magnetic::B_SURFACE_G,
+                    self.bg,
+                    BDD_BETAA,
+                    BDD_ALPHAA,
+                    nbtd / N0,
+                )
+            }
+        });
+        let stress = magnetic_stress(self.nlem, b_local_g);
+        let ebsd = stress.energy;
+        let pmag_effective = stress.pressure(self.topology);
 
         let ener_final = ener_conv + ebsd;
         let press_final = press_conv + pmag_effective;

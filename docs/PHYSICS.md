@@ -65,6 +65,82 @@ $$
 
 Aqui, $F_{\mu\nu} = \partial_\mu A_\nu - \partial_\nu A_\mu$ representa o tensor de força do campo eletromagnético de Maxwell padrão, e $A_\mu$ é o campo de fótons visíveis acoplado à corrente eletromagnética $J^\mu_{\text{EM}}$.
 
+## Campo magnético: perfis e tensões
+
+Todas as intensidades de campo são em Gauss (inclusive o parâmetro $\xi$ da
+eletrodinâmica logarítmica). O código está em `src/core/magnetic.rs`.
+
+### Perfis do campo local (`FieldProfile`)
+
+| Perfil | Níveis de Landau | Energia magnética | Referência |
+|---|---|---|---|
+| `Constant` (padrão) | $B$ central `bg` em todas as densidades | BDD com $B_{\rm surf}=10^{15}$ G, $B_0=$ `bg` | comportamento legado |
+| `Bdd` | $B(n_B)$ local | mesmo $B(n_B)$ | Bandyopadhyay, Chakrabarty & Pal, PRL 79, 2176 (1997) |
+| `Dexheimer2017` | $B(\mu_B)$ local | mesmo $B(\mu_B)$ | Dexheimer et al., PLB 773, 487 (2017) |
+
+**BDD.** $B(n_B)=B_{\rm surf}+B_0\left[1-e^{-\beta(n_B/n_0)^\gamma}\right]$, com
+$\beta=0.01$, $\gamma=3$ e $B_{\rm surf}=10^{15}$ G (intensidade máxima de superfície
+observada em magnetares, adotada nos trabalhos recentes). Como o solver avança em
+$\mu_n$, cada ponto usa uma iteração de ponto fixo $B\leftrightarrow n_B$ até
+$|\Delta n_B/n_B|<10^{-10}$.
+
+**Dexheimer et al. (2017), Eq. (1).** Ajuste a soluções de Einstein–Maxwell
+(direção polar, campo poloidal):
+
+$$
+B(\mu_B)=\frac{(a+b\,\mu_B+c\,\mu_B^2)\,\mu}{B_c},\qquad B_c=4.414\times10^{13}\ {\rm G},
+$$
+
+com $\mu_B$ em MeV ($\mu_B=\mu_n$ em equilíbrio β), $\mu$ o momento de dipolo em
+A m² e $(a,b,c)$ da Tabela 2 para $M_B=2.2\,M_\odot$ ou $1.6\,M_\odot$. O ajuste
+cobre $\mu_B\approx 939$–$1500$ MeV. Abaixo de $m_N$ usa-se $B(m_N)$. Acima de
+1500 MeV o polinômio é extrapolado até o vértice ($-b/2c$: 1734 MeV para
+$M_B=2.2$, 1629 MeV para $M_B=1.6$) e congelado a partir dele. A extrapolação é
+necessária: o centro da estrela de massa máxima tem $\mu_n\approx1584$ MeV (GM1) e
+1525 MeV (GM3). Entre 1500 e 1600 MeV o campo cresce ~5%.
+
+Limitações: o perfil é o da direção polar de uma estrela de massa bariônica e
+dipolo fixos, e é usado aqui numa TOV esférica e isotrópica.
+
+**Aproximação termodinâmica.** Em cada ponto a EoS é resolvida com o campo local
+como parâmetro externo, como nas duas referências. Com $B=B(\mu_B)$,
+
+$$
+\frac{dP_m}{d\mu_n}=n_B+\mathcal M\,\frac{dB}{d\mu_n},\qquad
+\mathcal M=\left.\frac{\partial P_m}{\partial B}\right|_{\mu},
+$$
+
+e o termo de magnetização não é incluído em $n_B$. Para GM1 com
+$\mu=3\times10^{32}$ A m² ele vale $5\times10^{-4}$–$2.4\times10^{-3}\,n_B$ entre
+$n_0$ e $6n_0$ (verificado em `tests/magnetic_profiles.rs`). Para o perfil BDD, os
+termos em $dB/dn_B$ desprezados valem $\lesssim10^{-3}$ até $B_0=10^{18}$ G e
+~2% em $B_0=5\times10^{18}$ G.
+
+### Tensões do campo e eletrodinâmica não linear
+
+Para um campo magnético estático puro com Lagrangiana $L(B)$, a densidade de
+energia é $\epsilon_B=-L$ e $H=d\epsilon_B/dB$. O tensor de tensões
+$\sigma_{ij}=H_iB_j-\delta_{ij}(HB-\epsilon_B)$ dá
+
+$$
+P_\parallel=-\epsilon_B,\qquad P_\perp=HB-\epsilon_B
+$$
+
+(Soleng, PRD 52, 6178 (1995), Eq. 3, no caso logarítmico). A topologia
+anisotrópica usa $P_{\rm mag}=P_\perp$; a isotrópica (campo emaranhado) usa
+$(P_\parallel+2P_\perp)/3$.
+
+| Modelo | $\epsilon_B/\epsilon_{\rm Maxwell}$ | $HB/\epsilon_{\rm Maxwell}$ | $P_\perp$ |
+|---|---|---|---|
+| Maxwell | 1 | 2 | $\epsilon_B$ |
+| ModMax($\gamma$) | $e^{-\gamma}$ | $2e^{-\gamma}$ | $\epsilon_B$ |
+| Log($\xi$) | $\ln(1+x)/x$ | $2/(1+x)$ | $\epsilon_{\rm Maxwell}\left[\frac{2}{1+x}-\frac{\ln(1+x)}{x}\right]$ |
+
+com $\epsilon_{\rm Maxwell}=B^2/8\pi$ e $x=B^2/(2\xi^2)$. Para Maxwell e ModMax
+($\epsilon_B\propto B^2$) as relações $P=\epsilon_B$ e $P=\epsilon_B/3$ continuam
+valendo. Para o modelo logarítmico elas não valem: $P_\perp$ fica menor que
+$\epsilon_B$ e se torna negativa para $x\gtrsim3.9$ ($B\gtrsim2.8\,\xi$).
+
 ## Setor escuro fermiônico
 
 `DarkPhotonsMatter` acrescenta um férmion de Dirac eletricamente neutro $\chi$

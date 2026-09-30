@@ -68,11 +68,12 @@ fn sort_eos_data(rho: &mut Vec<f64>, eps: &mut Vec<f64>, p: &mut Vec<f64>) {
     *rho = combined.iter().map(|x| x.2).collect();
 }
 
-/// Caminho do arquivo de estrelas: `x.dat` -> `x_stars.dat`.
+/// Caminho do arquivo de estrelas: `x.dat` -> `x_stars.txt`. A extensão não
+/// é `.dat` para que ferramentas que procuram EoS por `*.dat` não o leiam.
 pub fn stars_path(eos_path: &str) -> String {
     match eos_path.strip_suffix(".dat") {
-        Some(stem) => format!("{stem}_stars.dat"),
-        None => format!("{eos_path}_stars.dat"),
+        Some(stem) => format!("{stem}_stars.txt"),
+        None => format!("{eos_path}_stars.txt"),
     }
 }
 
@@ -106,11 +107,11 @@ pub fn write_stars(
     Ok(())
 }
 
-/// Caminho do arquivo de diagnósticos: `x.dat` -> `x_diag.dat`.
+/// Caminho do arquivo de diagnósticos: `x.dat` -> `x_diag.txt`.
 pub fn diagnostics_path(eos_path: &str) -> String {
     match eos_path.strip_suffix(".dat") {
-        Some(stem) => format!("{stem}_diag.dat"),
-        None => format!("{eos_path}_diag.dat"),
+        Some(stem) => format!("{stem}_diag.txt"),
+        None => format!("{eos_path}_diag.txt"),
     }
 }
 

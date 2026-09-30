@@ -47,7 +47,7 @@ impl EosTermination {
 }
 
 /// Grandezas por ponto da EoS que não cabem no formato de 34 colunas.
-/// Exportadas em `<saída>_diag.dat` (ver `io_utils::write_diagnostics`).
+/// Exportadas em `<saída>_diag.txt` (ver `io_utils::write_diagnostics`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PointDiagnostics {
     /// M B = B dP/dB a mu fixo (MeV/fm^3); já descontado da pressão

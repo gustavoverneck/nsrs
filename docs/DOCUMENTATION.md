@@ -281,7 +281,7 @@ Objetivo:
 - `darkphotons.rs`: gás de Dirac escuro; `DarkPhotonsMatter` é um apelido de `HadronsMatter`.
 - `nuclear.rs`: propriedades de saturação (n0, E/A, K, J, L, M*/M).
 - `tov_solver.rs` também integra maré (k2, Λ) e rotação lenta (I); `generate_star_sequence` devolve `StarProperties`.
-- Saídas com `with_eos_output("x.dat")`: `x.dat` (EoS, 34 + 3 colunas M-R sem crosta), `x_stars.dat` (estrelas com crosta: M, R, M_B, P_c, C, z, k2, Λ, I, Ī) e `x_diag.dat` (M·B, c_s², Γ, frações, URCA direto).
+- Saídas com `with_eos_output("x.dat")`: `x.dat` (EoS, 34 + 3 colunas M-R sem crosta), `x_stars.txt` (estrelas com crosta: M, R, M_B, P_c, C, z, k2, Λ, I, Ī) e `x_diag.txt` (M·B, c_s², Γ, frações, URCA direto).
 - Binário `properties`: relatório de saturação e propriedades estelares dos modelos.
 - `observations.rs` e binário `observations`: confronto com vínculos observacionais e empíricos (`input/observations/constraints.csv`), relatório em `results/observations_report.csv`.
 - `solver.rs`: varredura em $\mu_n$ e controle adaptativo.

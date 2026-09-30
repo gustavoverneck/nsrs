@@ -142,7 +142,7 @@ duas soluções em $B(1\pm10^{-5})$ a $\mu_n$ fixo (teste
 exporta a pressão usada na TOV: topologia anisotrópica,
 $P_\perp^{\rm matéria}+P_\perp^{\rm campo}$; isotrópica (campo emaranhado),
 $P_\parallel-\tfrac23\mathcal MB+(P_\parallel^{\rm campo}+2P_\perp^{\rm campo})/3$.
-$\mathcal MB$ por linha vai para `<saída>_diag.dat`; é $P_\parallel$ que obedece
+$\mathcal MB$ por linha vai para `<saída>_diag.txt`; é $P_\parallel$ que obedece
 $dP/d\mu_n=n_B$.
 
 Com campo constante de $10^{18}$ G (perfil `Constant`), $\mathcal MB$ chega a ~40%
@@ -217,9 +217,9 @@ $I=\tfrac25MR^2$; relação universal I-Love de Yagi & Yunes, Science 341, 365 (
 dentro de 1.5% para GM1, GM3 e FSU2 entre $1\,M_\odot$ e $M_{\max}$ (medido: <0.8%).
 Com crosta, GM1 dá $\Lambda_{1.4}\approx850$.
 
-Com `with_eos_output("x.dat")` o solver grava também `x_stars.dat` (EoS do núcleo +
+Com `with_eos_output("x.dat")` o solver grava também `x_stars.txt` (EoS do núcleo +
 crosta BPS; colunas M, R, $M_B$, $P_c$, $C$, $z$, $k_2$, $\Lambda$, $I$ [$10^{45}$ g cm²],
-$\bar I$) e `x_diag.dat` (diagnósticos por linha da EoS). As colunas M-R anexadas a
+$\bar I$) e `x_diag.txt` (diagnósticos por linha da EoS). As colunas M-R anexadas a
 `x.dat` continuam sem crosta, como antes.
 
 ## Propriedades de saturação e diagnósticos da EoS
@@ -232,7 +232,7 @@ e $L=3n_0\,dJ/dn$. Reproduz Chen & Piekarewicz (2014) para FSU2 (K = 237.5, J = 
 L = 112.6 MeV; artigo: 238.0, 37.62, 112.8) e Glendenning & Moszkowski (1991) para
 GM1/GM3.
 
-`io_utils::derived_diagnostics` (gravado em `x_diag.dat`) dá por linha $c_s^2=dP/d\epsilon$,
+`io_utils::derived_diagnostics` (gravado em `x_diag.txt`) dá por linha $c_s^2=dP/d\epsilon$,
 $\Gamma=(\epsilon+P)/P\,c_s^2$, frações $Y_p$, $Y_e$, $Y_\mu$, $Y_{\rm hyp}$ e o critério de URCA
 direto nucleônico $k_{Fn}\le k_{Fp}+k_{F\ell}$ (Lattimer et al., PRL 66, 2701 (1991); momentos
 de Fermi isotrópicos). O binário `properties` resume saturação, estrelas, limiar de URCA e

@@ -207,6 +207,7 @@ cargo run --release --bin nsrs -- help
 | `quarks bag` | estrelas de quarks (MIT bag), varrendo $B_{bag}$ e $g_v$ | `results/bag_var_*.svg`, `results/gv_var_*.svg` | `bag_model` |
 | `quarks hybrid` | hádrons x quarks x híbrida (Maxwell) | `results/comparison_*.svg` | `hybrid` |
 | `report properties` | saturação, $M_{max}$, $R_{1.4}$, $\Lambda_{1.4}$, $I_{1.4}$, URCA, hyperons, $c_s^2$ | terminal | `properties` |
+| `report validation [--out docs/VALIDATION_REPORT.md] [--constraints csv]` | relatório completo da validação em Markdown: soluções exatas, identidades termodinâmicas, parametrizações contra os artigos originais, relações universais, observações, perfis de campo e NLEM, com critérios e referências numeradas | `docs/VALIDATION_REPORT.md` | — |
 | `report observations [constraints.csv]` | confronto com vínculos observacionais | `results/observations_report.csv` | `observations` |
 | `validate <eos.dat\|pasta>... [opções]` | verificações de arquivos de EoS (`validate --help`) | terminal, `--csv` | `validate_eos` |
 | `tov <eos.dat>` | curva M-R de uma EoS em arquivo | `results/mr_<nome>.svg` | `tov` |

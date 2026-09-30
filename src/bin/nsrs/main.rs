@@ -14,6 +14,7 @@ mod scan;
 mod study;
 mod tools;
 mod validate;
+mod validation;
 
 const USAGE: &str = "\
 NSRS - Neutron Stars Rust Solver
@@ -49,6 +50,8 @@ Quarks (em desenvolvimento):
 Relatórios de validação:
   report properties    Saturação, estrelas (M_max, R, Lambda, I), URCA, hyperons.
   report observations  [constraints.csv]  Confronto com vínculos observacionais. -> results/observations_report.csv
+  report validation    [--out docs/VALIDATION_REPORT.md] [--constraints csv]
+                       Relatório completo da validação, com literatura e citações. -> docs/VALIDATION_REPORT.md
 
 Ferramentas:
   validate <eos.dat|pasta>... [opções]   Verifica arquivos de EoS (use 'validate --help').
@@ -80,6 +83,7 @@ fn main() {
         ("quarks", "hybrid") => quarks::hybrid(tail),
         ("report", "properties") => report::properties(tail),
         ("report", "observations") => report::observations(tail),
+        ("report", "validation") => validation::run(tail),
         ("validate", _) => std::process::exit(validate::run(rest)),
         ("tov", _) => tools::tov(rest),
         ("plot", _) => tools::plot(rest),

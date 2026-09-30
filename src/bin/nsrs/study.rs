@@ -98,7 +98,7 @@ fn field_pressure(case: Case, topology: MagneticTopology, b_gauss: f64) -> f64 {
 /// x* = B^2/(2 xi^2) acima do qual a pressão do campo na TOV fica negativa
 /// no modelo Log (anisotrópica: P_perp; isotrópica: (P_par + 2 P_perp)/3).
 /// Obtido por bisseção sobre `magnetic_stress`, para refletir o código.
-fn negative_pressure_threshold(topology: MagneticTopology) -> f64 {
+pub(crate) fn negative_pressure_threshold(topology: MagneticTopology) -> f64 {
     let b = 1e18;
     let sign = |x: f64| field_pressure(Case::Log(b / (2.0 * x).sqrt()), topology, b);
     let (mut lo, mut hi) = (1e-3_f64, 1e3_f64);

@@ -261,6 +261,36 @@ uma interpolação politrópica entre a crosta externa BPS e o núcleo; o NSRS j
 tabela BPS diretamente à EoS uniforme e obtém 13.95 km. Uma crosta interna unificada
 é um passo pendente.
 
+## Confronto com observações (Nível 3)
+
+Vínculos em `input/observations/constraints.csv`, cada um com referência, DOI e arXiv
+conferidos na fonte: massas de PSR J0348+0432 (Antoniadis et al. 2013) e PSR J0740+6620
+(Fonseca et al. 2021); pontos M-R de NICER para J0030+0451 (Riley et al. 2019; Miller et
+al. 2019) e J0740+6620 (Riley et al. 2021; Miller et al. 2021); $R_{1.4}=12.45\pm0.65$ km
+(Miller et al. 2021); $\Lambda_{1.4}=190^{+390}_{-120}$ a 90% (LVC, PRL 121, 161101 (2018));
+$n_0$, $E/A$, $K$ (Margueron, Hoffmann & Casali, PRC 97, 025805 (2018)); $J$, $L$ (Oertel et
+al., RMP 89, 015007 (2017)).
+
+`core::observations` converte cada vínculo numa distância $d$ em desvios-padrão (barras
+assimétricas; intervalos de 90% divididos por 1.645): massa máxima,
+$d=\max(0,(M_{\rm obs}-M_{\max})/\sigma_-)$; ponto M-R, menor distância normalizada ao ramo
+estável; $R_{1.4}$ e $\Lambda_{1.4}$ interpolados na curva; propriedades nucleares, desvio
+simples. $d\le1$ compatível, $1<d\le2$ tensão, $d>2$ excluído. O binário `observations`
+avalia GM1, GM3 e FSU2 (B = 0, crosta BPS, com e sem hyperons) e grava
+`results/observations_report.csv`.
+
+Resultado (excluídos, $d>2$):
+
+| Modelo | com hyperons | só núcleons |
+|---|---|---|
+| GM1 | $\Lambda_{1.4}$ (890), $K$ (300) | $\Lambda_{1.4}$, $K$ |
+| GM3 | massas de J0348 e J0740 ($M_{\max}=1.70$), pontos NICER de J0740 | nenhum (6 em tensão) |
+| FSU2 | massas ($M_{\max}=1.60$), NICER J0740, $\Lambda_{1.4}$ (738) | $R_{1.4}$ (13.95), $\Lambda_{1.4}$ (866) |
+
+Com hyperons (acoplamentos universais $x_\sigma=0.7$, $x_\omega=x_\rho=0.783$) GM3 e FSU2 não
+sustentam $2\,M_\odot$ (problema dos hyperons). GM1 e FSU2 são rígidos demais para o
+GW170817. Os raios dependem da junção crosta-núcleo (ver a nota sobre FSU2 acima).
+
 ## Setor escuro fermiônico
 
 O setor escuro é opcional em `HadronsMatter` (builders `with_y_chi`, `with_m_chi`,

@@ -1,0 +1,14 @@
+kind,label,value,err_minus,err_plus,at_mass_msun,mass_msun,mass_err_minus,mass_err_plus,credibility,reference,doi,arxiv
+max_mass,PSR J0348+0432,2.01,0.04,0.04,,,,,68%,Antoniadis et al. 2013 Science 340 1233232,10.1126/science.1233232,1304.6875
+max_mass,PSR J0740+6620 (timing),2.08,0.07,0.07,,,,,68.3%,Fonseca et al. 2021 ApJL,10.3847/2041-8213/ac03b8,2104.00880
+mass_radius,PSR J0030+0451 (Riley+2019),12.71,1.19,1.14,,1.34,0.16,0.15,68%,Riley et al. 2019 ApJL 887 L21,10.3847/2041-8213/ab481c,1912.05702
+mass_radius,PSR J0030+0451 (Miller+2019),13.02,1.06,1.24,,1.44,0.14,0.15,68%,Miller et al. 2019 ApJL 887 L24,10.3847/2041-8213/ab50c5,1912.05705
+mass_radius,PSR J0740+6620 (Riley+2021),12.39,0.98,1.30,,2.072,0.066,0.067,68%,Riley et al. 2021 ApJL 918,10.3847/2041-8213/ac0a81,2105.06980
+mass_radius,PSR J0740+6620 (Miller+2021),13.7,1.5,2.6,,2.08,0.07,0.07,68%,Miller et al. 2021 ApJL,10.3847/2041-8213/ac089b,2105.06979
+radius_at_mass,R(1.4 Msun) combined,12.45,0.65,0.65,1.4,,,,68% (range of frameworks),Miller et al. 2021 ApJL,10.3847/2041-8213/ac089b,2105.06979
+tidal_at_mass,GW170817 Lambda(1.4 Msun),190,120,390,1.4,,,,90%,Abbott et al. (LVC) 2018 PRL 121 161101,10.1103/PhysRevLett.121.161101,1805.11581
+nuclear_n0,saturation density [fm^-3],0.155,0.005,0.005,,,,,1 sigma,Margueron Hoffmann Casali 2018 PRC 97 025805,10.1103/PhysRevC.97.025805,1708.06894
+nuclear_ea,binding energy E/A [MeV],-15.8,0.3,0.3,,,,,1 sigma,Margueron Hoffmann Casali 2018 PRC 97 025805,10.1103/PhysRevC.97.025805,1708.06894
+nuclear_k,incompressibility K [MeV],230,20,20,,,,,1 sigma,Margueron Hoffmann Casali 2018 PRC 97 025805,10.1103/PhysRevC.97.025805,1708.06894
+nuclear_j,symmetry energy J [MeV],31.7,3.2,3.2,,,,,1 sigma,Oertel et al. 2017 RMP 89 015007,10.1103/RevModPhys.89.015007,1610.03361
+nuclear_l,symmetry slope L [MeV],58.7,28.1,28.1,,,,,1 sigma,Oertel et al. 2017 RMP 89 015007,10.1103/RevModPhys.89.015007,1610.03361

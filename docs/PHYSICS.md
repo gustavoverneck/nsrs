@@ -184,6 +184,44 @@ com $\epsilon_{\rm Maxwell}=B^2/8\pi$ e $x=B^2/(2\xi^2)$. Para Maxwell e ModMax
 valendo. Para o modelo logarítmico elas não valem: $P_\perp$ fica menor que
 $\epsilon_B$ e se torna negativa para $x\gtrsim3.9$ ($B\gtrsim2.8\,\xi$).
 
+## Propriedades estelares: maré, momento de inércia e redshift
+
+Junto com a TOV ($P$, $m$, $m_B$) o integrador resolve, com os mesmos passos (o
+controle de erro usa só $P$, $m$, $m_B$; a curva M-R não muda), em unidades
+geometrizadas:
+
+**Maré** (Hinderer, ApJ 677, 1216 (2008); Postnikov, Prakash & Lattimer, PRD 82,
+024016 (2010)): $r\,y'=-y^2-yF-r^2Q$, $y(0)=2$, com
+
+$$
+F=\frac{1-4\pi r^2(\epsilon-P)}{1-2m/r},\quad
+Q=\frac{4\pi\left[5\epsilon+9P+(\epsilon+P)\,d\epsilon/dP\right]}{1-2m/r}
+-\frac{6}{r^2(1-2m/r)}-4\left[\frac{m+4\pi r^3P}{r^2(1-2m/r)}\right]^2 .
+$$
+
+Na superfície, $y_R\to y_R-3\epsilon_s/\bar\epsilon$ ($\bar\epsilon=3M/4\pi R^3$) pela
+descontinuidade de densidade (Damour & Nagar 2009). $k_2$ segue da fórmula fechada em
+$C=M/R$ e $y_R$ (limite newtoniano $(2-y)/2(3+y)$ para $C<5\times10^{-3}$) e
+$\Lambda=\tfrac23k_2C^{-5}$.
+
+**Momento de inércia** (Hartle, ApJ 150, 1005 (1967)):
+$\frac{1}{r^4}(r^4j\bar\omega')'+\frac{4j'}{r}\bar\omega=0$, $j=e^{-\nu/2}\sqrt{1-2m/r}$,
+$\bar\omega(0)=1$. Fora da estrela $\bar\omega=\Omega-2J/r^3$, logo $J=R^4\bar\omega'(R)/6$,
+$\Omega=\bar\omega(R)+2J/R^3$ e $I=J/\Omega$; $\bar I=I/M^3$.
+
+**Redshift** de superfície: $z=(1-2C)^{-1/2}-1$.
+
+Validação (`tests/stellar_properties.rs`): polítropo $n=1$ com $C\sim10^{-4}$,
+$k_2=(15-\pi^2)/2\pi^2$ e $I=\tfrac23(1-6/\pi^2)MR^2$; densidade uniforme, $k_2=3/4$ e
+$I=\tfrac25MR^2$; relação universal I-Love de Yagi & Yunes, Science 341, 365 (2013),
+dentro de 1.5% para GM1, GM3 e FSU2 entre $1\,M_\odot$ e $M_{\max}$ (medido: <0.8%).
+Com crosta, GM1 dá $\Lambda_{1.4}\approx850$.
+
+Com `with_eos_output("x.dat")` o solver grava também `x_stars.dat` (EoS do núcleo +
+crosta BPS; colunas M, R, $M_B$, $P_c$, $C$, $z$, $k_2$, $\Lambda$, $I$ [$10^{45}$ g cm²],
+$\bar I$) e `x_diag.dat` (diagnósticos por linha da EoS). As colunas M-R anexadas a
+`x.dat` continuam sem crosta, como antes.
+
 ## Setor escuro fermiônico
 
 O setor escuro é opcional em `HadronsMatter` (builders `with_y_chi`, `with_m_chi`,

@@ -273,6 +273,13 @@ impl Solver {
             let eps_arr: Vec<f64> = results.iter().map(|r| r[1]).collect();
             let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
             let rho_arr: Vec<f64> = results.iter().map(|r| r[0]).collect();
+            // Sequência com crosta, maré, momento de inércia e redshift.
+            let stars = crate::core::tov_solver::generate_star_sequence(
+                &eps_arr, &p_arr, &rho_arr, true,
+            );
+            if let Err(error) = crate::core::io_utils::write_stars(&stars, &path) {
+                eprintln!("failed to write star sequence for '{}': {error}", path);
+            }
             let (masses, radii, b_masses, pc_list) =
                 generate_mr_curve(&eps_arr, &p_arr, &rho_arr, false);
             if let Err(error) =

@@ -68,6 +68,44 @@ fn sort_eos_data(rho: &mut Vec<f64>, eps: &mut Vec<f64>, p: &mut Vec<f64>) {
     *rho = combined.iter().map(|x| x.2).collect();
 }
 
+/// Caminho do arquivo de estrelas: `x.dat` -> `x_stars.dat`.
+pub fn stars_path(eos_path: &str) -> String {
+    match eos_path.strip_suffix(".dat") {
+        Some(stem) => format!("{stem}_stars.dat"),
+        None => format!("{eos_path}_stars.dat"),
+    }
+}
+
+/// Escreve a sequência de estrelas (uma por linha) em `stars_path(eos_path)`.
+pub fn write_stars(
+    stars: &[crate::core::tov_solver::StarProperties],
+    eos_path: &str,
+) -> std::io::Result<()> {
+    let mut file = fs::File::create(stars_path(eos_path))?;
+    writeln!(
+        file,
+        "# EoS do núcleo + crosta BPS. 0:M_msun 1:R_km 2:M_B_msun 3:P_c_MeV_fm3 \
+4:compactness 5:redshift 6:k2 7:Lambda 8:I_1e45_g_cm2 9:I_bar"
+    )?;
+    for s in stars {
+        writeln!(
+            file,
+            "{:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e} {:12.5e}",
+            s.mass,
+            s.radius,
+            s.baryonic_mass,
+            s.central_pressure,
+            s.compactness,
+            s.redshift,
+            s.love_k2,
+            s.tidal_deformability,
+            s.moment_of_inertia,
+            s.moment_of_inertia_bar
+        )?;
+    }
+    Ok(())
+}
+
 /// Caminho do arquivo de diagnósticos: `x.dat` -> `x_diag.dat`.
 pub fn diagnostics_path(eos_path: &str) -> String {
     match eos_path.strip_suffix(".dat") {

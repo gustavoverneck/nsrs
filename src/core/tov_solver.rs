@@ -62,141 +62,153 @@ fn log_linear_interp(x: &[f64], y: &[f64], xval: f64) -> f64 {
     }
 }
 
-// Equações Diferenciais TOV (usando interpolação log-linear local)
+/// Interpolação log-log (ou linear, fora do domínio positivo) que devolve
+/// também a derivada dy/dx no segmento.
+fn log_linear_interp_with_slope(x: &[f64], y: &[f64], xval: f64) -> (f64, f64) {
+    let n = x.len();
+    if n < 2 || !xval.is_finite() || xval <= x[0] || xval >= x[n - 1] {
+        return (log_linear_interp(x, y, xval), 0.0);
+    }
+    let k = x.partition_point(|&v| v <= xval).clamp(1, n - 1);
+    let (x0, x1, y0, y1) = (x[k - 1], x[k], y[k - 1], y[k]);
+    let value = log_linear_interp(x, y, xval);
+    let slope = if x0 > 0.0 && x1 > 0.0 && y0 > 0.0 && y1 > 0.0 && xval > 0.0 {
+        (y1 / y0).ln() / (x1 / x0).ln() * value / xval
+    } else {
+        (y1 - y0) / (x1 - x0)
+    };
+    (value, slope)
+}
+
+/// Estado integrado: [P, m, m_B, y (maré), omega_bar, d omega_bar/dr].
+/// P e densidades em M_sun/km^3, massas em M_sun, r em km.
+type TovState = [f64; 6];
+
+/// Equações de estrutura. Além da TOV (P, m, m_B):
+/// - maré (Hinderer, ApJ 677, 1216 (2008); Postnikov, Prakash & Lattimer,
+///   PRD 82, 024016 (2010)): r dy/dr = -y^2 - y F - r^2 Q;
+/// - rotação lenta (Hartle, ApJ 150, 1005 (1967)):
+///   (1/r^4) d/dr(r^4 j dw/dr) + (4/r)(dj/dr) w = 0, j = e^{-nu/2} sqrt(1-2m/r).
+/// Em unidades geometrizadas, m_g = G m, eps_g = G eps, p_g = G p (km^-2).
 fn tov_derivatives(
     r: f64,
-    p: f64,
-    m: f64,
+    s: &TovState,
     p_array: &[f64],
     eps_array: &[f64],
     rho_array: &[f64],
-) -> (f64, f64, f64) {
-    let eps = log_linear_interp(p_array, eps_array, p);
+) -> TovState {
+    let (p, m) = (s[0], s[1]);
+    let (eps, deps_dp) = log_linear_interp_with_slope(p_array, eps_array, p);
     let rho = log_linear_interp(p_array, rho_array, p);
 
     let num = (eps + p) * (m + 4.0 * PI * r.powi(3) * p);
     let den = r * (r - 2.0 * G_C2 * m);
-
     let metric_term = 1.0 - 2.0 * G_C2 * m / r;
 
     if den <= 0.0 || metric_term <= 0.0 {
-        return (f64::NEG_INFINITY, 0.0, 0.0);
+        return [f64::NEG_INFINITY, 0.0, 0.0, 0.0, 0.0, 0.0];
     }
 
     let dp_dr = -G_C2 * num / den;
     let dm_dr = 4.0 * PI * r.powi(2) * eps;
     let dmb_dr = 4.0 * PI * r.powi(2) * rho / metric_term.sqrt();
 
-    (dp_dr, dm_dr, dmb_dr)
+    // Geometrizado.
+    let (m_g, eps_g, p_g) = (G_C2 * m, G_C2 * eps, G_C2 * p);
+    let f = metric_term;
+    let mass_term = (m_g + 4.0 * PI * r.powi(3) * p_g) / (r * r * f);
+
+    // Maré: (eps + p)/c_s^2 = (eps + p) deps/dp.
+    let big_f = (1.0 - 4.0 * PI * r * r * (eps_g - p_g)) / f;
+    let big_q = 4.0 * PI * (5.0 * eps_g + 9.0 * p_g + (eps_g + p_g) * deps_dp) / f
+        - 6.0 / (r * r * f)
+        - 4.0 * mass_term * mass_term;
+    let y = s[3];
+    let dy_dr = -(y * y + y * big_f + r * r * big_q) / r;
+
+    // Rotação lenta: j'/j = -nu'/2 + (1/2) d ln f / dr.
+    let dnu_dr = 2.0 * mass_term;
+    let dlnf_dr = (-2.0 * 4.0 * PI * r * r * eps_g / r + 2.0 * m_g / (r * r)) / f;
+    let dlnj_dr = -0.5 * dnu_dr + 0.5 * dlnf_dr;
+    let (w, psi) = (s[4], s[5]);
+    let dpsi_dr = -(4.0 / r) * psi - dlnj_dr * (psi + 4.0 * w / r);
+
+    [dp_dr, dm_dr, dmb_dr, dy_dr, psi, dpsi_dr]
 }
 
+fn axpy(s: &TovState, h: f64, terms: &[(f64, &TovState)]) -> TovState {
+    let mut out = *s;
+    for i in 0..6 {
+        let mut acc = 0.0;
+        for (c, k) in terms {
+            acc += c * k[i];
+        }
+        out[i] += h * acc;
+    }
+    out
+}
+
+/// Passo de Cash-Karp. O erro devolvido considera apenas (P, m, m_B), de
+/// modo que os passos (e a curva M-R) são os mesmos da TOV pura.
 fn rkck_step(
     r: f64,
-    y: [f64; 3],
+    y: &TovState,
     h: f64,
     p_array: &[f64],
     eps_array: &[f64],
     rho_array: &[f64],
-) -> ([f64; 3], [f64; 3]) {
-    let (k1_p, k1_m, k1_mb) = tov_derivatives(r, y[0], y[1], p_array, eps_array, rho_array);
+) -> (TovState, [f64; 3]) {
+    let d = |r: f64, s: &TovState| tov_derivatives(r, s, p_array, eps_array, rho_array);
 
-    let a2 = 0.2;
-    let a3 = 0.3;
-    let a4 = 0.6;
-    let a5 = 1.0;
-    let a6 = 0.875;
-
+    let (a2, a3, a4, a5, a6) = (0.2, 0.3, 0.6, 1.0, 0.875);
     let b21 = 0.2;
-    let b31 = 3.0 / 40.0;
-    let b32 = 9.0 / 40.0;
-    let b41 = 0.3;
-    let b42 = -0.9;
-    let b43 = 1.2;
-    let b51 = -11.0 / 54.0;
-    let b52 = 2.5;
-    let b53 = -70.0 / 27.0;
-    let b54 = 35.0 / 27.0;
-    let b61 = 1631.0 / 55296.0;
-    let b62 = 175.0 / 512.0;
-    let b63 = 575.0 / 13824.0;
-    let b64 = 44275.0 / 110592.0;
-    let b65 = 253.0 / 4096.0;
-
-    let c1 = 37.0 / 378.0;
-    let c3 = 250.0 / 621.0;
-    let c4 = 125.0 / 594.0;
-    let c6 = 512.0 / 1771.0;
-
+    let (b31, b32) = (3.0 / 40.0, 9.0 / 40.0);
+    let (b41, b42, b43) = (0.3, -0.9, 1.2);
+    let (b51, b52, b53, b54) = (-11.0 / 54.0, 2.5, -70.0 / 27.0, 35.0 / 27.0);
+    let (b61, b62, b63, b64, b65) = (
+        1631.0 / 55296.0,
+        175.0 / 512.0,
+        575.0 / 13824.0,
+        44275.0 / 110592.0,
+        253.0 / 4096.0,
+    );
+    let (c1, c3, c4, c6) = (37.0 / 378.0, 250.0 / 621.0, 125.0 / 594.0, 512.0 / 1771.0);
     let dc1 = c1 - 2825.0 / 27648.0;
     let dc3 = c3 - 18575.0 / 48384.0;
     let dc4 = c4 - 13525.0 / 55296.0;
     let dc5 = -277.0 / 14336.0;
     let dc6 = c6 - 0.25;
 
-    let y2 = [
-        y[0] + h * b21 * k1_p,
-        y[1] + h * b21 * k1_m,
-        y[2] + h * b21 * k1_mb,
-    ];
-    let (k2_p, k2_m, k2_mb) =
-        tov_derivatives(r + a2 * h, y2[0], y2[1], p_array, eps_array, rho_array);
+    let k1 = d(r, y);
+    let k2 = d(r + a2 * h, &axpy(y, h, &[(b21, &k1)]));
+    let k3 = d(r + a3 * h, &axpy(y, h, &[(b31, &k1), (b32, &k2)]));
+    let k4 = d(r + a4 * h, &axpy(y, h, &[(b41, &k1), (b42, &k2), (b43, &k3)]));
+    let k5 = d(
+        r + a5 * h,
+        &axpy(y, h, &[(b51, &k1), (b52, &k2), (b53, &k3), (b54, &k4)]),
+    );
+    let k6 = d(
+        r + a6 * h,
+        &axpy(y, h, &[(b61, &k1), (b62, &k2), (b63, &k3), (b64, &k4), (b65, &k5)]),
+    );
 
-    let y3 = [
-        y[0] + h * (b31 * k1_p + b32 * k2_p),
-        y[1] + h * (b31 * k1_m + b32 * k2_m),
-        y[2] + h * (b31 * k1_mb + b32 * k2_mb),
-    ];
-    let (k3_p, k3_m, k3_mb) =
-        tov_derivatives(r + a3 * h, y3[0], y3[1], p_array, eps_array, rho_array);
-
-    let y4 = [
-        y[0] + h * (b41 * k1_p + b42 * k2_p + b43 * k3_p),
-        y[1] + h * (b41 * k1_m + b42 * k2_m + b43 * k3_m),
-        y[2] + h * (b41 * k1_mb + b42 * k2_mb + b43 * k3_mb),
-    ];
-    let (k4_p, k4_m, k4_mb) =
-        tov_derivatives(r + a4 * h, y4[0], y4[1], p_array, eps_array, rho_array);
-
-    let y5 = [
-        y[0] + h * (b51 * k1_p + b52 * k2_p + b53 * k3_p + b54 * k4_p),
-        y[1] + h * (b51 * k1_m + b52 * k2_m + b53 * k3_m + b54 * k4_m),
-        y[2] + h * (b51 * k1_mb + b52 * k2_mb + b53 * k3_mb + b54 * k4_mb),
-    ];
-    let (k5_p, k5_m, k5_mb) =
-        tov_derivatives(r + a5 * h, y5[0], y5[1], p_array, eps_array, rho_array);
-
-    let y6 = [
-        y[0] + h * (b61 * k1_p + b62 * k2_p + b63 * k3_p + b64 * k4_p + b65 * k5_p),
-        y[1] + h * (b61 * k1_m + b62 * k2_m + b63 * k3_m + b64 * k4_m + b65 * k5_m),
-        y[2] + h * (b61 * k1_mb + b62 * k2_mb + b63 * k3_mb + b64 * k4_mb + b65 * k5_mb),
-    ];
-    let (k6_p, k6_m, k6_mb) =
-        tov_derivatives(r + a6 * h, y6[0], y6[1], p_array, eps_array, rho_array);
-
-    let yout = [
-        y[0] + h * (c1 * k1_p + c3 * k3_p + c4 * k4_p + c6 * k6_p),
-        y[1] + h * (c1 * k1_m + c3 * k3_m + c4 * k4_m + c6 * k6_m),
-        y[2] + h * (c1 * k1_mb + c3 * k3_mb + c4 * k4_mb + c6 * k6_mb),
-    ];
-
-    let yerr = [
-        h * (dc1 * k1_p + dc3 * k3_p + dc4 * k4_p + dc5 * k5_p + dc6 * k6_p),
-        h * (dc1 * k1_m + dc3 * k3_m + dc4 * k4_m + dc5 * k5_m + dc6 * k6_m),
-        h * (dc1 * k1_mb + dc3 * k3_mb + dc4 * k4_mb + dc5 * k5_mb + dc6 * k6_mb),
-    ];
-
+    let yout = axpy(y, h, &[(c1, &k1), (c3, &k3), (c4, &k4), (c6, &k6)]);
+    let mut yerr = [0.0; 3];
+    for i in 0..3 {
+        yerr[i] = h * (dc1 * k1[i] + dc3 * k3[i] + dc4 * k4[i] + dc5 * k5[i] + dc6 * k6[i]);
+    }
     (yout, yerr)
 }
 
 fn rkqs_step(
     r: f64,
-    y: [f64; 3],
+    y: &TovState,
     htry: f64,
     eps: f64,
     p_array: &[f64],
     eps_array: &[f64],
     rho_array: &[f64],
-) -> Option<([f64; 3], f64, f64)> {
+) -> Option<(TovState, f64, f64)> {
     let safety = 0.9;
     let pgrow = -0.2;
     let pshrink = -0.25;
@@ -207,14 +219,10 @@ fn rkqs_step(
     loop {
         let (yout, yerr) = rkck_step(r, y, h, p_array, eps_array, rho_array);
 
-        let yscal = [
-            y[0].abs() + (h * yerr[0]).abs() + tiny,
-            y[1].abs() + (h * yerr[1]).abs() + tiny,
-            y[2].abs() + (h * yerr[2]).abs() + tiny,
-        ];
         let mut errmax: f64 = 0.0;
         for i in 0..3 {
-            errmax = errmax.max((yerr[i] / yscal[i]).abs());
+            let yscal = y[i].abs() + (h * yerr[i]).abs() + tiny;
+            errmax = errmax.max((yerr[i] / yscal).abs());
         }
         errmax /= eps;
 
@@ -238,13 +246,56 @@ fn rkqs_step(
     }
 }
 
-pub fn integrate_star(
+/// Propriedades de uma estrela da sequência.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StarProperties {
+    /// Massa gravitacional (M_sun).
+    pub mass: f64,
+    /// Raio (km).
+    pub radius: f64,
+    /// Massa bariônica (M_sun).
+    pub baryonic_mass: f64,
+    /// Pressão central (MeV/fm^3).
+    pub central_pressure: f64,
+    /// Compacidade G M / (R c^2).
+    pub compactness: f64,
+    /// Redshift gravitacional de superfície, (1 - 2C)^{-1/2} - 1.
+    pub redshift: f64,
+    /// Número de Love de maré l = 2.
+    pub love_k2: f64,
+    /// Deformabilidade de maré adimensional, (2/3) k2 C^{-5}.
+    pub tidal_deformability: f64,
+    /// Momento de inércia (10^45 g cm^2), rotação lenta.
+    pub moment_of_inertia: f64,
+    /// Momento de inércia adimensional I c^4 / (G^2 M^3).
+    pub moment_of_inertia_bar: f64,
+}
+
+/// k2 a partir de C e y_R (já corrigido pela descontinuidade de superfície).
+/// Abaixo de C = 5e-3 a expressão relativística perde precisão (numerador e
+/// denominador são O(C^5)); usa-se o limite newtoniano (2 - y)/(2(3 + y)),
+/// com erro O(C) < 1%.
+pub fn love_number_k2(c: f64, y: f64) -> f64 {
+    if c < 5e-3 {
+        return (2.0 - y) / (2.0 * (3.0 + y));
+    }
+    let num = 8.0 / 5.0 * c.powi(5) * (1.0 - 2.0 * c).powi(2) * (2.0 + 2.0 * c * (y - 1.0) - y);
+    let den = 2.0 * c * (6.0 - 3.0 * y + 3.0 * c * (5.0 * y - 8.0))
+        + 4.0 * c.powi(3) * (13.0 - 11.0 * y + c * (3.0 * y - 2.0) + 2.0 * c * c * (1.0 + y))
+        + 3.0 * (1.0 - 2.0 * c).powi(2) * (2.0 - y + 2.0 * c * (y - 1.0)) * (1.0 - 2.0 * c).ln();
+    num / den
+}
+
+/// 1 M_sun km^2 em unidades de 10^45 g cm^2.
+const MSUN_KM2_IN_1E45_G_CM2: f64 = 1.98847e33 * 1e10 / 1e45;
+
+pub fn integrate_star_properties(
     pc_tov: f64,
     p_min: f64,
     p_tov: &[f64],
     eps_tov: &[f64],
     rho_tov: &[f64],
-) -> Option<(f64, f64, f64, f64)> {
+) -> Option<StarProperties> {
     if p_tov.len() < 5 || eps_tov.len() < 5 || rho_tov.len() < 5 {
         return None;
     }
@@ -255,7 +306,8 @@ pub fn integrate_star(
         return None;
     }
     let mut r = 1e-5;
-    let mut y = [pc_tov, 0.0, 0.0];
+    // Condições regulares no centro: y = 2, omega_bar = 1, omega_bar' = 0.
+    let mut y: TovState = [pc_tov, 0.0, 0.0, 2.0, 1.0, 0.0];
     let mut h = 1.0e-2;
     let r_end = 30000.0;
     // Tolerância relativa do passo adaptativo. Com a superfície localizada
@@ -274,7 +326,7 @@ pub fn integrate_star(
             h = r_end - r;
         }
 
-        let (ynew, hdid, hnext) = rkqs_step(r, y, h, eps, p_tov, eps_tov, rho_tov)?;
+        let (ynew, hdid, hnext) = rkqs_step(r, &y, h, eps, p_tov, eps_tov, rho_tov)?;
 
         if !ynew.iter().all(|value| value.is_finite())
             || !hdid.is_finite()
@@ -299,7 +351,7 @@ pub fn integrate_star(
             let mut y_surface = y;
             for _ in 0..60 {
                 let h_mid = 0.5 * (h_lo + h_hi);
-                let (y_mid, _) = rkck_step(r, y, h_mid, p_tov, eps_tov, rho_tov);
+                let (y_mid, _) = rkck_step(r, &y, h_mid, p_tov, eps_tov, rho_tov);
                 if !y_mid.iter().all(|value| value.is_finite()) {
                     return None;
                 }
@@ -310,19 +362,37 @@ pub fn integrate_star(
                     h_hi = h_mid;
                 }
             }
-            let surface_r = r + h_lo;
-            let surface_m = y_surface[1];
-            let surface_mb = y_surface[2];
-
-            if surface_r.is_finite() && surface_m.is_finite() && surface_mb.is_finite() {
-                return Some((
-                    surface_m,
-                    surface_r,
-                    surface_mb,
-                    pc_tov / MEV_FM3_TO_MSUN_KM3,
-                ));
+            let radius = r + h_lo;
+            let (mass, baryonic_mass) = (y_surface[1], y_surface[2]);
+            if !(radius.is_finite() && mass.is_finite() && baryonic_mass.is_finite()) {
+                return None;
             }
-            return None;
+
+            let compactness = G_C2 * mass / radius;
+            // Descontinuidade de densidade na superfície (Damour & Nagar 2009;
+            // Postnikov et al. 2010): y_R -> y_R - 3 eps_s / <eps>.
+            let eps_surface = log_linear_interp(p_tov, eps_tov, p_min);
+            let mean_density = 3.0 * mass / (4.0 * PI * radius.powi(3));
+            let y_r = y_surface[3] - 3.0 * eps_surface / mean_density;
+            let love_k2 = love_number_k2(compactness, y_r);
+
+            // Exterior: omega_bar = Omega - 2J/r^3, logo J = R^4 omega_bar'/6.
+            let j = radius.powi(4) * y_surface[5] / 6.0;
+            let omega = y_surface[4] + 2.0 * j / radius.powi(3);
+            let inertia_geo = j / omega; // km^3
+
+            return Some(StarProperties {
+                mass,
+                radius,
+                baryonic_mass,
+                central_pressure: pc_tov / MEV_FM3_TO_MSUN_KM3,
+                compactness,
+                redshift: 1.0 / (1.0 - 2.0 * compactness).sqrt() - 1.0,
+                love_k2,
+                tidal_deformability: 2.0 / 3.0 * love_k2 / compactness.powi(5),
+                moment_of_inertia: inertia_geo / G_C2 * MSUN_KM2_IN_1E45_G_CM2,
+                moment_of_inertia_bar: inertia_geo / (G_C2 * mass).powi(3),
+            });
         }
 
         y = ynew;
@@ -334,6 +404,17 @@ pub fn integrate_star(
 
     // Reaching the radial/step budget is not reaching the stellar surface.
     None
+}
+
+pub fn integrate_star(
+    pc_tov: f64,
+    p_min: f64,
+    p_tov: &[f64],
+    eps_tov: &[f64],
+    rho_tov: &[f64],
+) -> Option<(f64, f64, f64, f64)> {
+    integrate_star_properties(pc_tov, p_min, p_tov, eps_tov, rho_tov)
+        .map(|s| (s.mass, s.radius, s.baryonic_mass, s.central_pressure))
 }
 
 /// Unifica a crosta personalizada (1/fm⁴) com a EoS do núcleo, descartando dados inválidos
@@ -431,16 +512,14 @@ pub fn unify_with_crust(
     (final_eps, final_p, final_rho)
 }
 
-pub fn generate_mr_curve(
+/// Sequência de estrelas com M, R, M_B, maré, momento de inércia e redshift.
+pub fn generate_star_sequence(
     eps_array: &[f64],
     p_array: &[f64],
     rho_array: &[f64],
     with_crust: bool,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
-    let mut masses = Vec::new();
-    let mut radii = Vec::new();
-    let mut baryonic_masses = Vec::new();
-    let mut central_pressures = Vec::new();
+) -> Vec<StarProperties> {
+    let mut stars = Vec::new();
 
     // 1. Costura a crosta APENAS se a flag for verdadeira
     let (clean_eps, clean_p, clean_rho) = if with_crust {
@@ -460,7 +539,7 @@ pub fn generate_mr_curve(
     let (clean_eps, clean_p, clean_rho) = clean_eos_with_rho(&clean_eps, &clean_p, &clean_rho);
 
     if clean_p.len() < 5 {
-        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        return stars;
     }
 
     // 3. Converte unidades uma unica vez
@@ -482,19 +561,29 @@ pub fn generate_mr_curve(
 
     for &pc_mev in &clean_p[core_start_idx..] {
         let pc_tov = pc_mev * MEV_FM3_TO_MSUN_KM3;
-        if let Some((m, r, mb, pc_final)) =
-            integrate_star(pc_tov, p_min, &p_tov, &eps_tov, &rho_tov)
-        {
-            if m > 0.05 && r > 2.0 && m.is_finite() && r.is_finite() {
-                masses.push(m);
-                radii.push(r);
-                baryonic_masses.push(mb);
-                central_pressures.push(pc_final);
+        if let Some(star) = integrate_star_properties(pc_tov, p_min, &p_tov, &eps_tov, &rho_tov) {
+            if star.mass > 0.05 && star.radius > 2.0 {
+                stars.push(star);
             }
         }
     }
 
-    (masses, radii, baryonic_masses, central_pressures)
+    stars
+}
+
+pub fn generate_mr_curve(
+    eps_array: &[f64],
+    p_array: &[f64],
+    rho_array: &[f64],
+    with_crust: bool,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    let stars = generate_star_sequence(eps_array, p_array, rho_array, with_crust);
+    (
+        stars.iter().map(|s| s.mass).collect(),
+        stars.iter().map(|s| s.radius).collect(),
+        stars.iter().map(|s| s.baryonic_mass).collect(),
+        stars.iter().map(|s| s.central_pressure).collect(),
+    )
 }
 
 /// Procura e interpola os dados de quarks para um mun específico

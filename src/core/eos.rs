@@ -111,8 +111,8 @@ pub fn compute(
         }
     }
 
-    // Energia Total (Mésons + Bariões + Léptons)
-    let ener = enerf + enerbar + enerlep;
+    // Energia Total (Mésons + Bariões + Léptons + setor escuro, nulo por padrão)
+    let ener = enerf + enerbar + enerlep + engine.ener_chi_kin + engine.dark_vector_energy_density();
 
     // Pressão via relação termodinâmica: P = sum(mu_i * n_i) - epsilon
     let mut press_sum = 0.0;
@@ -122,6 +122,7 @@ pub fn compute(
     for i in 0..2 {
         press_sum += mue * engine.nl[i]; // mu_e = mu_mu = mue
     }
+    press_sum += engine.mu_chi * engine.n_chi;
 
     let press = press_sum - ener;
 

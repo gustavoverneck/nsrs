@@ -29,8 +29,8 @@ impl HybridMatter {
     pub fn solve_point(
         &mut self,
         mun: f64,
-        last_x_hadrons: &[f64; 4],
-    ) -> Option<([f64; 4], [f64; RESULTS_SIZE])> {
+        last_x_hadrons: &[f64; 5],
+    ) -> Option<([f64; 5], [f64; RESULTS_SIZE])> {
         // 1. Calcula a termodinâmica para os Hádrons (retorna tupla com estado numérico)
         let had_res = self.hadrons.solve_point(mun, last_x_hadrons);
 

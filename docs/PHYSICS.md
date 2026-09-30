@@ -65,9 +65,237 @@ $$
 
 Aqui, $F_{\mu\nu} = \partial_\mu A_\nu - \partial_\nu A_\mu$ representa o tensor de força do campo eletromagnético de Maxwell padrão, e $A_\mu$ é o campo de fótons visíveis acoplado à corrente eletromagnética $J^\mu_{\text{EM}}$.
 
+## Campo magnético: perfis e tensões
+
+Todas as intensidades de campo são em Gauss (inclusive o parâmetro $\xi$ da
+eletrodinâmica logarítmica). O código está em `src/core/magnetic.rs`.
+
+### Perfis do campo local (`FieldProfile`)
+
+| Perfil | Níveis de Landau | Energia magnética | Referência |
+|---|---|---|---|
+| `Constant` (padrão) | $B$ central `bg` em todas as densidades | BDD com $B_{\rm surf}=10^{15}$ G, $B_0=$ `bg` | comportamento legado |
+| `Bdd` | $B(n_B)$ local | mesmo $B(n_B)$ | Bandyopadhyay, Chakrabarty & Pal, PRL 79, 2176 (1997) |
+| `Dexheimer2017` | $B(\mu_B)$ local | não entra (padrão) | Dexheimer et al., PLB 773, 487 (2017) |
+
+**BDD.** $B(n_B)=B_{\rm surf}+B_0\left[1-e^{-\beta(n_B/n_0)^\gamma}\right]$, com
+$\beta=0.01$, $\gamma=3$ e $B_{\rm surf}=10^{15}$ G (intensidade máxima de superfície
+observada em magnetares, adotada nos trabalhos recentes). Como o solver avança em
+$\mu_n$, cada ponto usa uma iteração de ponto fixo $B\leftrightarrow n_B$ até
+$|\Delta n_B/n_B|<10^{-10}$.
+
+**Dexheimer et al. (2017), Eq. (1).** Ajuste a soluções de Einstein–Maxwell
+(direção polar, campo poloidal):
+
+$$
+B(\mu_B)=\frac{(a+b\,\mu_B+c\,\mu_B^2)\,\mu}{B_c},\qquad B_c=4.414\times10^{13}\ {\rm G},
+$$
+
+com $\mu_B$ em MeV ($\mu_B=\mu_n$ em equilíbrio β), $\mu$ o momento de dipolo em
+A m² e $(a,b,c)$ da Tabela 2 para $M_B=2.2\,M_\odot$ ou $1.6\,M_\odot$. O ajuste
+cobre $\mu_B\approx 939$–$1500$ MeV. Abaixo de $m_N$ usa-se $B(m_N)$. Acima de
+1500 MeV o polinômio é extrapolado até o vértice ($-b/2c$: 1734 MeV para
+$M_B=2.2$, 1629 MeV para $M_B=1.6$) e congelado a partir dele. A extrapolação é
+necessária: o centro da estrela de massa máxima tem $\mu_n\approx1584$ MeV (GM1) e
+1525 MeV (GM3). Entre 1500 e 1600 MeV o campo cresce ~5%.
+
+Limitações: o perfil é o da direção polar de uma estrela de massa bariônica e
+dipolo fixos, e é usado aqui numa TOV esférica e isotrópica.
+
+**Energia e tensões do campo na TOV** (`with_field_stress`). Por padrão entram para
+`Constant` e `Bdd` (prática da literatura com o perfil BDD) e não entram para
+`Dexheimer2017`: o ajuste vem de soluções de Einstein–Maxwell, em que o campo é
+tratado na estrutura, e é destinado à EoS microscópica. Como $B(m_N)\approx4\times10^{17}$ G
+para $\mu=3\times10^{32}$ A m², somar $B^2/8\pi\approx3$ MeV/fm³ à EoS criaria um envelope
+sem matéria ($M_{\max}=4.4\,M_\odot$, $R_{1.4}=38$ km para GM1). Sem as tensões, o campo
+na matéria muda $M_{\max}$ em −0.2% (GM1) e −0.1% (GM3). Note que a NLEM só atua pelas
+tensões do campo; para estudá-la com este perfil use `with_field_stress(true)`.
+
+**Aproximação termodinâmica.** Em cada ponto a EoS é resolvida com o campo local
+como parâmetro externo, como nas duas referências. Com $B=B(\mu_B)$,
+
+$$
+\frac{dP_m}{d\mu_n}=n_B+\mathcal M\,\frac{dB}{d\mu_n},\qquad
+\mathcal M=\left.\frac{\partial P_m}{\partial B}\right|_{\mu},
+$$
+
+e o termo de magnetização não é incluído em $n_B$. Para GM1 com
+$\mu=3\times10^{32}$ A m² ele vale $5\times10^{-4}$–$2.4\times10^{-3}\,n_B$ entre
+$n_0$ e $6n_0$ (verificado em `tests/magnetic_profiles.rs`). Para o perfil BDD, os
+termos em $dB/dn_B$ desprezados valem $\lesssim10^{-3}$ até $B_0=10^{18}$ G e
+~2% em $B_0=5\times10^{18}$ G.
+
+### Magnetização e pressão anisotrópica da matéria
+
+A pressão termodinâmica da matéria, $P_\parallel=-\Omega$, é a pressão ao longo do
+campo. Perpendicularmente às linhas de campo,
+
+$$
+P_\perp=P_\parallel-\mathcal M B,\qquad
+\mathcal M B=B\left.\frac{\partial P_\parallel}{\partial B}\right|_{\mu}
+$$
+
+(Ferrer et al., PRC 82, 065802 (2010); Strickland, Dexheimer & Menezes, PRD 86,
+125032 (2012)). $\mathcal MB$ é calculado em cada ponto por diferença central com
+duas soluções em $B(1\pm10^{-5})$ a $\mu_n$ fixo (teste
+`magnetization_is_the_field_derivative_of_the_parallel_pressure`). A coluna 2 da EoS
+exporta a pressão usada na TOV: topologia anisotrópica,
+$P_\perp^{\rm matéria}+P_\perp^{\rm campo}$; isotrópica (campo emaranhado),
+$P_\parallel-\tfrac23\mathcal MB+(P_\parallel^{\rm campo}+2P_\perp^{\rm campo})/3$.
+$\mathcal MB$ por linha vai para `<saída>_diag.dat`; é $P_\parallel$ que obedece
+$dP/d\mu_n=n_B$.
+
+Com campo constante de $10^{18}$ G (perfil `Constant`), $\mathcal MB$ chega a ~40%
+da pressão da matéria em $n_B\sim0.04\,n_0$ e $P_\perp$ deixa de crescer (e pode ficar
+negativa) com a densidade. Os critérios de validade da varredura usam a pressão sem o
+termo de magnetização, que é monótona em $\mu$; a TOV ordena a EoS por $\epsilon$ e descarta
+os trechos em que $P_\perp$ não cresce (matéria uniforme instável, região da crosta). Com os perfis dependentes de
+densidade a matéria diluída vê $\sim B_{\rm surf}$ e o efeito desaparece
+($|\mathcal MB/P|\lesssim2\%$ para BDD até $B_0=5\times10^{18}$ G).
+
+### Tensões do campo e eletrodinâmica não linear
+
+As partículas carregadas acoplam ao potencial vetor $A_\mu$ (acoplamento mínimo), portanto
+o espectro de Landau depende de $B=\nabla\times A$ em todos os modelos. A eletrodinâmica
+não linear altera apenas a energia e as tensões do próprio campo; no mesmo $B$, a matéria
+é idêntica à do caso de Maxwell (teste `nlem_changes_only_the_field_stress`). O campo
+prescrito (`bg` ou o perfil) é interpretado como $B$.
+
+Para um campo magnético estático puro com Lagrangiana $L(B)$, a densidade de
+energia é $\epsilon_B=-L$ e $H=d\epsilon_B/dB$. O tensor de tensões
+$\sigma_{ij}=H_iB_j-\delta_{ij}(HB-\epsilon_B)$ dá
+
+$$
+P_\parallel=-\epsilon_B,\qquad P_\perp=HB-\epsilon_B
+$$
+
+(Soleng, PRD 52, 6178 (1995), Eq. 3, no caso logarítmico). A topologia
+anisotrópica usa $P_{\rm mag}=P_\perp$; a isotrópica (campo emaranhado) usa
+$(P_\parallel+2P_\perp)/3$.
+
+| Modelo | $\epsilon_B/\epsilon_{\rm Maxwell}$ | $HB/\epsilon_{\rm Maxwell}$ | $P_\perp$ |
+|---|---|---|---|
+| Maxwell | 1 | 2 | $\epsilon_B$ |
+| ModMax($\gamma$) | $e^{-\gamma}$ | $2e^{-\gamma}$ | $\epsilon_B$ |
+| Log($\xi$) | $\ln(1+x)/x$ | $2/(1+x)$ | $\epsilon_{\rm Maxwell}\left[\frac{2}{1+x}-\frac{\ln(1+x)}{x}\right]$ |
+
+com $\epsilon_{\rm Maxwell}=B^2/8\pi$ e $x=B^2/(2\xi^2)$. Para Maxwell e ModMax
+($\epsilon_B\propto B^2$) as relações $P=\epsilon_B$ e $P=\epsilon_B/3$ continuam
+valendo. Para o modelo logarítmico elas não valem: $P_\perp$ fica menor que
+$\epsilon_B$ e se torna negativa para $x\gtrsim3.9$ ($B\gtrsim2.8\,\xi$).
+
+## Propriedades estelares: maré, momento de inércia e redshift
+
+Junto com a TOV ($P$, $m$, $m_B$) o integrador resolve, com os mesmos passos (o
+controle de erro usa só $P$, $m$, $m_B$; a curva M-R não muda), em unidades
+geometrizadas:
+
+**Maré** (Hinderer, ApJ 677, 1216 (2008); Postnikov, Prakash & Lattimer, PRD 82,
+024016 (2010)): $r\,y'=-y^2-yF-r^2Q$, $y(0)=2$, com
+
+$$
+F=\frac{1-4\pi r^2(\epsilon-P)}{1-2m/r},\quad
+Q=\frac{4\pi\left[5\epsilon+9P+(\epsilon+P)\,d\epsilon/dP\right]}{1-2m/r}
+-\frac{6}{r^2(1-2m/r)}-4\left[\frac{m+4\pi r^3P}{r^2(1-2m/r)}\right]^2 .
+$$
+
+Na superfície, $y_R\to y_R-3\epsilon_s/\bar\epsilon$ ($\bar\epsilon=3M/4\pi R^3$) pela
+descontinuidade de densidade (Damour & Nagar 2009). $k_2$ segue da fórmula fechada em
+$C=M/R$ e $y_R$ (limite newtoniano $(2-y)/2(3+y)$ para $C<5\times10^{-3}$) e
+$\Lambda=\tfrac23k_2C^{-5}$.
+
+**Momento de inércia** (Hartle, ApJ 150, 1005 (1967)):
+$\frac{1}{r^4}(r^4j\bar\omega')'+\frac{4j'}{r}\bar\omega=0$, $j=e^{-\nu/2}\sqrt{1-2m/r}$,
+$\bar\omega(0)=1$. Fora da estrela $\bar\omega=\Omega-2J/r^3$, logo $J=R^4\bar\omega'(R)/6$,
+$\Omega=\bar\omega(R)+2J/R^3$ e $I=J/\Omega$; $\bar I=I/M^3$.
+
+**Redshift** de superfície: $z=(1-2C)^{-1/2}-1$.
+
+Validação (`tests/stellar_properties.rs`): polítropo $n=1$ com $C\sim10^{-4}$,
+$k_2=(15-\pi^2)/2\pi^2$ e $I=\tfrac23(1-6/\pi^2)MR^2$; densidade uniforme, $k_2=3/4$ e
+$I=\tfrac25MR^2$; relação universal I-Love de Yagi & Yunes, Science 341, 365 (2013),
+dentro de 1.5% para GM1, GM3 e FSU2 entre $1\,M_\odot$ e $M_{\max}$ (medido: <0.8%).
+Com crosta, GM1 dá $\Lambda_{1.4}\approx850$.
+
+Com `with_eos_output("x.dat")` o solver grava também `x_stars.dat` (EoS do núcleo +
+crosta BPS; colunas M, R, $M_B$, $P_c$, $C$, $z$, $k_2$, $\Lambda$, $I$ [$10^{45}$ g cm²],
+$\bar I$) e `x_diag.dat` (diagnósticos por linha da EoS). As colunas M-R anexadas a
+`x.dat` continuam sem crosta, como antes.
+
+## Propriedades de saturação e diagnósticos da EoS
+
+`core::nuclear::saturation_properties` resolve matéria simétrica ($\mu_e=0$) com o
+mesmo motor e localiza $P(\mu)=0$ no ramo denso: $E/A=\mu_n-\bar m_N$,
+$K=9n_0/(dn/d\mu)$ (pois $P=n^2\,d(E/A)/dn$),
+$J=k_F^2/6E_F^*+C_{\rho,\rm ef}^2n/8$ com $C_{\rho,\rm ef}^2=C_\rho^2/(1+2\Lambda_vC_\rho^2v_\omega^2)$
+e $L=3n_0\,dJ/dn$. Reproduz Chen & Piekarewicz (2014) para FSU2 (K = 237.5, J = 37.56,
+L = 112.6 MeV; artigo: 238.0, 37.62, 112.8) e Glendenning & Moszkowski (1991) para
+GM1/GM3.
+
+`io_utils::derived_diagnostics` (gravado em `x_diag.dat`) dá por linha $c_s^2=dP/d\epsilon$,
+$\Gamma=(\epsilon+P)/P\,c_s^2$, frações $Y_p$, $Y_e$, $Y_\mu$, $Y_{\rm hyp}$ e o critério de URCA
+direto nucleônico $k_{Fn}\le k_{Fp}+k_{F\ell}$ (Lattimer et al., PRL 66, 2701 (1991); momentos
+de Fermi isotrópicos). O binário `properties` resume saturação, estrelas, limiar de URCA e
+início dos hyperons para GM1, GM3 e FSU2.
+
+## Validação contra a literatura (Nível 2)
+
+`tests/literature.rs` e `core::nuclear` reproduzem, com as parametrizações do NSRS:
+
+| Modelo | Grandeza | NSRS | Referência |
+|---|---|---|---|
+| GM1 | $K$, $J$, $L$ (MeV) | 299.7, 32.48, 93.9 | 300.50, 32.52, 94.04 (Nam & Lim, arXiv:2510.15356, Tab. III) |
+| GM3 | $K$, $J$, $L$ (MeV) | 239.8, 32.47, 89.6 | 240.04, 32.51, 89.75 (idem) |
+| FSU2 | $n_0$, $E/A$, $M^*/M$, $K$, $J$, $L$ | 0.1503, −16.26, 0.593, 237.5, 37.56, 112.6 | 0.1505, −16.28, 0.593, 238.0, 37.62, 112.8 (Chen & Piekarewicz 2014) |
+| GM1 | $M_{\max}$ só núcleons | 2.359 $M_\odot$ | 2.363 (Nam & Lim) |
+| GM3 | $M_{\max}$ só núcleons | 2.015 $M_\odot$ | 2.018 (Nam & Lim) |
+| FSU2 | $M_{\max}$ só núcleons | 2.071 $M_\odot$ | 2.07 ± 0.02 (Chen & Piekarewicz) |
+
+Estrelas só com núcleons usam `with_hyperons(false)`. Para EoS rígidas a malha em
+$\mu_n$ deve ir além do padrão (1.8 $M_N$): o GM1 só com núcleons termina em $4.9\,n_0$ e
+a massa máxima sai truncada (2.342 em vez de 2.359). Os testes e o binário
+`properties` usam $\mu_n\le3M_N$ e verificam que o máximo não está no fim da sequência.
+
+Diferença conhecida: para FSU2, Chen & Piekarewicz obtêm $R_{1.4}=14.42\pm0.26$ km com
+uma interpolação politrópica entre a crosta externa BPS e o núcleo; o NSRS junta a
+tabela BPS diretamente à EoS uniforme e obtém 13.95 km. Uma crosta interna unificada
+é um passo pendente.
+
+## Confronto com observações (Nível 3)
+
+Vínculos em `input/observations/constraints.csv`, cada um com referência, DOI e arXiv
+conferidos na fonte: massas de PSR J0348+0432 (Antoniadis et al. 2013) e PSR J0740+6620
+(Fonseca et al. 2021); pontos M-R de NICER para J0030+0451 (Riley et al. 2019; Miller et
+al. 2019) e J0740+6620 (Riley et al. 2021; Miller et al. 2021); $R_{1.4}=12.45\pm0.65$ km
+(Miller et al. 2021); $\Lambda_{1.4}=190^{+390}_{-120}$ a 90% (LVC, PRL 121, 161101 (2018));
+$n_0$, $E/A$, $K$ (Margueron, Hoffmann & Casali, PRC 97, 025805 (2018)); $J$, $L$ (Oertel et
+al., RMP 89, 015007 (2017)).
+
+`core::observations` converte cada vínculo numa distância $d$ em desvios-padrão (barras
+assimétricas; intervalos de 90% divididos por 1.645): massa máxima,
+$d=\max(0,(M_{\rm obs}-M_{\max})/\sigma_-)$; ponto M-R, menor distância normalizada ao ramo
+estável; $R_{1.4}$ e $\Lambda_{1.4}$ interpolados na curva; propriedades nucleares, desvio
+simples. $d\le1$ compatível, $1<d\le2$ tensão, $d>2$ excluído. O binário `observations`
+avalia GM1, GM3 e FSU2 (B = 0, crosta BPS, com e sem hyperons) e grava
+`results/observations_report.csv`.
+
+Resultado (excluídos, $d>2$):
+
+| Modelo | com hyperons | só núcleons |
+|---|---|---|
+| GM1 | $\Lambda_{1.4}$ (890), $K$ (300) | $\Lambda_{1.4}$, $K$ |
+| GM3 | massas de J0348 e J0740 ($M_{\max}=1.70$), pontos NICER de J0740 | nenhum (6 em tensão) |
+| FSU2 | massas ($M_{\max}=1.60$), NICER J0740, $\Lambda_{1.4}$ (738) | $R_{1.4}$ (13.95), $\Lambda_{1.4}$ (866) |
+
+Com hyperons (acoplamentos universais $x_\sigma=0.7$, $x_\omega=x_\rho=0.783$) GM3 e FSU2 não
+sustentam $2\,M_\odot$ (problema dos hyperons). GM1 e FSU2 são rígidos demais para o
+GW170817. Os raios dependem da junção crosta-núcleo (ver a nota sobre FSU2 acima).
+
 ## Setor escuro fermiônico
 
-`DarkPhotonsMatter` acrescenta um férmion de Dirac eletricamente neutro $\chi$
+O setor escuro é opcional em `HadronsMatter` (builders `with_y_chi`, `with_m_chi`,
+`with_m_x`, `with_g_d`, `with_epsilon`; `DarkPhotonsMatter` é um apelido) e acrescenta
+um férmion de Dirac eletricamente neutro $\chi$
 e um fóton escuro físico massivo $X_\mu$. Após diagonalizar a mistura cinética,
 a convenção usada é
 
@@ -144,8 +372,8 @@ $$
 Com essa forma, FSU2 reproduz em matéria simétrica $n_0\simeq0.1505$ fm$^{-3}$,
 $E/A\simeq-16.28$ MeV e $M^*/M\simeq0.593$, e a pressão de Gibbs coincide com
 $n^2\,\partial(\epsilon/n)/\partial n$ (testes em `physics.rs`). GM1 e GM3 não
-são afetados porque `rxi` $=$ `lambda_v` $=0$. `physics.rs`, `eos.rs` e
-`darkphotons.rs` usam a mesma normalização, de modo que $Y_\chi=0$ continua
+são afetados porque `rxi` $=$ `lambda_v` $=0$. A matéria visível tem
+uma única implementação (`physics.rs`, `particles.rs`, `eos.rs`), de modo que $Y_\chi=0$ continua
 recuperando o caminho hadrônico.
 
 ### Limites desta etapa de validação

@@ -5,7 +5,7 @@
 use nsrs::constants::{G_C2, M_NUCLEON, MEV_FM3_TO_MSUN_KM3, N0, RESULTS_SIZE};
 use nsrs::core::model::ModelParams;
 use nsrs::core::tov_solver::integrate_star;
-use nsrs::{EngineMode, FSU2, GM1, GM3, HadronsMatter, Solver};
+use nsrs::{EngineMode, EosTermination, FSU2, GM1, GM3, HadronsMatter, Solver};
 use std::f64::consts::PI;
 
 type Row = [f64; RESULTS_SIZE];
@@ -22,12 +22,20 @@ const COL_NXM: usize = 11;
 const COL_MU_N: usize = 17;
 const COL_EPS_MAG: usize = 19;
 
+/// Resolve a EoS e devolve as linhas com a coluna 2 convertida para a
+/// pressão ao longo do campo, P_par = P_perp + M B (a coluna exportada é a
+/// perpendicular, P_par - M B). É P_par = -Omega que obedece Gibbs-Duhem.
 fn solve_eos(model: ModelParams, b_gauss: f64) -> Vec<Row> {
-    Solver::new(EngineMode::Hadrons(HadronsMatter::new(model, b_gauss))).solve()
+    let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(model, b_gauss)));
+    let mut rows = solver.solve();
+    for (row, diag) in rows.iter_mut().zip(solver.diagnostics()) {
+        row[COL_P] += diag.magnetization_b;
+    }
+    rows
 }
 
 /// Pressão da matéria sem a contribuição macroscópica do campo. Com a
-/// topologia padrão (anisotrópica), P_mag = eps_mag (coluna 19).
+/// topologia padrão (anisotrópica) e Maxwell, P_mag = eps_mag (coluna 19).
 fn matter_pressure(row: &Row) -> f64 {
     row[COL_P] - row[COL_EPS_MAG]
 }
@@ -62,10 +70,10 @@ fn tov_reproduces_uniform_density_schwarzschild_interior() {
             let proper_mass_exact = eps * 2.0 * PI * a.powi(3) * (x.asin() - x * (1.0 - x * x).sqrt());
 
             let tag = format!("eps={eps_mev} MeV/fm3, Pc/eps={ratio}");
-            assert!((radius / radius_exact - 1.0).abs() < 1e-6, "R: {tag}");
-            assert!((mass / mass_exact - 1.0).abs() < 1e-6, "M: {tag}");
+            assert!((radius / radius_exact - 1.0).abs() < 1e-8, "R: {tag}");
+            assert!((mass / mass_exact - 1.0).abs() < 1e-8, "M: {tag}");
             assert!(
-                (baryonic_mass / proper_mass_exact - 1.0).abs() < 1e-6,
+                (baryonic_mass / proper_mass_exact - 1.0).abs() < 1e-8,
                 "M_proper: {tag}"
             );
         }
@@ -160,3 +168,51 @@ fn landau_quantization_recovers_isotropic_limit() {
 }
 
 const LANDAU_LIMIT_TOL: f64 = 1e-5;
+
+/// O solver precisa informar por que a EoS terminou. GM1/GM3 sem campo cobrem
+/// a malha inteira. GM3 com B = 1e18 G tem uma transição de primeira ordem na
+/// entrada da matéria (~941.4 MeV, ~0.05 n0) que a continuação em mu_n não
+/// atravessa; o truncamento deve ser reportado, não silencioso. Quando a
+/// construção de Maxwell for implementada, este caso deve passar a cobrir a
+/// malha inteira e o teste deve ser atualizado.
+#[test]
+fn solver_reports_why_the_eos_ended() {
+    for model in [GM1, GM3] {
+        let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(model, 0.0)));
+        solver.solve();
+        assert_eq!(solver.termination(), Some(EosTermination::ReachedUpperLimit));
+    }
+
+    let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(GM3, 1e18)));
+    solver.solve();
+    // Com a magnetização em P_perp, a pressão perpendicular deixa de ser
+    // monótona logo antes da transição; ambos os términos são anômalos.
+    match solver.termination() {
+        Some(
+            t @ (EosTermination::ConvergenceFailure { mu_n_mev, nb_over_n0 }
+            | EosTermination::NonMonotonic { mu_n_mev, nb_over_n0 }),
+        ) => {
+            assert!(t.is_anomalous());
+            assert!((mu_n_mev - 941.4).abs() < 1.0, "mu_n = {mu_n_mev} MeV");
+            assert!(nb_over_n0 < 0.1, "nB/n0 = {nb_over_n0}");
+        }
+        other => panic!("expected a reported anomalous termination, got {other:?}"),
+    }
+}
+
+/// FSU2 tem lambda < 0 e, em alta densidade, M*/M do nêutron cruza zero. A
+/// EoS deve parar ali (depois de M_max, em ~6.2 n0) sem gravar linhas com
+/// massa efetiva não positiva.
+#[test]
+fn eos_stops_before_non_positive_effective_mass() {
+    let mut solver = Solver::new(EngineMode::Hadrons(HadronsMatter::new(FSU2, 0.0)));
+    let rows = solver.solve();
+    assert!(rows.iter().all(|row| row[16] > 0.0));
+    match solver.termination() {
+        Some(t @ EosTermination::NonPositiveEffectiveMass { nb_over_n0, .. }) => {
+            assert!(!t.is_anomalous());
+            assert!(nb_over_n0 > 7.0, "stopped too early: nB/n0 = {nb_over_n0}");
+        }
+        other => panic!("expected NonPositiveEffectiveMass, got {other:?}"),
+    }
+}

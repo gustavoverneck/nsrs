@@ -5,6 +5,18 @@ use crate::core::physics::HadronsMatter;
 
 pub fn calculate_all_densities(engine: &mut HadronsMatter, vomega: f64, vrho: f64) {
     for i in 0..8 {
+        if i >= 2 && !engine.include_hyperons {
+            // Hyperon excluído: sem estados ocupados (ef = 0 zera também a
+            // contribuição à energia em eos::compute).
+            engine.ef_b[i] = 0.0;
+            engine.kf_b_up[i].clear();
+            engine.kf_b_down[i].clear();
+            engine.n_b_up[i] = 0;
+            engine.n_b_down[i] = 0;
+            engine.rhos_b[i] = 0.0;
+            engine.nb[i] = 0.0;
+            continue;
+        }
         let (rs, rb) = if engine.charges_b[i] == 0.0 {
             density_baryon_neutral(engine, i, vomega, vrho)
         } else {
@@ -93,9 +105,12 @@ fn density_baryon_charged(
     let m = engine.m_eff[idx];
     let amm = engine.amm_b[idx];
 
+    // Deslocamento pelo fóton escuro (nulo sem mistura cinética).
+    let dark_shift = engine.dark_shift_for_charge(engine.charges_b[idx]);
     let ef = engine.mu_b[idx]
         - (engine.xv_v[idx] * vomega)
-        - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx]);
+        - (engine.xv_r[idx] * vrho * engine.isospin_factor[idx])
+        - dark_shift;
 
     engine.ef_b[idx] = ef;
 
@@ -203,7 +218,9 @@ fn density_baryon_charged(
 }
 
 pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
-    let mue = engine.mue;
+    // Energia de Fermi efetiva: mu_e menos o deslocamento do fóton escuro
+    // para carga -1 (nulo sem mistura cinética).
+    let mue = engine.mue - engine.dark_shift_for_charge(-1.0);
 
     // ZERA OS ESTADOS PARA EVITAR FANTASMAS
     engine.n_l[idx] = 0;

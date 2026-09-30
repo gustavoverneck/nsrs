@@ -1,4 +1,4 @@
-use crate::core::constants::{N0, RESULTS_SIZE};
+use crate::core::constants::{M_NUCLEON, N0, RESULTS_SIZE};
 // src/core/solver.rs
 use crate::core::darkphotons::DarkPhotonsMatter;
 use crate::core::hybrid::HybridMatter;
@@ -17,18 +17,76 @@ pub enum EngineMode {
     DarkPhotons(DarkPhotonsMatter),
 }
 
+/// Motivo pelo qual a varredura em mu_n terminou. `mu_n_mev` é o potencial
+/// químico do último ponto aceito e `nb_over_n0` a densidade correspondente.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EosTermination {
+    /// A malha chegou a `mun_sup`.
+    ReachedUpperLimit,
+    /// Corte intencional em densidade (n_B > 11 n0).
+    DensityCap,
+    /// Corte intencional por causalidade (c_s^2 = dP/deps > 1).
+    Acausal { mu_n_mev: f64, nb_over_n0: f64 },
+    /// Corte intencional: a massa efetiva do nêutron (coluna 16) chegou a
+    /// M*/M <= 0, fora da validade física do modelo de campo médio.
+    NonPositiveEffectiveMass { mu_n_mev: f64, nb_over_n0: f64 },
+    /// Queda resolvida de eps ou P entre pontos consecutivos.
+    NonMonotonic { mu_n_mev: f64, nb_over_n0: f64 },
+    /// O Newton não convergiu nem com o passo mínimo; a EoS está truncada.
+    ConvergenceFailure { mu_n_mev: f64, nb_over_n0: f64 },
+}
+
+impl EosTermination {
+    /// Terminações que truncam a EoS sem que isso tenha sido pedido.
+    pub fn is_anomalous(&self) -> bool {
+        matches!(
+            self,
+            EosTermination::NonMonotonic { .. } | EosTermination::ConvergenceFailure { .. }
+        )
+    }
+}
+
+/// Grandezas por ponto da EoS que não cabem no formato de 34 colunas.
+/// Exportadas em `<saída>_diag.dat` (ver `io_utils::write_diagnostics`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PointDiagnostics {
+    /// M B = B dP/dB a mu fixo (MeV/fm^3); já descontado da pressão
+    /// perpendicular exportada na coluna 2.
+    pub magnetization_b: f64,
+    /// Pressão sem o termo de magnetização (MeV/fm^3); igual à coluna 2 para
+    /// motores sem campo na matéria. Usada nos critérios de validade.
+    pub stability_pressure: f64,
+}
+
 pub struct Solver {
     engine: EngineMode,
+    termination: Option<EosTermination>,
+    diagnostics: Vec<PointDiagnostics>,
 }
 
 impl Solver {
     pub fn new(engine: EngineMode) -> Self {
-        Solver { engine }
+        Solver {
+            engine,
+            termination: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Motivo do término da última chamada a `solve()`.
+    pub fn termination(&self) -> Option<EosTermination> {
+        self.termination
+    }
+
+    /// Diagnósticos por linha da última chamada a `solve()` (mesma ordem das
+    /// linhas da EoS).
+    pub fn diagnostics(&self) -> &[PointDiagnostics] {
+        &self.diagnostics
     }
 
     pub fn solve(&mut self) -> Vec<[f64; RESULTS_SIZE]> {
         // Obtém limites e metadados conforme o modo da engine
-        let (mun_inf, mun_sup, n, _bg_val) = match &self.engine {
+        let (mun_inf, mun_sup, n, bg_val) = match &self.engine {
             EngineMode::Hadrons(h) => (h.mun_inf, h.mun_sup, h.n_points, h.bg),
             EngineMode::Quarks(q) => (q.mun_inf, q.mun_sup, q.n_points, q.bg),
             EngineMode::Hybrid(hyb) => (
@@ -45,10 +103,23 @@ impl Solver {
         let min_dmub = 1e-6; // passo mínimo aceitável
 
         let mut results: Vec<[f64; RESULTS_SIZE]> = Vec::with_capacity(n);
-        let mut last_visible_x = [0.0; 4];
+        let mut diagnostics: Vec<PointDiagnostics> = Vec::with_capacity(n);
+        let mut last_visible_x = [0.0; 5];
         let mut last_dark_x = [0.0; 5];
         let mut last_mun = mun_inf; // último mun que convergiu
         let mut mun = mun_inf;
+        let mut termination = EosTermination::ReachedUpperLimit;
+        // Apenas estas engines exportam M*/M do nêutron na coluna 16.
+        let exports_effective_mass = matches!(
+            self.engine,
+            EngineMode::Hadrons(_) | EngineMode::DarkPhotons(_)
+        );
+        // Último ponto aceito, em (MeV, n_B/n0), para os diagnósticos.
+        let last_point = |results: &[[f64; RESULTS_SIZE]]| {
+            results
+                .last()
+                .map_or((mun_inf * M_NUCLEON, 0.0), |r| (r[17] * M_NUCLEON, r[0]))
+        };
 
         while mun <= mun_sup + 1e-9 {
             // Tenta resolver o ponto com o mun atual
@@ -77,9 +148,29 @@ impl Solver {
 
             if let Some(point_result) = point_data {
                 last_mun = mun;
+                let point_diagnostics = match &self.engine {
+                    EngineMode::Hadrons(h) | EngineMode::DarkPhotons(h) => PointDiagnostics {
+                        magnetization_b: h.magnetization_b,
+                        stability_pressure: h.stability_pressure,
+                    },
+                    _ => PointDiagnostics {
+                        magnetization_b: 0.0,
+                        stability_pressure: point_result[2],
+                    },
+                };
 
-                // Para a integração se a densidade bariônica ultrapassar 15 N0.
+                // Para a integração se a densidade bariônica ultrapassar 11 N0.
                 if point_result[0] * N0 > 11.0 * N0 {
+                    termination = EosTermination::DensityCap;
+                    break;
+                }
+
+                if exports_effective_mass && point_result[16] <= 0.0 {
+                    let (mu_n_mev, nb_over_n0) = last_point(&results);
+                    termination = EosTermination::NonPositiveEffectiveMass {
+                        mu_n_mev,
+                        nb_over_n0,
+                    };
                     break;
                 }
 
@@ -88,31 +179,42 @@ impl Solver {
                 // representam uma instabilidade física e não devem encerrar a
                 // continuação da EOS.
                 if !results.is_empty() {
+                    // Pressão sem magnetização: monótona em mu para matéria
+                    // estável (dP/dmu = n_B), ao contrário de P_perp.
                     let prev = results.last().unwrap();
+                    let prev_pressure = diagnostics.last().unwrap().stability_pressure;
+                    let point_pressure = point_diagnostics.stability_pressure;
                     let de = point_result[1] - prev[1];
-                    let dp = point_result[2] - prev[2];
+                    let dp = point_pressure - prev_pressure;
                     let resolved_matter = prev[0] > 1e-6 && point_result[0] > 1e-6;
 
                     let de_tol = 1e-10 * point_result[1].abs().max(prev[1].abs()).max(1.0);
-                    let dp_tol = 1e-10 * point_result[2].abs().max(prev[2].abs()).max(1.0);
+                    let dp_tol = 1e-10 * point_pressure.abs().max(prev_pressure.abs()).max(1.0);
 
                     if resolved_matter && de > de_tol && dp > dp_tol {
                         let cs2 = dp / de;
-                        if cs2 > 1.1 {
-                            // println!(
-                            //     "Aviso: EoS não-causal (dp/de = {:.2e}) em mun = {:.4}",
-                            //     cs2, mun
-                            // );
+                        if cs2 > 1.0 {
+                            let (mu_n_mev, nb_over_n0) = last_point(&results);
+                            termination = EosTermination::Acausal {
+                                mu_n_mev,
+                                nb_over_n0,
+                            };
                             break;
                         }
                     } else if resolved_matter && (de < -de_tol || dp < -dp_tol) {
                         // Queda resolvida de energia ou pressão: esta sim é
                         // incompatível com a ramificação monótona usada pela TOV.
+                        let (mu_n_mev, nb_over_n0) = last_point(&results);
+                        termination = EosTermination::NonMonotonic {
+                            mu_n_mev,
+                            nb_over_n0,
+                        };
                         break;
                     }
                 }
 
                 results.push(point_result);
+                diagnostics.push(point_diagnostics);
 
                 // Avança para o próximo mun
                 mun += dmub;
@@ -125,6 +227,11 @@ impl Solver {
                 // Falha na convergência: reduz o passo e tenta novamente a partir do último sucesso
                 dmub *= 0.5;
                 if dmub < min_dmub {
+                    let (mu_n_mev, nb_over_n0) = last_point(&results);
+                    termination = EosTermination::ConvergenceFailure {
+                        mu_n_mev,
+                        nb_over_n0,
+                    };
                     break;
                 }
                 mun = if results.is_empty() {
@@ -142,10 +249,37 @@ impl Solver {
             EngineMode::DarkPhotons(d) => d.eos_output.clone(),
         };
 
+        self.termination = Some(termination);
+        if termination.is_anomalous() {
+            eprintln!(
+                "Aviso: EoS truncada antes de mun_sup = {:.2} MeV (B = {:.3e} G, saída = {}): {:?}",
+                mun_sup * M_NUCLEON,
+                bg_val,
+                output_path.as_deref().unwrap_or("-"),
+                termination
+            );
+        }
+
+        if let Some(path) = &output_path {
+            if let Err(error) =
+                crate::core::io_utils::write_diagnostics(&results, &diagnostics, path)
+            {
+                eprintln!("failed to write diagnostics for '{}': {error}", path);
+            }
+        }
+        self.diagnostics = diagnostics;
+
         if let Some(path) = output_path {
             let eps_arr: Vec<f64> = results.iter().map(|r| r[1]).collect();
             let p_arr: Vec<f64> = results.iter().map(|r| r[2]).collect();
             let rho_arr: Vec<f64> = results.iter().map(|r| r[0]).collect();
+            // Sequência com crosta, maré, momento de inércia e redshift.
+            let stars = crate::core::tov_solver::generate_star_sequence(
+                &eps_arr, &p_arr, &rho_arr, true,
+            );
+            if let Err(error) = crate::core::io_utils::write_stars(&stars, &path) {
+                eprintln!("failed to write star sequence for '{}': {error}", path);
+            }
             let (masses, radii, b_masses, pc_list) =
                 generate_mr_curve(&eps_arr, &p_arr, &rho_arr, false);
             if let Err(error) =

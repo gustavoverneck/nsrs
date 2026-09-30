@@ -103,7 +103,7 @@ Centro do setor hadrônico:
 No caminho hadrônico (`HadronsMatter`), cada ponto em $\mu_n$ passa por:
 
 1. solução numérica de variáveis de campo e potencial químico eletrônico,
-2. atualização do campo magnético efetivo (incluindo NLEM),
+2. definição do campo local $B$ pelo perfil (os níveis de Landau usam $B$; a NLEM entra só nas tensões do campo),
 3. cálculo de densidades bariônicas e leptônicas,
 4. cálculo de $\epsilon$ e $P$ totais,
 5. armazenamento em linha de saída (`RESULTS_SIZE = 34`).
@@ -273,10 +273,17 @@ Objetivo:
 ## Módulos principais (`src/core`)
 
 - `constants.rs`: constantes físicas e tamanhos de vetor.
-- `model.rs`: parametrizações hadrônicas (`GM1`, `GM3`).
+- `model.rs`: parametrizações hadrônicas (`GM1`, `GM3`, `FSU2`).
 - `particles.rs`: densidades e estrutura de níveis de Landau.
 - `eos.rs`: composição da EoS hadrônica.
-- `physics.rs`: motor físico hadrônico (inclui NLEM/topologia).
+- `physics.rs`: motor físico hadrônico `HadronsMatter` (NLEM, topologia, perfil de campo e setor escuro opcional).
+- `magnetic.rs`: perfis do campo local (`Constant`, `Bdd`, `Dexheimer2017`) e tensões do campo (Maxwell, ModMax, Log).
+- `darkphotons.rs`: gás de Dirac escuro; `DarkPhotonsMatter` é um apelido de `HadronsMatter`.
+- `nuclear.rs`: propriedades de saturação (n0, E/A, K, J, L, M*/M).
+- `tov_solver.rs` também integra maré (k2, Λ) e rotação lenta (I); `generate_star_sequence` devolve `StarProperties`.
+- Saídas com `with_eos_output("x.dat")`: `x.dat` (EoS, 34 + 3 colunas M-R sem crosta), `x_stars.dat` (estrelas com crosta: M, R, M_B, P_c, C, z, k2, Λ, I, Ī) e `x_diag.dat` (M·B, c_s², Γ, frações, URCA direto).
+- Binário `properties`: relatório de saturação e propriedades estelares dos modelos.
+- `observations.rs` e binário `observations`: confronto com vínculos observacionais e empíricos (`input/observations/constraints.csv`), relatório em `results/observations_report.csv`.
 - `solver.rs`: varredura em $\mu_n$ e controle adaptativo.
 - `tov_solver.rs`: integração de TOV e curva M-R.
 - `plotting.rs`: infraestrutura de gráficos.

@@ -238,6 +238,29 @@ direto nucleônico $k_{Fn}\le k_{Fp}+k_{F\ell}$ (Lattimer et al., PRL 66, 2701 (
 de Fermi isotrópicos). O binário `properties` resume saturação, estrelas, limiar de URCA e
 início dos hyperons para GM1, GM3 e FSU2.
 
+## Validação contra a literatura (Nível 2)
+
+`tests/literature.rs` e `core::nuclear` reproduzem, com as parametrizações do NSRS:
+
+| Modelo | Grandeza | NSRS | Referência |
+|---|---|---|---|
+| GM1 | $K$, $J$, $L$ (MeV) | 299.7, 32.48, 93.9 | 300.50, 32.52, 94.04 (Nam & Lim, arXiv:2510.15356, Tab. III) |
+| GM3 | $K$, $J$, $L$ (MeV) | 239.8, 32.47, 89.6 | 240.04, 32.51, 89.75 (idem) |
+| FSU2 | $n_0$, $E/A$, $M^*/M$, $K$, $J$, $L$ | 0.1503, −16.26, 0.593, 237.5, 37.56, 112.6 | 0.1505, −16.28, 0.593, 238.0, 37.62, 112.8 (Chen & Piekarewicz 2014) |
+| GM1 | $M_{\max}$ só núcleons | 2.359 $M_\odot$ | 2.363 (Nam & Lim) |
+| GM3 | $M_{\max}$ só núcleons | 2.015 $M_\odot$ | 2.018 (Nam & Lim) |
+| FSU2 | $M_{\max}$ só núcleons | 2.071 $M_\odot$ | 2.07 ± 0.02 (Chen & Piekarewicz) |
+
+Estrelas só com núcleons usam `with_hyperons(false)`. Para EoS rígidas a malha em
+$\mu_n$ deve ir além do padrão (1.8 $M_N$): o GM1 só com núcleons termina em $4.9\,n_0$ e
+a massa máxima sai truncada (2.342 em vez de 2.359). Os testes e o binário
+`properties` usam $\mu_n\le3M_N$ e verificam que o máximo não está no fim da sequência.
+
+Diferença conhecida: para FSU2, Chen & Piekarewicz obtêm $R_{1.4}=14.42\pm0.26$ km com
+uma interpolação politrópica entre a crosta externa BPS e o núcleo; o NSRS junta a
+tabela BPS diretamente à EoS uniforme e obtém 13.95 km. Uma crosta interna unificada
+é um passo pendente.
+
 ## Setor escuro fermiônico
 
 O setor escuro é opcional em `HadronsMatter` (builders `with_y_chi`, `with_m_chi`,

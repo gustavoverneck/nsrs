@@ -137,6 +137,9 @@ pub struct HadronsMatter {
     /// Se algum parâmetro escuro foi definido (controla as colunas 21-33).
     pub dark_enabled: bool,
 
+    /// Inclui o octeto de hyperons (padrão). `false`: matéria npe(mu).
+    pub include_hyperons: bool,
+
     /// Perfil do campo local (ver `core::magnetic`). Padrão: `Constant`.
     pub field_profile: FieldProfile,
     /// Campo local (Gauss) usado no último ponto resolvido.
@@ -248,6 +251,7 @@ impl HadronsMatter {
             press_chi_kin: 0.0,
             v_x0: 0.0,
             dark_enabled: false,
+            include_hyperons: true,
 
             field_profile: FieldProfile::Constant,
             local_field_g: bg,
@@ -256,6 +260,13 @@ impl HadronsMatter {
             stability_pressure: 0.0,
             field_stress_override: None,
         }
+    }
+
+    /// Inclui (padrão) ou exclui os hyperons; sem eles a matéria é npe(mu),
+    /// como nas parametrizações originais calibradas só com núcleons.
+    pub fn with_hyperons(mut self, include: bool) -> Self {
+        self.include_hyperons = include;
+        self
     }
 
     // --- Builders do setor escuro ---

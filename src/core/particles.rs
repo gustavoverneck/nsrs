@@ -5,6 +5,18 @@ use crate::core::physics::HadronsMatter;
 
 pub fn calculate_all_densities(engine: &mut HadronsMatter, vomega: f64, vrho: f64) {
     for i in 0..8 {
+        if i >= 2 && !engine.include_hyperons {
+            // Hyperon excluído: sem estados ocupados (ef = 0 zera também a
+            // contribuição à energia em eos::compute).
+            engine.ef_b[i] = 0.0;
+            engine.kf_b_up[i].clear();
+            engine.kf_b_down[i].clear();
+            engine.n_b_up[i] = 0;
+            engine.n_b_down[i] = 0;
+            engine.rhos_b[i] = 0.0;
+            engine.nb[i] = 0.0;
+            continue;
+        }
         let (rs, rb) = if engine.charges_b[i] == 0.0 {
             density_baryon_neutral(engine, i, vomega, vrho)
         } else {

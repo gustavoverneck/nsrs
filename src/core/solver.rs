@@ -316,8 +316,11 @@ impl Solver {
 
         // 2. Executamos o processamento paralelo dentro deste pool específico
         let results = pool.install(|| {
+            // with_max_len(1): cada engine é uma tarefa; uma thread livre pega a
+            // próxima assim que termina (sem blocos contíguos de custo desigual).
             engines
                 .into_par_iter()
+                .with_max_len(1)
                 .map(|engine| {
                     let mut solver = Solver::new(engine);
                     let result = solver.solve();

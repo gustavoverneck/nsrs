@@ -285,6 +285,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let outcomes: Vec<Outcome> = pool.install(|| {
         jobs.par_iter()
+            .with_max_len(1)
             .map(|job| {
                 let dir = args.switch("save-eos").then(|| save_dir(job));
                 run(job, points, hyperons, dir.as_deref())

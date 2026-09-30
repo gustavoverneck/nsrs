@@ -37,7 +37,7 @@ fn maximum_mass(stars: &[StarProperties]) -> f64 {
     stars[i].mass
 }
 
-/// Nam & Lim, arXiv:2510.15356 (2025), Tabela III (RMF só com núcleons,
+/// Nam, Lim & Holt, arXiv:2510.15356 (2025), Tabela III (RMF só com núcleons,
 /// crosta BPS): GM1 M_max = 2.363, GM3 M_max = 2.018 M_sun.
 /// Diferenças esperadas de ~0.2%: M_N e tratamento da crosta.
 #[test]
@@ -61,7 +61,7 @@ fn fsu2_nucleonic_maximum_mass_matches_chen_piekarewicz() {
     assert!((m_max - 2.07).abs() < 0.02, "M_max = {m_max}");
 }
 
-/// Nam & Lim (2025), Tabela III: GM1 (J, L, K) = (32.52, 94.04, 300.50) MeV;
+/// Nam, Lim & Holt (2025), Tabela III: GM1 (J, L, K) = (32.52, 94.04, 300.50) MeV;
 /// GM3 (32.51, 89.75, 240.04) MeV.
 #[test]
 fn gm_symmetry_slope_and_incompressibility_match_nam_lim() {

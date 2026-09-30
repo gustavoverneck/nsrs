@@ -244,11 +244,11 @@ início dos hyperons para GM1, GM3 e FSU2.
 
 | Modelo | Grandeza | NSRS | Referência |
 |---|---|---|---|
-| GM1 | $K$, $J$, $L$ (MeV) | 299.7, 32.48, 93.9 | 300.50, 32.52, 94.04 (Nam & Lim, arXiv:2510.15356, Tab. III) |
+| GM1 | $K$, $J$, $L$ (MeV) | 299.7, 32.48, 93.9 | 300.50, 32.52, 94.04 (Nam, Lim & Holt, arXiv:2510.15356, Tab. III) |
 | GM3 | $K$, $J$, $L$ (MeV) | 239.8, 32.47, 89.6 | 240.04, 32.51, 89.75 (idem) |
 | FSU2 | $n_0$, $E/A$, $M^*/M$, $K$, $J$, $L$ | 0.1503, −16.26, 0.593, 237.5, 37.56, 112.6 | 0.1505, −16.28, 0.593, 238.0, 37.62, 112.8 (Chen & Piekarewicz 2014) |
-| GM1 | $M_{\max}$ só núcleons | 2.359 $M_\odot$ | 2.363 (Nam & Lim) |
-| GM3 | $M_{\max}$ só núcleons | 2.015 $M_\odot$ | 2.018 (Nam & Lim) |
+| GM1 | $M_{\max}$ só núcleons | 2.359 $M_\odot$ | 2.363 (Nam, Lim & Holt) |
+| GM3 | $M_{\max}$ só núcleons | 2.015 $M_\odot$ | 2.018 (Nam, Lim & Holt) |
 | FSU2 | $M_{\max}$ só núcleons | 2.071 $M_\odot$ | 2.07 ± 0.02 (Chen & Piekarewicz) |
 
 Estrelas só com núcleons usam `with_hyperons(false)`. Para EoS rígidas a malha em

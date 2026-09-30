@@ -22,4 +22,4 @@ Para informações detalhadas, consulte os arquivos na pasta [docs/](docs/):
 
 - [docs/](docs/): documentação detalhada técnica e física.
 - `src/core/`: núcleo físico e numérico (EoS, solver, TOV, plot, I/O)
-- `src/bin/`: executáveis para análises e varreduras
+- `src/bin/nsrs/`: executável único `nsrs` com subcomandos para varreduras, relatórios e ferramentas (`cargo run --release --bin nsrs -- help`)

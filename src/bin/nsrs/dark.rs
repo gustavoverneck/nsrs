@@ -1,4 +1,113 @@
-// src/bin/darkphotons.rs
+// Setor escuro (substitui os binários darkphotons, darkphotons_base e
+// single_darkphotons). Caminhos de saída iguais aos originais.
+
+use std::fs;
+use std::io::{self, Write};
+
+use nsrs::constants::{DATA_SIZE, M_NUCLEON, RESULTS_SIZE};
+use nsrs::{DarkPhotonsMatter, EngineMode, GM1, HadronsMatter, Solver};
+
+use crate::cli::{Args, create_dir, format_sci};
+
+/// `dark scan`: grade de 10 x 10 x 10 x 10 valores de (epsilon, m_X/M_N,
+/// g_D, Y_chi) com m_chi = M_N, mais uma EoS hadrônica de referência.
+/// Saída: output/darkphotons_scan/<modelo>/{summary.csv, eos_*.dat}
+pub fn scan(raw: &[String]) -> Result<(), String> {
+    let args = Args::parse(raw, &[])?;
+    let b_field = args.f64_or("b", 1e17)?;
+    let m_chi_mev = M_NUCLEON;
+    let eps_values = linspace(1e-6, 1e-3, 10);
+    let m_x_values = linspace(0.01, 0.11, 10);
+    let g_d_values = linspace(0.35, 1.12, 10);
+    let y_chi_values = linspace(0.0, 0.1, 10);
+
+    for (model_name, model) in args.models(&["GM1", "GM3"])? {
+        let base_dir = format!("output/darkphotons_scan/{model_name}");
+        create_dir(&base_dir)?;
+        let mut summary =
+            fs::File::create(format!("{base_dir}/summary.csv")).map_err(|e| e.to_string())?;
+        let mut line = |text: String| writeln!(summary, "{text}").map_err(|e| e.to_string());
+        line("label,epsilon,m_x_over_mN,g_d,y_chi,m_chi_MeV,b_field_G,eos_file".into())?;
+
+        let mut engines = vec![EngineMode::Hadrons(
+            HadronsMatter::new(model, b_field)
+                .with_limits(0.01, 2.0)
+                .with_points(1200)
+                .with_eos_output(format!("{base_dir}/eos_hadrons.dat")),
+        )];
+        line(format!("hadrons,,,,,,{b_field:.6e},eos_hadrons.dat"))?;
+
+        for &epsilon in &eps_values {
+            for &m_x in &m_x_values {
+                for &g_d in &g_d_values {
+                    for &y_chi in &y_chi_values {
+                        let file = format!(
+                            "eos_eps_{}_mx_{}_gd_{:.3}_ychi_{}.dat",
+                            format_sci(epsilon),
+                            format_sci(m_x),
+                            g_d,
+                            format_sci(y_chi)
+                        );
+                        engines.push(EngineMode::DarkPhotons(
+                            DarkPhotonsMatter::new(model, b_field)
+                                .with_limits(0.01, 2.0)
+                                .with_points(1200)
+                                .with_epsilon(epsilon)
+                                .with_m_x(m_x)
+                                .with_m_chi_mev(m_chi_mev)
+                                .with_g_d(g_d)
+                                .with_y_chi(y_chi)
+                                .with_eos_output(format!("{base_dir}/{file}")),
+                        ));
+                        line(format!(
+                            "darkphotons,{epsilon:.6e},{m_x:.6e},{g_d:.6e},{y_chi:.6e},{m_chi_mev:.6e},{b_field:.6e},{file}"
+                        ))?;
+                    }
+                }
+            }
+        }
+        println!("\nModelo={model_name} | {} EoS...", engines.len());
+        Solver::solve_parallel(engines, args.threads()?);
+    }
+    println!("\nConcluído. Dados em output/darkphotons_scan/");
+    Ok(())
+}
+
+/// `dark single`: GM1 com B = 1e17 G, uma EoS hadrônica e uma com o setor
+/// escuro (epsilon = 1e-4, m_X = 0.1065 M_N, m_chi = M_N, g_D = 0.45,
+/// Y_chi = 0.01).
+/// Saída: output/darkphotons/GM1/{eos_hadrons.dat, darkphoton.dat}
+pub fn single(raw: &[String]) -> Result<(), String> {
+    let args = Args::parse(raw, &[])?;
+    let b_field = 1e17;
+    let base_dir = "output/darkphotons/GM1";
+    create_dir(base_dir)?;
+    let engines = vec![
+        EngineMode::Hadrons(
+            HadronsMatter::new(GM1, b_field)
+                .with_limits(0.01, 2.0)
+                .with_points(2000)
+                .with_eos_output(format!("{base_dir}/eos_hadrons.dat")),
+        ),
+        EngineMode::DarkPhotons(
+            DarkPhotonsMatter::new(GM1, b_field)
+                .with_points(2000)
+                .with_limits(0.01, 2.0)
+                .with_epsilon(1e-4)
+                .with_m_x(0.1065)
+                .with_m_chi_mev(M_NUCLEON)
+                .with_g_d(0.45)
+                .with_y_chi(0.01)
+                .with_eos_output(format!("{base_dir}/darkphoton.dat")),
+        ),
+    ];
+    Solver::solve_parallel(engines, args.threads()?);
+    println!("\nConcluído. Dados em {base_dir}/");
+    Ok(())
+}
+
+// ============================================================================
+// Benchmarks (antigo darkphotons_base)
 //
 // Four literature-motivated benchmark scenarios.
 //
@@ -7,25 +116,13 @@
 // S2 : Kumar et al. Set 2 inspired
 // S3 : Kumar et al. Set 3 inspired
 //
-// IMPORTANT:
-// - GM1 and GM3 are both evaluated for the SAME four physical scenarios.
-// - FSU2 remains excluded.
+// - GM1 and GM3 (default) are evaluated for the SAME four scenarios.
 // - Microscopic B = 0.
 // - epsilon is NOT taken from Kumar et al.; their model is a direct Z' portal.
 //   Here epsilon = 1e-4 is a fixed kinetic-mixing benchmark.
 // - Y_chi is chosen so that kF_chi = 20 MeV at n0 = 0.153 fm^-3.
-
-use nsrs::{
-    DarkPhotonsMatter, EngineMode, GM1, GM3, HadronsMatter, Solver,
-    constants::{DATA_SIZE, RESULTS_SIZE},
-};
-
-use std::fs;
-use std::io::{self, Write};
-
 // ============================================================================
-// Global numerical setup
-// ============================================================================
+
 
 const B_FIELD_G: f64 = 0.0;
 
@@ -63,7 +160,10 @@ struct DarkScenario {
     y_chi: f64,
 }
 
-fn main() -> io::Result<()> {
+/// `dark benchmarks`: cenários H0, S1, S2, S3.
+/// Saída: output/darkphotons_benchmarks/<modelo>/{summary.csv, eos_*.dat}
+pub fn benchmarks(raw: &[String]) -> Result<(), String> {
+    let args = Args::parse(raw, &[])?;
     let mut all_outputs_complete = true;
     // ------------------------------------------------------------------------
     // Dark fraction corresponding to kF_chi = 20 MeV at n0 = 0.153 fm^-3.
@@ -129,18 +229,19 @@ fn main() -> io::Result<()> {
     // scenarios H0/S1/S2/S3 are evaluated.
     // ------------------------------------------------------------------------
 
-    let models = [("GM1", GM1), ("GM3", GM3)];
+    let models = args.models(&["GM1", "GM3"])?;
 
     for (model_name, model) in models {
+        let model_name = model_name.as_str();
         let base_dir = format!("output/darkphotons_benchmarks/{}", model_name);
 
-        fs::create_dir_all(&base_dir)?;
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
 
         let summary_tmp = format!("{}/summary.csv.tmp", base_dir);
 
         let summary_final = format!("{}/summary.csv", base_dir);
 
-        let mut summary = fs::File::create(&summary_tmp)?;
+        let mut summary = fs::File::create(&summary_tmp).map_err(|e| e.to_string())?;
 
         writeln!(
             summary,
@@ -150,7 +251,7 @@ fn main() -> io::Result<()> {
                 "kf_chi_ref_MeV,nB_ref_fm-3,",
                 "b_field_G,eos_file,status"
             )
-        )?;
+        ).map_err(|e| e.to_string())?;
 
         // ====================================================================
         // H0 -- purely hadronic baseline
@@ -186,7 +287,7 @@ fn main() -> io::Result<()> {
             b = B_FIELD_G,
             file = h0_filename,
             status = h0_status,
-        )?;
+        ).map_err(|e| e.to_string())?;
 
         // ====================================================================
         // S1, S2, S3
@@ -258,25 +359,23 @@ fn main() -> io::Result<()> {
                 b = B_FIELD_G,
                 file = eos_filename,
                 status = status,
-            )?;
+            ).map_err(|e| e.to_string())?;
         }
 
-        summary.flush()?;
+        summary.flush().map_err(|e| e.to_string())?;
         drop(summary);
 
         // Transactional finalization:
         //
         // summary.csv is only produced once all four scenarios
         // for the current hadronic model have returned.
-        fs::rename(&summary_tmp, &summary_final)?;
+        fs::rename(&summary_tmp, &summary_final).map_err(|e| e.to_string())?;
 
         println!("[{}] summary committed: {}", model_name, summary_final);
     }
 
     if !all_outputs_complete {
-        return Err(io::Error::other(
-            "one or more benchmark EOS files are incomplete; inspect summary.csv",
-        ));
+        return Err("one or more benchmark EOS files are incomplete; inspect summary.csv".into());
     }
 
     println!("\nConcluido. Resultados em output/darkphotons_benchmarks/");
@@ -355,5 +454,13 @@ fn eos_file_status(path: &str) -> &'static str {
         "FAILED_NO_MR_CURVE"
     } else {
         "EOS_WRITTEN"
+    }
+}
+
+fn linspace(start: f64, end: f64, n: usize) -> Vec<f64> {
+    match n {
+        0 => Vec::new(),
+        1 => vec![start],
+        _ => (0..n).map(|i| start + (end - start) * i as f64 / (n - 1) as f64).collect(),
     }
 }

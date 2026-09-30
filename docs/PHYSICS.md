@@ -235,7 +235,7 @@ GM1/GM3.
 `io_utils::derived_diagnostics` (gravado em `x_diag.txt`) dá por linha $c_s^2=dP/d\epsilon$,
 $\Gamma=(\epsilon+P)/P\,c_s^2$, frações $Y_p$, $Y_e$, $Y_\mu$, $Y_{\rm hyp}$ e o critério de URCA
 direto nucleônico $k_{Fn}\le k_{Fp}+k_{F\ell}$ (Lattimer et al., PRL 66, 2701 (1991); momentos
-de Fermi isotrópicos). O binário `properties` resume saturação, estrelas, limiar de URCA e
+de Fermi isotrópicos). O comando `nsrs report properties` resume saturação, estrelas, limiar de URCA e
 início dos hyperons para GM1, GM3 e FSU2.
 
 ## Validação contra a literatura (Nível 2)
@@ -253,8 +253,8 @@ início dos hyperons para GM1, GM3 e FSU2.
 
 Estrelas só com núcleons usam `with_hyperons(false)`. Para EoS rígidas a malha em
 $\mu_n$ deve ir além do padrão (1.8 $M_N$): o GM1 só com núcleons termina em $4.9\,n_0$ e
-a massa máxima sai truncada (2.342 em vez de 2.359). Os testes e o binário
-`properties` usam $\mu_n\le3M_N$ e verificam que o máximo não está no fim da sequência.
+a massa máxima sai truncada (2.342 em vez de 2.359). Os testes e o comando
+`nsrs report properties` usam $\mu_n\le3M_N$ e verificam que o máximo não está no fim da sequência.
 
 Diferença conhecida: para FSU2, Chen & Piekarewicz obtêm $R_{1.4}=14.42\pm0.26$ km com
 uma interpolação politrópica entre a crosta externa BPS e o núcleo; o NSRS junta a
@@ -275,7 +275,7 @@ al., RMP 89, 015007 (2017)).
 assimétricas; intervalos de 90% divididos por 1.645): massa máxima,
 $d=\max(0,(M_{\rm obs}-M_{\max})/\sigma_-)$; ponto M-R, menor distância normalizada ao ramo
 estável; $R_{1.4}$ e $\Lambda_{1.4}$ interpolados na curva; propriedades nucleares, desvio
-simples. $d\le1$ compatível, $1<d\le2$ tensão, $d>2$ excluído. O binário `observations`
+simples. $d\le1$ compatível, $1<d\le2$ tensão, $d>2$ excluído. O comando `nsrs report observations`
 avalia GM1, GM3 e FSU2 (B = 0, crosta BPS, com e sem hyperons) e grava
 `results/observations_report.csv`.
 
@@ -385,7 +385,7 @@ limite de vácuo automatizado demonstra
 $n_\chi,X_0,\epsilon_{\rm dark},P_{\rm dark}\to0$, mas a energia e a pressão
 totais exportadas conservam o pequeno piso eletromagnético legado.
 
-Os executáveis de campanha `darkphotons` e `single_darkphotons` continuam
+Os comandos de campanha `nsrs dark scan` e `nsrs dark single` continuam
 configurados com $B=10^{17}$ G. Essas campanhas magnetizadas são uma etapa
 posterior à validação limpa do setor escuro e ainda exigem testes dedicados da
 interação com Landau, AMM, perfil de campo e anisotropia antes de produção em

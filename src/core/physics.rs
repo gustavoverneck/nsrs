@@ -42,6 +42,21 @@ impl NlemModel {
             NlemModel::Log(xi) => 1.0 / (1.0 + b_gauss * b_gauss / (2.0 * xi * xi)),
         }
     }
+
+    /// Curvatura do vácuo f_vac = dH/dB = 4 pi d^2 eps_B/dB^2 (gaussiano), o
+    /// termo do campo no critério de estabilidade s = f_vac - 4 pi d^2 P_m/dB^2.
+    /// Maxwell: 1; ModMax: e^{-gamma}; Log: (1 - x)/(1 + x)^2, x = B^2/(2 xi^2),
+    /// negativa para B > sqrt(2) xi.
+    pub fn vacuum_curvature(&self, b_gauss: f64) -> f64 {
+        match *self {
+            NlemModel::Maxwell => 1.0,
+            NlemModel::Modmax(gamma) => (-gamma).exp(),
+            NlemModel::Log(xi) => {
+                let x = b_gauss * b_gauss / (2.0 * xi * xi);
+                (1.0 - x) / ((1.0 + x) * (1.0 + x))
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -152,6 +167,9 @@ pub struct HadronsMatter {
     /// a pressão termodinâmica, monótona em mu, usada nos critérios de
     /// validade da varredura.
     pub stability_pressure: f64,
+    /// Energia e tensões do campo (MeV/fm^3) somadas à EoS no último ponto;
+    /// zero quando o campo não entra na EoS.
+    pub field_stress: crate::core::magnetic::MagneticStress,
     /// Se a energia e as tensões do próprio campo entram na EoS da TOV.
     /// `None`: padrão do perfil (`FieldProfile::field_stress_in_eos`).
     field_stress_override: Option<bool>,
@@ -258,6 +276,7 @@ impl HadronsMatter {
             last_nb_over_n0: 0.0,
             magnetization_b: 0.0,
             stability_pressure: 0.0,
+            field_stress: crate::core::magnetic::MagneticStress::default(),
             field_stress_override: None,
         }
     }
@@ -747,6 +766,7 @@ impl HadronsMatter {
                 p_perpendicular: 0.0,
             }
         };
+        self.field_stress = stress;
         let ebsd = stress.energy;
         // Pressão do campo + termo de magnetização da matéria: anisotrópica,
         // P_perp = P - M B; isotrópica (campo emaranhado), P - (2/3) M B.

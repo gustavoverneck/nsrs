@@ -433,6 +433,15 @@ impl HadronsMatter {
         self
     }
 
+    /// Número máximo de níveis de Landau somados por espécie (padrão
+    /// `MAX_LANDAU_LIMIT`). Em B baixo e densidade alta a soma precisa de mais
+    /// níveis; o corte trunca a soma e distorce a magnetização.
+    pub fn with_max_landau_limit(mut self, n: usize) -> Self {
+        assert!(n > 0, "max_landau_limit must be positive");
+        self.max_landau_limit = n;
+        self
+    }
+
     pub fn with_eos_output<P: Into<String>>(mut self, path: P) -> Self {
         self.eos_output = Some(path.into());
         self

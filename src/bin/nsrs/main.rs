@@ -41,7 +41,7 @@ Estudos (tabela para análise e publicação):
 
   study b       [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
                 [--profiles constante,bdd] [--points 1500] [--mu-max 3.0] [--no-hyperons]
-                [--no-stability] [--delta 1e-4] [--out results/study_b]
+                [--no-stability] [--delta 1e-4] [--landau-max 20000] [--out results/study_b]
                 Varredura completa em B (de 0 até quebrar): estrelas, cobertura da EoS
                 e estabilidade mecânica e magnética local.            -> results/study_b/
 

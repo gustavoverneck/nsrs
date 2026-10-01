@@ -22,7 +22,7 @@ use std::io::Write;
 
 use rayon::prelude::*;
 
-use nsrs::constants::{M_NUCLEON, RESULTS_SIZE};
+use nsrs::constants::{MAX_LANDAU_LIMIT, M_NUCLEON, RESULTS_SIZE};
 use nsrs::core::model::ModelParams;
 use nsrs::core::observations::{interpolate_at_mass, stable_branch};
 use nsrs::core::tov_solver::generate_star_sequence;
@@ -58,6 +58,7 @@ struct Config {
     points: usize,
     mu_max: f64,
     hyperons: bool,
+    landau_max: usize,
 }
 
 /// EoS resolvida, com 𝓜B e a pressão sem magnetização por linha.
@@ -73,7 +74,8 @@ fn solve(model: ModelParams, b: f64, profile: Profile, config: &Config) -> Eos {
     let mut engine = HadronsMatter::new(model, b)
         .with_hyperons(config.hyperons)
         .with_limits(0.02, config.mu_max)
-        .with_points(config.points);
+        .with_points(config.points)
+        .with_max_landau_limit(config.landau_max);
     if profile == Profile::Bdd && b > 0.0 {
         engine = engine.with_field_profile(FieldProfile::bdd(b));
     }
@@ -205,6 +207,7 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, config: &Config) -> 
             .with_hyperons(config.hyperons)
             .with_limits(0.02, config.mu_max)
             .with_points(config.points)
+            .with_max_landau_limit(config.landau_max)
     };
     let factors = [1.0 + delta, 1.0 - delta, 1.0 + 0.5 * delta, 1.0 - 0.5 * delta];
     let rows = &center.rows;
@@ -249,7 +252,8 @@ fn progress(total: usize) -> indicatif::ProgressBar {
 
 /// `study b [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
 ///  [--profiles constante,bdd] [--points 1500] [--mu-max 3.0] [--no-hyperons]
-///  [--no-stability] [--delta 1e-4] [--out results/study_b] [--threads N]`
+///  [--no-stability] [--delta 1e-4] [--landau-max 20000] [--out results/study_b]
+///  [--threads N]`
 pub fn run(raw: &[String]) -> Result<(), String> {
     let args = Args::parse(raw, &["no-hyperons", "no-stability"])?;
     let (b_min, b_max) = (args.f64_or("bmin", 1e14)?, args.f64_or("bmax", 1e20)?);
@@ -262,7 +266,11 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         points: args.usize_or("points", 1500)?,
         mu_max: args.f64_or("mu-max", 3.0)?,
         hyperons: !args.switch("no-hyperons"),
+        landau_max: args.usize_or("landau-max", MAX_LANDAU_LIMIT)?,
     };
+    if config.landau_max == 0 {
+        return Err("--landau-max deve ser >= 1".into());
+    }
     let profiles: Vec<Profile> = args
         .value("profiles")
         .unwrap_or("constante,bdd")
@@ -283,11 +291,12 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     let models = args.models(&["GM1"])?;
 
     println!(
-        "study b: {} modelo(s), {} valores de B (0 e {b_min:.1e}..{b_max:.1e} G, {per_decade}/década), perfis: {}, hyperons = {}",
+        "study b: {} modelo(s), {} valores de B (0 e {b_min:.1e}..{b_max:.1e} G, {per_decade}/década), perfis: {}, hyperons = {}, níveis de Landau <= {}",
         models.len(),
         fields.len(),
         profiles.iter().map(|p| p.label()).collect::<Vec<_>>().join(","),
-        config.hyperons
+        config.hyperons,
+        config.landau_max
     );
 
     // 1. Estrelas e cobertura.

@@ -57,7 +57,7 @@ def number(text: str) -> float:
 def load(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    with path.open(newline="") as handle:
+    with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     for row in rows:
         row.setdefault("nlem", "maxwell")

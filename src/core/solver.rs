@@ -68,6 +68,17 @@ pub struct Solver {
     diagnostics: Vec<PointDiagnostics>,
 }
 
+impl EngineMode {
+    /// Arquivo em que a EoS é gravada, se houver.
+    pub fn eos_output(&self) -> Option<&str> {
+        match self {
+            EngineMode::Hadrons(h) | EngineMode::DarkPhotons(h) => h.eos_output.as_deref(),
+            EngineMode::Quarks(q) => q.eos_output.as_deref(),
+            EngineMode::Hybrid(h) => h.eos_output.as_deref(),
+        }
+    }
+}
+
 impl Solver {
     pub fn new(engine: EngineMode) -> Self {
         Solver {
@@ -111,6 +122,8 @@ impl Solver {
         let mut last_visible_x = [0.0; 5];
         let mut last_dark_x = [0.0; 5];
         let mut last_mun = mun_inf; // último mun que convergiu
+        // mu_n do último salto de ramo (no máximo um a partir de cada ponto).
+        let mut jumped_from: Option<f64> = None;
         let mut mun = mun_inf;
         let mut termination = EosTermination::ReachedUpperLimit;
         // Apenas estas engines exportam M*/M do nêutron na coluna 16.
@@ -233,6 +246,22 @@ impl Solver {
                 // Falha na convergência: reduz o passo e tenta novamente a partir do último sucesso
                 dmub *= 0.5;
                 if dmub < min_dmub {
+                    // Antes de desistir, tenta saltar para o ramo denso: sob
+                    // campo forte o ramo de baixa densidade pode dobrar logo
+                    // depois do limiar (transição de primeira ordem em mu).
+                    let last_nb = results.last().map_or(0.0, |r| r[0]);
+                    let jump = (jumped_from != Some(last_mun))
+                        .then(|| {
+                            self.jump_to_dense_branch(last_mun, initial_dmub, &last_visible_x, last_nb)
+                        })
+                        .flatten();
+                    if let Some((mu_jump, x)) = jump {
+                        jumped_from = Some(last_mun);
+                        last_visible_x = x;
+                        mun = mu_jump;
+                        dmub = initial_dmub;
+                        continue;
+                    }
                     let (mu_n_mev, nb_over_n0) = last_point(&results);
                     termination = EosTermination::ConvergenceFailure {
                         mu_n_mev,
@@ -248,12 +277,7 @@ impl Solver {
             }
         }
 
-        let output_path = match &self.engine {
-            EngineMode::Hadrons(h) => h.eos_output.clone(),
-            EngineMode::Quarks(q) => q.eos_output.clone(),
-            EngineMode::Hybrid(h) => h.eos_output.clone(),
-            EngineMode::DarkPhotons(d) => d.eos_output.clone(),
-        };
+        let output_path = self.engine.eos_output().map(str::to_string);
 
         self.termination = Some(termination);
         if termination.is_anomalous() {
@@ -293,12 +317,46 @@ impl Solver {
             {
                 eprintln!("failed to write EOS output '{}': {error}", path);
             }
-            // Parallel production scans intentionally do not retain every EOS
-            // in memory after it has been written.
-            return Vec::new();
         }
 
         results
+    }
+
+    /// Procura, a partir de `last_mun`, uma raiz no ramo denso quando a
+    /// continuação trava: avança mu_n em passos de `step` e parte de chutes
+    /// com os campos mesônicos ampliados. Só para hádrons e só enquanto a
+    /// matéria ainda é diluída (n_B < n0); devolve (mu_n, estado) da primeira
+    /// raiz com n_B pelo menos 1,5 vez maior que o último ponto aceito.
+    fn jump_to_dense_branch(
+        &mut self,
+        last_mun: f64,
+        step: f64,
+        last_x: &[f64; 5],
+        last_nb: f64,
+    ) -> Option<(f64, [f64; 5])> {
+        let EngineMode::Hadrons(engine) = &mut self.engine else { return None };
+        if last_nb <= 1e-6 || last_nb >= 1.0 {
+            return None;
+        }
+        let saved_nb = engine.last_nb_over_n0;
+        for j in 1..=20 {
+            let mu_try = last_mun + j as f64 * step;
+            for scale in [2.0, 4.0, 8.0, 16.0, 32.0] {
+                let mut guess = *last_x;
+                for value in &mut guess[1..4] {
+                    *value *= scale;
+                }
+                engine.last_nb_over_n0 = saved_nb;
+                if let Some((x, row)) = engine.solve_point(mu_try, &guess) {
+                    if row[0] >= 1.5 * last_nb {
+                        engine.last_nb_over_n0 = saved_nb;
+                        return Some((mu_try, x));
+                    }
+                }
+            }
+        }
+        engine.last_nb_over_n0 = saved_nb;
+        None
     }
 
     /// Resolve múltiplas EoS de forma paralela usando Rayon.
@@ -328,10 +386,13 @@ impl Solver {
                 .into_par_iter()
                 .with_max_len(1)
                 .map(|engine| {
+                    let written = engine.eos_output().is_some();
                     let mut solver = Solver::new(engine);
                     let result = solver.solve();
                     pb.inc(1);
-                    result
+                    // Varreduras de produção gravam cada EoS em disco e não
+                    // mantêm todas em memória.
+                    if written { Vec::new() } else { result }
                 })
                 .collect()
         });

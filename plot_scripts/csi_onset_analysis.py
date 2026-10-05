@@ -20,6 +20,7 @@ from __future__ import annotations
 import csv
 import math
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -361,7 +362,7 @@ def write_detailed_report(
     output_file: Path,
 ) -> None:
     """Escreve relatório detalhado em arquivo CSV"""
-    with open(output_file, 'w', newline='') as f:
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
 
         # Cabeçalho
@@ -416,7 +417,7 @@ def write_summary_report(
                     summary[model_b_key][col_idx].append(analysis.onset_log_csi)
 
     # Escrever sumário
-    with open(output_file, 'w', newline='') as f:
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
 
         writer.writerow([
@@ -494,6 +495,10 @@ def _collect_onset_data(
 def main():
     import argparse
 
+    # Os emojis do relatório quebram consoles cp1252 (Windows).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description="Onset dos efeitos de csi no dataset nlem_log")
     parser.add_argument("--input-root", type=Path, default=Path("output/nlem_log"))
     parser.add_argument("--output-root", type=Path, default=Path("results/nlem_log/csi_onset_analysis"))
@@ -549,7 +554,7 @@ def main():
     print("\n🔬 Analisando onset de hiperanos...")
     hyperon_onsets = analyze_hyperon_onset(datasets_by_model_b)
 
-    with open(output_root / "hyperon_onset.csv", 'w', newline='') as f:
+    with open(output_root / "hyperon_onset.csv", 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(["Modelo_B", "log10(ξ) Onset Hiperão"])
         for key, onset_log_csi in sorted(hyperon_onsets.items()):

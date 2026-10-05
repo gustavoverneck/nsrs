@@ -31,7 +31,7 @@ def number(text: str) -> float | None:
 
 
 def load(path: Path) -> list[dict]:
-    with path.open(newline="") as handle:
+    with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 

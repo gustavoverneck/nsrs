@@ -49,7 +49,7 @@ def load(path: Path) -> list[dict]:
     if not path.exists():
         print(f"[aviso] {path} não encontrado")
         return []
-    with path.open(newline="") as handle:
+    with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -190,7 +190,7 @@ def main() -> None:
             study_b(off, on, args.out, profile, summary)
 
     path = args.out / "amm_summary.csv"
-    with path.open("w", newline="") as handle:
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["study", "model", "topology", "b_G", "nlem", "", "m_max_sem", "m_max_amm", "dm_max",
                          "r14_sem", "r14_amm", "dr14", "lambda14_sem", "lambda14_amm", "dlambda14"])

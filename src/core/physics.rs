@@ -2,7 +2,7 @@
 #![allow(unused)]
 
 use crate::core::constants::{
-    AMML0, AMMN, AMMP, AMMS0, AMMSM, AMMSP, AMMX0, AMMXM, BCE, BCE_G, BDD_ALPHAA, BDD_BETAA,
+    BCE, BCE_G, BDD_ALPHAA, BDD_BETAA, KAPPA_B, RNCM,
     HBAR_C, M_NUCLEON, MAX_LANDAU_LIMIT, MB, ML, N0, QE, RESULTS_SIZE,
 };
 use crate::core::magnetic::{FieldProfile, magnetic_stress};
@@ -174,7 +174,8 @@ impl HadronsMatter {
         let mu_b = [0.0; 8];
         let charges_b = [0.0, 1.0, 0.0, -1.0, 0.0, 1.0, -1.0, 0.0];
 
-        let amm_b = [AMMN, AMMP, AMML0, AMMSM, AMMS0, AMMSP, AMMXM, AMMX0];
+        // Sem momentos anômalos por padrão; ver `with_anomalous_moments`.
+        let amm_b = [0.0; 8];
 
         let xv_v = [1.0, 1.0, 0.783, 0.783, 0.783, 0.783, 0.783, 0.783];
         let xv_r = [1.0, 1.0, 0.783, 0.783, 0.783, 0.783, 0.783, 0.783];
@@ -260,6 +261,14 @@ impl HadronsMatter {
             stability_pressure: 0.0,
             field_stress_override: None,
         }
+    }
+
+    /// Liga (ou desliga, o padrão) os momentos magnéticos anômalos dos bárions
+    /// (`KAPPA_B`): acoplamento de Pauli a = s kappa mu_N B nos níveis de Landau dos
+    /// carregados e no espectro anisotrópico dos neutros.
+    pub fn with_anomalous_moments(mut self, include: bool) -> Self {
+        self.amm_b = if include { KAPPA_B.map(|k| k * RNCM) } else { [0.0; 8] };
+        self
     }
 
     /// Inclui (padrão) ou exclui os hyperons; sem eles a matéria é npe(mu),
@@ -920,6 +929,28 @@ mod tests {
         assert!((n0 - 0.1505).abs() < 0.002, "n0 = {n0}");
         assert!((ea + 16.28).abs() < 0.1, "E/A = {ea}");
         assert!((mstar - 0.593).abs() < 0.005, "M*/M = {mstar}");
+    }
+
+    #[test]
+    fn anomalous_moments_keep_pressure_consistent() {
+        // Com AMM e B = 1e18 G (Landau + Pauli nos prótons, espectro anisotrópico
+        // nos nêutrons), dP/dmu_n = n_B a mu_e fixo continua valendo; e o spin com
+        // momento ao longo de B (kappa_n < 0: spin "down") é mais populado.
+        let mut engine = HadronsMatter::new(GM1, 1e18).with_anomalous_moments(true);
+        let (mun, mue, dmu) = (1.08, 0.12, 1e-5);
+        let mut guess = [0.4, 0.4, -0.05];
+        for mu in [1.20, 1.15, 1.10, mun] {
+            guess = solve_fields(&mut engine, mu, mue, guess).expect("continuation").0;
+        }
+        let (fields, nb, _, _) = solve_fields(&mut engine, mun, mue, guess).unwrap();
+        let (a, m_star, ef) = (engine.amm_b[0] * engine.b, engine.m_eff[0], engine.ef_b[0]);
+        let up = crate::core::particles::neutral_amm_spin(m_star, ef, a).unwrap().density;
+        let down = crate::core::particles::neutral_amm_spin(m_star, ef, -a).unwrap().density;
+        assert!(down > up, "n_down = {down}, n_up = {up}");
+        let (_, _, _, p_plus) = solve_fields(&mut engine, mun + dmu, mue, fields).unwrap();
+        let (_, _, _, p_minus) = solve_fields(&mut engine, mun - dmu, mue, fields).unwrap();
+        let dp_dmu = (p_plus - p_minus) / (2.0 * dmu);
+        assert!(((dp_dmu - nb) / nb).abs() < 1e-5, "dP/dmu_n = {dp_dmu}, n_B = {nb}");
     }
 
     #[test]

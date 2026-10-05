@@ -1,15 +1,18 @@
 // `study b`: varredura completa em B, de B = 0 até o código deixar de produzir
 // estrelas, com propriedades estelares, cobertura da EoS e estabilidade local.
 //
-// Para cada B (e cada perfil de campo):
+// Para cada eletrodinâmica (`--nlem`), cada B e cada perfil de campo:
 // - estrelas com crosta BPS nas duas pressões da TOV: P_perp (topologia
 //   anisotrópica) e a média isotrópica (P_par + 2 P_perp)/3;
 // - cobertura da EoS (n_B máximo, motivo do término);
 // - estabilidade mecânica: P_perp deve crescer com n_B;
 // - estabilidade magnética (só campo constante, física local): convexidade da
 //   energia total em B a mu_n fixo,
-//       s = 4 pi d^2 eps_campo/dB^2 - 4 pi d^2 P_m/dB^2 = 1 - 4 pi d(MB/B)/dB
-//   (Maxwell, unidades gaussianas). s < 0: instável à formação de domínios
+//       s = 4 pi d^2 eps_campo/dB^2 - 4 pi d^2 P_m/dB^2 = f_vac(B) - 4 pi d(MB/B)/dB
+//   (unidades gaussianas; f_vac = 1 em Maxwell, (1 - x)/(1 + x)^2 na
+//   eletrodinâmica logarítmica). A NLEM não muda a matéria (acoplamento
+//   mínimo), então a curvatura da matéria é calculada uma vez por B e vale
+//   para todas as eletrodinâmicas. s < 0: instável à formação de domínios
 //   magnéticos. É o complemento de Schur da hessiana de eps(n_B, B), logo o
 //   critério a mu fixo já inclui a estabilidade em n_B. A derivada segunda é
 //   tomada por diferença central com passo relativo `delta` em B e repetida
@@ -26,7 +29,8 @@ use nsrs::constants::{MAX_LANDAU_LIMIT, M_NUCLEON, RESULTS_SIZE};
 use nsrs::core::model::ModelParams;
 use nsrs::core::observations::{interpolate_at_mass, stable_branch};
 use nsrs::core::tov_solver::generate_star_sequence;
-use nsrs::{EngineMode, FieldProfile, HadronsMatter, Solver};
+use nsrs::core::magnetic::MagneticStress;
+use nsrs::{EngineMode, FieldProfile, HadronsMatter, NlemModel, Solver};
 
 use crate::cli::{Args, create_dir};
 
@@ -63,17 +67,48 @@ struct Config {
     amm: bool,
 }
 
-/// EoS resolvida, com 𝓜B e a pressão sem magnetização por linha.
+/// Rótulo da eletrodinâmica nos CSVs: maxwell, log:<xi>, modmax:<gamma>.
+fn nlem_label(nlem: NlemModel) -> String {
+    match nlem {
+        NlemModel::Maxwell => "maxwell".into(),
+        NlemModel::Log(xi) => format!("log:{xi:.2e}"),
+        NlemModel::Modmax(gamma) => format!("modmax:{gamma}"),
+    }
+}
+
+/// `--nlem maxwell,log:1e17,...` (xi em Gauss).
+fn parse_nlem(text: &str) -> Result<Vec<NlemModel>, String> {
+    text.split(',')
+        .map(|item| {
+            let item = item.trim();
+            let value = |v: &str| v.parse::<f64>().map_err(|_| format!("--nlem: número inválido em '{item}'"));
+            match item.split_once(':') {
+                None if item == "maxwell" => Ok(NlemModel::Maxwell),
+                Some(("log", v)) => {
+                    let xi = value(v)?;
+                    if xi > 0.0 { Ok(NlemModel::Log(xi)) } else { Err(format!("--nlem: xi deve ser > 0 em '{item}'")) }
+                }
+                Some(("modmax", v)) => Ok(NlemModel::Modmax(value(v)?)),
+                _ => Err(format!("--nlem: '{item}' (use maxwell, log:<xi em G> ou modmax:<gamma>)")),
+            }
+        })
+        .collect()
+}
+
+/// EoS resolvida, com 𝓜B, a pressão sem magnetização e as tensões do campo
+/// por linha.
 struct Eos {
     rows: Vec<Row>,
     magnetization_b: Vec<f64>,
     stability_pressure: Vec<f64>,
+    field_stress: Vec<MagneticStress>,
     termination: String,
     anomalous: bool,
 }
 
-fn solve(model: ModelParams, b: f64, profile: Profile, config: &Config) -> Eos {
+fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: &Config) -> Eos {
     let mut engine = HadronsMatter::new(model, b)
+        .with_nlem(nlem)
         .with_hyperons(config.hyperons)
         .with_anomalous_moments(config.amm)
         .with_limits(0.02, config.mu_max)
@@ -88,6 +123,7 @@ fn solve(model: ModelParams, b: f64, profile: Profile, config: &Config) -> Eos {
     Eos {
         magnetization_b: solver.diagnostics().iter().map(|d| d.magnetization_b).collect(),
         stability_pressure: solver.diagnostics().iter().map(|d| d.stability_pressure).collect(),
+        field_stress: solver.diagnostics().iter().map(|d| d.field_stress).collect(),
         termination: termination.map_or("-".into(), |t| format!("{t:?}").replace(',', ";")),
         anomalous: termination.is_some_and(|t| t.is_anomalous()),
         rows,
@@ -139,19 +175,23 @@ fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
     }
 }
 
-/// Pressão isotrópica a partir da EoS anisotrópica (Maxwell):
-/// P_iso = P_par,m - (2/3) 𝓜B + eps_B/3, com P_par,m = P_estab - eps_B.
+/// Pressão isotrópica a partir da EoS anisotrópica, para qualquer NLEM:
+/// P_iso = P_par,m - (2/3) 𝓜B + (P_par,c + 2 P_perp,c)/3, com
+/// P_par,m = P_estab - P_perp,c (a pressão de estabilidade é P_par,m + P_perp,c).
+/// Em Maxwell, P_par,c = -eps_B e P_perp,c = eps_B: P_iso = P_par,m - (2/3) 𝓜B + eps_B/3.
 fn isotropic_pressure(eos: &Eos) -> Vec<f64> {
-    eos.rows
+    eos.magnetization_b
         .iter()
-        .zip(&eos.magnetization_b)
         .zip(&eos.stability_pressure)
-        .map(|((r, mb), stab)| (stab - r[19]) - 2.0 / 3.0 * mb + r[19] / 3.0)
+        .zip(&eos.field_stress)
+        .map(|((mb, stab), f)| {
+            (stab - f.p_perpendicular) - 2.0 / 3.0 * mb + (f.p_parallel + 2.0 * f.p_perpendicular) / 3.0
+        })
         .collect()
 }
 
-/// Linha do stars.csv para um (modelo, perfil, B).
-fn star_lines(model_name: &str, profile: Profile, b: f64, eos: &Eos, hyperons: bool) -> Vec<String> {
+/// Linha do stars.csv para um (modelo, NLEM, perfil, B).
+fn star_lines(model_name: &str, nlem: &str, profile: Profile, b: f64, eos: &Eos, hyperons: bool) -> Vec<String> {
     let n_max = eos.rows.iter().map(|r| r[0]).fold(0.0, f64::max);
     let mut core: Vec<(f64, f64)> = eos.rows.iter().filter(|r| r[0] > 0.0).map(|r| (r[0], r[2])).collect();
     core.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -167,7 +207,7 @@ fn star_lines(model_name: &str, profile: Profile, b: f64, eos: &Eos, hyperons: b
         .map(|(topology, pressure)| {
             let s = if has_core { stars(&eos.rows, &pressure) } else { stars(&[], &pressure) };
             format!(
-                "{model_name},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.5},{:.4},{:.4},{:.4},{:.2},{},{nonmonotonic:.4},{negative}",
+                "{model_name},{nlem},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.5},{:.4},{:.4},{:.4},{:.2},{},{nonmonotonic:.4},{negative}",
                 profile.label(),
                 eos.rows.len(),
                 eos.termination,
@@ -183,25 +223,50 @@ fn star_lines(model_name: &str, profile: Profile, b: f64, eos: &Eos, hyperons: b
         .collect()
 }
 
-/// Ponto da estabilidade local: n_B/n0, mu_n, s com passo delta e delta/2, e
-/// dP_perp/dn_B.
+/// Ponto da estabilidade local: n_B/n0, mu_n, curvatura da matéria
+/// c_m = 4 pi d^2 P_m/dB^2 com passo delta e delta/2, e dP_perp/dn_B para cada
+/// eletrodinâmica (mesma ordem de `--nlem`).
 struct StabilityPoint {
     n: f64,
     mu: f64,
-    s: f64,
-    s_half: f64,
-    dp_dn: f64,
+    c_m: f64,
+    c_m_half: f64,
+    dp_dn: Vec<f64>,
 }
 
 impl StabilityPoint {
+    /// s = f_vac - c_m com os dois passos.
+    fn s(&self, f_vac: f64) -> (f64, f64) {
+        (f_vac - self.c_m, f_vac - self.c_m_half)
+    }
+
     /// Instabilidade magnética robusta: s < 0 com os dois passos.
-    fn magnetically_unstable(&self) -> bool {
-        self.s < 0.0 && self.s_half < 0.0
+    fn magnetically_unstable(&self, f_vac: f64) -> bool {
+        let (s, s_half) = self.s(f_vac);
+        s < 0.0 && s_half < 0.0
     }
 }
 
-fn stability_points(model: ModelParams, b: f64, delta: f64, config: &Config) -> Vec<StabilityPoint> {
-    let center = solve(model, b, Profile::Constant, config);
+/// dP_perp/dn_B da EoS no ponto da malha mais próximo de `n` (diferença central).
+fn slope_at(rows: &[Row], n: f64) -> f64 {
+    if rows.len() < 3 {
+        return f64::NAN;
+    }
+    let i = (1..rows.len() - 1)
+        .min_by(|&a, &b| (rows[a][0] - n).abs().total_cmp(&(rows[b][0] - n).abs()))
+        .unwrap_or(1);
+    let dn = rows[i + 1][0] - rows[i - 1][0];
+    if dn != 0.0 { (rows[i + 1][2] - rows[i - 1][2]) / dn } else { f64::NAN }
+}
+
+fn stability_points(model: ModelParams, b: f64, delta: f64, nlems: &[NlemModel], config: &Config) -> Vec<StabilityPoint> {
+    // A matéria não depende da NLEM: a curvatura c_m vem de uma única EoS
+    // (Maxwell). A estabilidade mecânica usa a P_perp de cada eletrodinâmica.
+    let center = solve(model, b, Profile::Constant, NlemModel::Maxwell, config);
+    let per_nlem: Vec<Option<Eos>> = nlems
+        .iter()
+        .map(|&nlem| (nlem != NlemModel::Maxwell).then(|| solve(model, b, Profile::Constant, nlem, config)))
+        .collect();
     // Cada ponto é resolvido de novo no mesmo mu_n com B(1 ± delta) e
     // B(1 ± delta/2), a partir da solução central. (A malha do solver é
     // adaptativa: execuções separadas não caem nos mesmos mu_n.)
@@ -231,15 +296,19 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, config: &Config) -> 
                 Some(e.magnetization_b * ERG_PER_MEV_FM3 / (b * f))
             })
             .collect::<Option<_>>()?;
-        // s = 1 - 4 pi d(dP_m/dB)/dB.
-        let s_of = |plus: f64, minus: f64, step: f64| 1.0 - 4.0 * std::f64::consts::PI * (plus - minus) / (2.0 * step * b);
+        // c_m = 4 pi d(dP_m/dB)/dB.
+        let c_of = |plus: f64, minus: f64, step: f64| 4.0 * std::f64::consts::PI * (plus - minus) / (2.0 * step * b);
         let dn = rows[i + 1][0] - rows[i - 1][0];
+        let maxwell_slope = if dn != 0.0 { (rows[i + 1][2] - rows[i - 1][2]) / dn } else { f64::NAN };
         Some(StabilityPoint {
             n: row[0],
             mu: row[17],
-            s: s_of(slopes[0], slopes[1], delta),
-            s_half: s_of(slopes[2], slopes[3], 0.5 * delta),
-            dp_dn: if dn != 0.0 { (rows[i + 1][2] - rows[i - 1][2]) / dn } else { f64::NAN },
+            c_m: c_of(slopes[0], slopes[1], delta),
+            c_m_half: c_of(slopes[2], slopes[3], 0.5 * delta),
+            dp_dn: per_nlem
+                .iter()
+                .map(|eos| eos.as_ref().map_or(maxwell_slope, |e| slope_at(&e.rows, row[0])))
+                .collect(),
         })
     });
     points.collect()
@@ -256,8 +325,8 @@ fn progress(total: usize) -> indicatif::ProgressBar {
 
 /// `study b [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
 ///  [--profiles constante,bdd] [--points 1500] [--mu-max 3.0] [--no-hyperons]
-///  [--no-stability] [--delta 1e-4] [--landau-max 20000] [--amm] [--out results/study_b]
-///  [--threads N]`
+///  [--no-stability] [--delta 1e-4] [--landau-max 20000] [--amm] [--nlem maxwell,log:1e17]
+///  [--out results/study_b] [--threads N]`
 pub fn run(raw: &[String]) -> Result<(), String> {
     let args = Args::parse(raw, &["no-hyperons", "no-stability", "amm"])?;
     let (b_min, b_max) = (args.f64_or("bmin", 1e14)?, args.f64_or("bmax", 1e20)?);
@@ -276,6 +345,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     if config.landau_max == 0 {
         return Err("--landau-max deve ser >= 1".into());
     }
+    let nlems = parse_nlem(args.value("nlem").unwrap_or("maxwell"))?;
     let profiles: Vec<Profile> = args
         .value("profiles")
         .unwrap_or("constante,bdd")
@@ -296,10 +366,11 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     let models = args.models(&["GM1"])?;
 
     println!(
-        "study b: {} modelo(s), {} valores de B (0 e {b_min:.1e}..{b_max:.1e} G, {per_decade}/década), perfis: {}, hyperons = {}, níveis de Landau <= {}",
+        "study b: {} modelo(s), {} valores de B (0 e {b_min:.1e}..{b_max:.1e} G, {per_decade}/década), perfis: {}, NLEM: {}, hyperons = {}, níveis de Landau <= {}",
         models.len(),
         fields.len(),
         profiles.iter().map(|p| p.label()).collect::<Vec<_>>().join(","),
+        nlems.iter().map(|&n| nlem_label(n)).collect::<Vec<_>>().join(","),
         config.hyperons,
         config.landau_max
     );
@@ -309,45 +380,50 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     let mut stars_csv = fs::File::create(&stars_path).map_err(|e| format!("{stars_path}: {e}"))?;
     writeln!(
         stars_csv,
-        "model,profile,B_G,hyperons,rows,n_max_over_n0,termination,anomalous,topology,m_max_Msun,r_max_km,nc_over_n0,r14_km,lambda14,true_maximum,pperp_nonmonotonic_fraction,pperp_negative_rows"
+        "model,nlem,profile,B_G,hyperons,rows,n_max_over_n0,termination,anomalous,topology,m_max_Msun,r_max_km,nc_over_n0,r14_km,lambda14,true_maximum,pperp_nonmonotonic_fraction,pperp_negative_rows"
     )
     .map_err(|e| e.to_string())?;
     let mut summary = Vec::new();
     for (model_name, model) in &models {
-        let jobs: Vec<(Profile, f64)> =
-            profiles.iter().flat_map(|&p| fields.iter().map(move |&b| (p, b))).collect();
+        let mut jobs: Vec<(NlemModel, Profile, f64)> = Vec::new();
+        for &nlem in &nlems {
+            for &profile in &profiles {
+                jobs.extend(fields.iter().map(|&b| (nlem, profile, b)));
+            }
+        }
         println!("\n[{model_name}] estrelas: {} EoS...", jobs.len());
         let bar = progress(jobs.len());
-        // with_max_len(1): cada (perfil, B) é uma tarefa; uma thread livre pega
-        // a próxima assim que termina (sem blocos contíguos de B).
-        let results: Vec<(Profile, f64, Vec<String>, bool, f64)> = jobs
+        // with_max_len(1): cada (NLEM, perfil, B) é uma tarefa; uma thread livre
+        // pega a próxima assim que termina (sem blocos contíguos de B).
+        let results: Vec<(NlemModel, Profile, f64, Vec<String>, bool, f64)> = jobs
             .par_iter()
             .with_max_len(1)
-            .map(|&(profile, b)| {
-                let eos = solve(*model, b, profile, &config);
-                let lines = star_lines(model_name, profile, b, &eos, config.hyperons);
+            .map(|&(nlem, profile, b)| {
+                let eos = solve(*model, b, profile, nlem, &config);
+                let lines = star_lines(model_name, &nlem_label(nlem), profile, b, &eos, config.hyperons);
                 let n_max = eos.rows.iter().map(|r| r[0]).fold(0.0, f64::max);
                 bar.inc(1);
-                (profile, b, lines, eos.anomalous, n_max)
+                (nlem, profile, b, lines, eos.anomalous, n_max)
             })
             .collect();
         bar.finish_and_clear();
-        for (_, _, lines, _, _) in &results {
+        for (_, _, _, lines, _, _) in &results {
             for line in lines {
                 writeln!(stars_csv, "{line}").map_err(|e| e.to_string())?;
             }
         }
         // Onde quebra: primeiro B com término anômalo e primeiro B sem estrela.
-        for &profile in &profiles {
-            let of_profile: Vec<&(Profile, f64, Vec<String>, bool, f64)> =
-                results.iter().filter(|r| r.0 == profile).collect();
-            let first_anomalous = of_profile.iter().find(|r| r.3).map(|r| (r.1, r.4));
+        for (&nlem, &profile) in nlems.iter().flat_map(|n| profiles.iter().map(move |p| (n, p))) {
+            let of_profile: Vec<&(NlemModel, Profile, f64, Vec<String>, bool, f64)> =
+                results.iter().filter(|r| r.0 == nlem && r.1 == profile).collect();
+            let first_anomalous = of_profile.iter().find(|r| r.4).map(|r| (r.2, r.5));
             let first_no_star = of_profile
                 .iter()
-                .find(|r| r.2.iter().all(|l| l.split(',').nth(9).is_some_and(|m| m == "NaN")))
-                .map(|r| r.1);
+                .find(|r| r.3.iter().all(|l| l.split(',').nth(10).is_some_and(|m| m == "NaN")))
+                .map(|r| r.2);
             summary.push(format!(
-                "  {model_name} | {:<9} | primeiro término anômalo: {} | primeiro B sem estrela: {}",
+                "  {model_name} | {:<12} | {:<9} | primeiro término anômalo: {} | primeiro B sem estrela: {}",
+                nlem_label(nlem),
                 profile.label(),
                 first_anomalous.map_or("nenhum".into(), |(b, n)| format!("B = {b:.2e} G (EoS até {n:.2} n0)")),
                 first_no_star.map_or("nenhum".into(), |b| format!("B = {b:.2e} G")),
@@ -360,7 +436,10 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     if !args.switch("no-stability") {
         let path = format!("{out}/stability.csv");
         let mut csv = fs::File::create(&path).map_err(|e| format!("{path}: {e}"))?;
-        writeln!(csv, "model,B_G,n_over_n0,mu_n,s_magnetic,s_magnetic_half_step,magnetically_unstable,dpperp_dn")
+        writeln!(
+            csv,
+            "model,nlem,B_G,n_over_n0,mu_n,f_vac,c_matter,s_magnetic,s_magnetic_half_step,magnetically_unstable,dpperp_dn"
+        )
             .map_err(|e| e.to_string())?;
         for (model_name, model) in &models {
             let positive: Vec<f64> = fields.iter().copied().filter(|&b| b > 0.0).collect();
@@ -370,33 +449,37 @@ pub fn run(raw: &[String]) -> Result<(), String> {
                 .par_iter()
                 .with_max_len(1)
                 .map(|&b| {
-                    let points = stability_points(*model, b, delta, &config);
+                    let points = stability_points(*model, b, delta, &nlems, &config);
                     bar.inc(1);
                     (b, points)
                 })
                 .collect();
             bar.finish_and_clear();
-            for (b, points) in &maps {
-                let unstable = points.iter().filter(|p| p.magnetically_unstable()).count();
-                let mechanical = points.iter().filter(|p| p.dp_dn < 0.0).count();
-                if unstable + mechanical > 0 {
-                    summary.push(format!(
-                        "  {model_name} | B = {b:.2e} G | instável: magnético {unstable}/{n}, mecânico (dP_perp/dn < 0) {mechanical}/{n} pontos",
-                        n = points.len()
-                    ));
-                }
-                for p in points {
-                    writeln!(
-                        csv,
-                        "{model_name},{b:.4e},{:.5},{:.6},{:.6e},{:.6e},{},{:.4e}",
-                        p.n,
-                        p.mu,
-                        p.s,
-                        p.s_half,
-                        p.magnetically_unstable(),
-                        p.dp_dn
-                    )
-                    .map_err(|e| e.to_string())?;
+            for (k, &nlem) in nlems.iter().enumerate() {
+                let label = nlem_label(nlem);
+                for (b, points) in &maps {
+                    let f_vac = nlem.vacuum_curvature(*b);
+                    let unstable = points.iter().filter(|p| p.magnetically_unstable(f_vac)).count();
+                    let mechanical = points.iter().filter(|p| p.dp_dn[k] < 0.0).count();
+                    if unstable + mechanical > 0 {
+                        summary.push(format!(
+                            "  {model_name} | {label:<12} | B = {b:.2e} G | instável: magnético {unstable}/{n}, mecânico (dP_perp/dn < 0) {mechanical}/{n} pontos",
+                            n = points.len()
+                        ));
+                    }
+                    for p in points {
+                        let (s, s_half) = p.s(f_vac);
+                        writeln!(
+                            csv,
+                            "{model_name},{label},{b:.4e},{:.5},{:.6},{f_vac:.6e},{:.6e},{s:.6e},{s_half:.6e},{},{:.4e}",
+                            p.n,
+                            p.mu,
+                            p.c_m,
+                            p.magnetically_unstable(f_vac),
+                            p.dp_dn[k]
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
                 }
             }
         }

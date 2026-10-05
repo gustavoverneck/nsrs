@@ -122,7 +122,7 @@ pub fn bdd_field_g(b_surf_g: f64, b0_g: f64, beta: f64, gamma: f64, nb_over_n0: 
 }
 
 /// Densidade de energia e pressões do campo magnético puro, em MeV/fm^3.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MagneticStress {
     pub energy: f64,
     /// Pressão ao longo das linhas de campo.

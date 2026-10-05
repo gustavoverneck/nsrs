@@ -3,6 +3,7 @@ use crate::core::constants::{M_NUCLEON, N0, RESULTS_SIZE};
 use crate::core::darkphotons::DarkPhotonsMatter;
 use crate::core::hybrid::HybridMatter;
 use crate::core::io_utils::write_eos_with_mr;
+use crate::core::magnetic::MagneticStress;
 use crate::core::physics::HadronsMatter;
 use crate::core::quarks::QuarksMatter;
 use crate::core::tov_solver::generate_mr_curve;
@@ -56,6 +57,9 @@ pub struct PointDiagnostics {
     /// Pressão sem o termo de magnetização (MeV/fm^3); igual à coluna 2 para
     /// motores sem campo na matéria. Usada nos critérios de validade.
     pub stability_pressure: f64,
+    /// Energia e tensões do campo somadas à EoS (MeV/fm^3); zero para motores
+    /// sem campo. Permitem montar a pressão isotrópica para qualquer NLEM.
+    pub field_stress: MagneticStress,
 }
 
 pub struct Solver {
@@ -152,10 +156,12 @@ impl Solver {
                     EngineMode::Hadrons(h) | EngineMode::DarkPhotons(h) => PointDiagnostics {
                         magnetization_b: h.magnetization_b,
                         stability_pressure: h.stability_pressure,
+                        field_stress: h.field_stress,
                     },
                     _ => PointDiagnostics {
                         magnetization_b: 0.0,
                         stability_pressure: point_result[2],
+                        field_stress: MagneticStress::default(),
                     },
                 };
 

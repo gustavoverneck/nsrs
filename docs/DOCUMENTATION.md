@@ -197,11 +197,12 @@ cargo run --release --bin nsrs -- help
 | Comando | Faz | Saída | Substitui |
 |---|---|---|---|
 | `scan b [--models GM1,GM3,FSU2] [--points 100] [--bmin Bc] [--bmax 3e18]` | EoS em função do campo constante (0 e malha log de `bmin` a `bmax`) | `output/b/` | `b` |
-| `scan log <exp_min> <exp_max> <pontos_por_década> <B...>` | NLEM logarítmica, $\xi=10^{exp}$ | `output/nlem_log/` | `nlem_log` |
+| `scan log <exp_min> <exp_max> <pontos_por_década> <B...> [--amm]` | NLEM logarítmica, $\xi=10^{exp}$; com `--amm` liga os momentos magnéticos anômalos e grava em pasta separada; figuras com `plot_scripts/nlem_log.py --input-root ... --output-root ...` e `plot_scripts/csi_onset_analysis.py` (ambos aceitam GM1, GM3 e FSU2) | `output/nlem_log/`, `output/nlem_log_amm/` | `nlem_log` |
 | `scan modmax <B...>` | ModMax, $\gamma = \{1..9\}\times10^{-10..-1}$, com `summary.csv` | `output/modmax/` | `nlem_modmax` |
 | `scan topology <modelo> <B...> [--prefix TAG] [--plot-only]` | isotrópica x anisotrópica: EoS, M-R e populações | `output/magtop/`, `results/magtop/` | `magtop` |
-| `study log <exp_min> <exp_max> <por_década> <B0...> [--topology aniso\|iso\|ambas] [--save-eos]` | impacto de Log($\xi$) na estrela: $M_{max}$, $R_{1.4}$, $\Lambda_{1.4}$, $B_c$, $x_c=B_c^2/2\xi^2$, sinal da pressão do campo, comparados com Maxwell e sem tensão; figuras com `plot_scripts/study_log.py` | `results/study_log/summary.csv` | — |
+| `study log <exp_min> <exp_max> <por_década> <B0...> [--topology aniso\|iso\|ambas] [--save-eos] [--amm]` | impacto de Log($\xi$) na estrela: $M_{max}$, $R_{1.4}$, $\Lambda_{1.4}$, $B_c$, $x_c=B_c^2/2\xi^2$, sinal da pressão do campo, comparados com Maxwell e sem tensão; `--amm` liga os momentos anômalos (coluna `amm` no CSV); figuras com `plot_scripts/study_log.py` | `results/study_log/summary.csv` | — |
 | `study b [--bmin 1e14] [--bmax 1e20] [--per-decade 8] [--profiles constante,bdd] [--delta 1e-4]` | varredura completa em B, de 0 até a EoS quebrar: M_max, R_1.4, Λ_1.4 e cobertura da EoS (perfis constante e BDD; pressões P⊥ e isotrópica), estabilidade mecânica (dP⊥/dn_B) e magnética local (convexidade s = 1 − 4π ∂²P/∂B² a μ fixo, conferida com os passos δ e δ/2); figuras com `plot_scripts/study_b.py` | `results/study_b/` | — |
+| `plot_scripts/amm_compare.py --study-log <sem> <com> --study-b <sem> <com>` | compara as rodadas sem e com `--amm`: $M_{max}(\xi)$, $R_{1.4}(\xi)$ e $\Delta M_{max}^{AMM}$, e $M_{max}(B)$, $R_{1.4}(B)$, $\Lambda_{1.4}(B)$ por eletrodinâmica | `results/amm_compare/` | — |
 | `dark scan [--models GM1,GM3] [--b 1e17]` | grade $10^4$ em $(\epsilon, m_X, g_D, Y_\chi)$ | `output/darkphotons_scan/` | `darkphotons` |
 | `dark benchmarks [--models GM1,GM3]` | cenários H0, S1-S3 (Kumar et al.), `summary.csv` transacional | `output/darkphotons_benchmarks/` | `darkphotons_base` |
 | `dark single` | GM1, $B=10^{17}$ G, um ponto do setor escuro | `output/darkphotons/GM1/` | `single_darkphotons` |

@@ -4,7 +4,7 @@ Análise detalhada do início dos efeitos de CSI no dataset nlem_log.
 
 Este script identifica onde os efeitos do CSI (campo magnético effectivo relativo)
 começam a impactar significativamente cada grandeza física na equação de estado,
-em todo o dataset nlem_log para diferentes modelos (GM1, GM3) e campos magnéticos.
+em todo o dataset nlem_log para diferentes modelos (GM1, GM3, FSU2) e campos magnéticos.
 
 Analisa:
 - Populações de partículas (onset thresholds)
@@ -122,7 +122,7 @@ class DatasetOnsetReport:
 def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, str, float, float]]:
     """Extrai metadados do caminho do arquivo"""
     rx = re.compile(
-        r".*/output/(?:limits|nlem_log)/(?P<model>GM\d+)/B_(?P<b>[^/]+)/(?:"
+        r".*/output/(?:limits|nlem_log(?:_amm)?)/(?P<model>[A-Z]+\d+)/B_(?P<b>[^/]+)/(?:"
         r"(?P<topology>default|isotropic|anisotropic)/)?csi_(?P<csi>[^/]+)/eos\.dat$"
     )
     m = rx.match(path.resolve().as_posix())
@@ -492,8 +492,14 @@ def _collect_onset_data(
 
 
 def main():
-    input_root = Path("output/nlem_log")
-    output_root = Path("results/nlem_log/csi_onset_analysis")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Onset dos efeitos de csi no dataset nlem_log")
+    parser.add_argument("--input-root", type=Path, default=Path("output/nlem_log"))
+    parser.add_argument("--output-root", type=Path, default=Path("results/nlem_log/csi_onset_analysis"))
+    args = parser.parse_args()
+    input_root = args.input_root
+    output_root = args.output_root
     output_root.mkdir(parents=True, exist_ok=True)
 
     print("📊 Análise de Onset de CSI no Dataset NLEM_LOG")

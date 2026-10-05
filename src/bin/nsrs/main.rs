@@ -25,8 +25,8 @@ Uso: cargo run --release --bin nsrs -- <comando> [argumentos]
 Varreduras (saída em output/):
   scan b        [--models GM1,GM3,FSU2] [--points 100] [--bmin Bc] [--bmax 3e18]
                 Campo magnético de 0 e Bc até bmax (log).           -> output/b/
-  scan log      <exp_min> <exp_max> <pontos_por_década> <B1> [B2 ...] [--models ...]
-                NLEM logarítmica, xi = 10^exp_min .. 10^exp_max.     -> output/nlem_log/
+  scan log      <exp_min> <exp_max> <pontos_por_década> <B1> [B2 ...] [--models ...] [--amm]
+                NLEM logarítmica, xi = 10^exp_min .. 10^exp_max.     -> output/nlem_log/ (_amm)
   scan modmax   <B1> [B2 ...] [--models ...]
                 ModMax, gamma = 1e-10 .. 9e-1.                      -> output/modmax/
   scan topology <GM1|GM3|FSU2> <B1> [B2 ...] [--prefix TAG] [--plot-only]
@@ -35,7 +35,7 @@ Varreduras (saída em output/):
 Estudos (tabela para análise e publicação):
   study log     <exp_min> <exp_max> <pontos_por_década> <B0_1> [B0_2 ...]
                 [--models GM1] [--topology aniso|iso|ambas] [--points 1500]
-                [--no-hyperons] [--save-eos] [--out results/study_log/summary.csv]
+                [--no-hyperons] [--save-eos] [--amm] [--out results/study_log/summary.csv]
                 Impacto de Log(xi) na estrela, com Maxwell e sem tensão
                 do campo como referências.                         -> results/study_log/
 

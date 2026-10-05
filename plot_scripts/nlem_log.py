@@ -3,7 +3,7 @@
 Análise científica completa dos dados NLEM gerados em output/nlem_log.
 
 Objetivos:
-- Consolidar EoS, M-R e populações para GM1/GM3.
+- Consolidar EoS, M-R e populações para GM1/GM3/FSU2 (com ou sem AMM).
 - Quantificar o efeito de log10(csi) na estrutura estelar.
 - Quantificar como o campo magnético efetivo H varia com csi no modelo Log.
 - Avaliar os limites de causalidade e estabilidade através da velocidade do som (c_s^2).
@@ -183,7 +183,7 @@ def _safe_float(text: str) -> Optional[float]:
 
 def parse_metadata_from_path(path: Path) -> Optional[Tuple[str, str, float, str, float, float]]:
     rx = re.compile(
-        r".*/output/(?:limits|nlem_log)/(?P<model>GM\d+)/B_(?P<b>[^/]+)/(?:"
+        r".*/output/(?:limits|nlem_log(?:_amm)?)/(?P<model>[A-Z]+\d+)/B_(?P<b>[^/]+)/(?:"
         r"(?P<topology>default|isotropic|anisotropic)/)?csi_(?P<csi>[^/]+)/eos\.dat$"
     )
     m = rx.match(path.resolve().as_posix())

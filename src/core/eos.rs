@@ -1,6 +1,7 @@
 // src/solver/eos.rs
 
 use crate::core::constants::PI2;
+use crate::core::particles::neutral_amm_spin;
 use crate::core::physics::HadronsMatter;
 
 pub fn compute(
@@ -34,24 +35,12 @@ pub fn compute(
         // Se a partícula for neutra OU B=0, usa a fórmula contínua!
         if engine.charges_b[i] == 0.0 || engine.b == 0.0 {
             // --- Partículas Neutras (n, L0, S0, X0) ---
-            // O AMM desdobra a partícula em 2 estados de spin (Up e Down)
-            for &kf in [
-                engine.kf_b_up[i].first().copied(),
-                engine.kf_b_down[i].first().copied(),
-            ]
-            .iter()
-            .flatten()
-            {
-                if kf > 0.0 {
-                    let m_spin = (ef.powi(2) - kf.powi(2)).max(0.0).sqrt();
-                    let m_safe = m_spin.max(1e-15);
-
-                    // Fórmula para um único estado de spin (g=1), fator 1/4pi^2
-                    enerbar += (1.0 / (4.0 * PI2))
-                        * (ef.powi(3) * kf / 2.0
-                            - (m_spin / 4.0)
-                                * (m_spin * kf * ef
-                                    + m_spin.powi(3) * ((kf + ef) / m_safe.abs()).ln()));
+            // Com AMM os dois estados de spin têm a = +/- kappa mu_N B; com
+            // B = 0 ou kappa = 0 ambos coincidem com o gás isotrópico.
+            let a = engine.amm_b[i] * engine.b;
+            for a_s in [a, -a] {
+                if let Some(state) = neutral_amm_spin(engine.m_eff[i], ef, a_s) {
+                    enerbar += state.energy;
                 }
             }
         } else {

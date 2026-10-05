@@ -63,6 +63,8 @@ struct Config {
     mu_max: f64,
     hyperons: bool,
     landau_max: usize,
+    /// Momentos magnéticos anômalos dos bárions (`--amm`).
+    amm: bool,
 }
 
 /// Rótulo da eletrodinâmica nos CSVs: maxwell, log:<xi>, modmax:<gamma>.
@@ -108,6 +110,7 @@ fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: 
     let mut engine = HadronsMatter::new(model, b)
         .with_nlem(nlem)
         .with_hyperons(config.hyperons)
+        .with_anomalous_moments(config.amm)
         .with_limits(0.02, config.mu_max)
         .with_points(config.points)
         .with_max_landau_limit(config.landau_max);
@@ -270,6 +273,7 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, nlems: &[NlemModel],
     let engine = |factor: f64| {
         HadronsMatter::new(model, b * factor)
             .with_hyperons(config.hyperons)
+            .with_anomalous_moments(config.amm)
             .with_limits(0.02, config.mu_max)
             .with_points(config.points)
             .with_max_landau_limit(config.landau_max)
@@ -321,10 +325,10 @@ fn progress(total: usize) -> indicatif::ProgressBar {
 
 /// `study b [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
 ///  [--profiles constante,bdd] [--points 1500] [--mu-max 3.0] [--no-hyperons]
-///  [--no-stability] [--delta 1e-4] [--landau-max 20000] [--nlem maxwell,log:1e17]
+///  [--no-stability] [--delta 1e-4] [--landau-max 20000] [--amm] [--nlem maxwell,log:1e17]
 ///  [--out results/study_b] [--threads N]`
 pub fn run(raw: &[String]) -> Result<(), String> {
-    let args = Args::parse(raw, &["no-hyperons", "no-stability"])?;
+    let args = Args::parse(raw, &["no-hyperons", "no-stability", "amm"])?;
     let (b_min, b_max) = (args.f64_or("bmin", 1e14)?, args.f64_or("bmax", 1e20)?);
     let per_decade = args.usize_or("per-decade", 8)?;
     let delta = args.f64_or("delta", 1e-4)?;
@@ -336,6 +340,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         mu_max: args.f64_or("mu-max", 3.0)?,
         hyperons: !args.switch("no-hyperons"),
         landau_max: args.usize_or("landau-max", MAX_LANDAU_LIMIT)?,
+        amm: args.switch("amm"),
     };
     if config.landau_max == 0 {
         return Err("--landau-max deve ser >= 1".into());

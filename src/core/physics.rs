@@ -160,7 +160,7 @@ pub struct HadronsMatter {
     /// Campo local (Gauss) usado no último ponto resolvido.
     pub local_field_g: f64,
     /// n_B/n0 do último ponto aceito: chute da iteração do perfil BDD.
-    last_nb_over_n0: f64,
+    pub(crate) last_nb_over_n0: f64,
     /// M B = B dP/dB|_mu (MeV/fm^3) do último ponto resolvido.
     pub magnetization_b: f64,
     /// Pressão total sem o termo de magnetização (MeV/fm^3) do último ponto:

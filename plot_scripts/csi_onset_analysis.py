@@ -20,6 +20,7 @@ from __future__ import annotations
 import csv
 import math
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -493,6 +494,10 @@ def _collect_onset_data(
 
 def main():
     import argparse
+
+    # Os emojis do relatório quebram consoles cp1252 (Windows).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(description="Onset dos efeitos de csi no dataset nlem_log")
     parser.add_argument("--input-root", type=Path, default=Path("output/nlem_log"))

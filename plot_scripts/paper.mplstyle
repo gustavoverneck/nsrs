@@ -1,0 +1,42 @@
+# Estilo de publicação (Physical Review / revtex): fonte serif STIX,
+# 8-9 pt, eixos finos com ticks para dentro, sem títulos nos painéis.
+font.family: serif
+font.serif: STIXGeneral, Times New Roman, DejaVu Serif
+mathtext.fontset: stix
+font.size: 8.5
+axes.labelsize: 9
+axes.titlesize: 9
+legend.fontsize: 7.5
+xtick.labelsize: 8
+ytick.labelsize: 8
+
+axes.linewidth: 0.6
+axes.grid: False
+axes.prop_cycle: cycler('color', ['0072B2', 'D55E00', '009E73', 'CC79A7', 'E69F00', '56B4E9', '000000'])
+lines.linewidth: 1.1
+lines.markersize: 3
+
+xtick.direction: in
+ytick.direction: in
+xtick.top: True
+ytick.right: True
+xtick.major.width: 0.6
+ytick.major.width: 0.6
+xtick.minor.width: 0.45
+ytick.minor.width: 0.45
+xtick.major.size: 3.5
+ytick.major.size: 3.5
+xtick.minor.size: 2
+ytick.minor.size: 2
+xtick.minor.visible: True
+ytick.minor.visible: True
+
+legend.frameon: False
+legend.handlelength: 2.2
+legend.borderaxespad: 0.3
+legend.labelspacing: 0.25
+
+savefig.bbox: tight
+savefig.pad_inches: 0.02
+savefig.dpi: 600
+pdf.fonttype: 42

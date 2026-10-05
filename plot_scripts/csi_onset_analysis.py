@@ -362,7 +362,7 @@ def write_detailed_report(
     output_file: Path,
 ) -> None:
     """Escreve relatório detalhado em arquivo CSV"""
-    with open(output_file, 'w', newline='') as f:
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
 
         # Cabeçalho
@@ -417,7 +417,7 @@ def write_summary_report(
                     summary[model_b_key][col_idx].append(analysis.onset_log_csi)
 
     # Escrever sumário
-    with open(output_file, 'w', newline='') as f:
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
 
         writer.writerow([
@@ -554,7 +554,7 @@ def main():
     print("\n🔬 Analisando onset de hiperanos...")
     hyperon_onsets = analyze_hyperon_onset(datasets_by_model_b)
 
-    with open(output_root / "hyperon_onset.csv", 'w', newline='') as f:
+    with open(output_root / "hyperon_onset.csv", 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(["Modelo_B", "log10(ξ) Onset Hiperão"])
         for key, onset_log_csi in sorted(hyperon_onsets.items()):

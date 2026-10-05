@@ -37,44 +37,24 @@ pub const MS: f64 = 400.0 / M_NUCLEON; // Scalar meson (sigma)
 pub const MV: f64 = 783.0 / M_NUCLEON; // Vector meson (Omega)
 pub const MR: f64 = 770.0 / M_NUCLEON; // Isovector meson (Rho)
 
-// Ative o magneton nuclear removendo o * 0.0
-pub const RNCM: f64 =
-    QE * M_NUCLEON / (2.0 * MP);
+// Magneton nuclear mu_N = e/(2 m_p) em unidades de M_N: a energia de Pauli é
+// kappa * RNCM * b, com b o campo nas unidades do código (b = B/B_ce * BCE).
+pub const RNCM: f64 = QE * M_NUCLEON / (2.0 * MP);
 
-// Valores baseados no Particle Data Group (PDG) para kappa = mu - q
-pub const AMMN: f64 = 0.0;
-pub const AMMP: f64 = 0.0;
-pub const AMML0: f64 = 0.0;
-pub const AMMSM: f64 = 0.0;
-pub const AMMS0: f64 = 0.0;
-pub const AMMSP: f64 = 0.0;
-pub const AMMXM: f64 = 0.0;
-pub const AMMX0: f64 = 0.0;
-
-// pub const AMMN: f64 =
-//     RNCM * (-1.913);
-
-// pub const AMMP: f64 =
-//     RNCM * (2.793 - MP / 938.272081323);
-
-// pub const AMML0: f64 =
-//     RNCM * (-0.613);
-
-// pub const AMMSM: f64 =
-//     RNCM * (-1.160 + MP / 1193.0);
-
-// pub const AMMS0: f64 =
-//     RNCM * 0.649;
-
-// pub const AMMSP: f64 =
-//     RNCM * (2.458 - MP / 1193.0);
-
-// pub const AMMXM: f64 =
-//     RNCM * (-0.650 + MP / 1318.0);
-
-// pub const AMMX0: f64 =
-//     RNCM * (-1.250);
-
+// Momentos magnéticos anômalos kappa_b = mu_b/mu_N - q_b m_p/m_b (PDG), na ordem
+// [n, p, Lambda, Sigma-, Sigma0, Sigma+, Xi-, Xi0]. O valor de Sigma0 é a média de
+// Sigma+ e Sigma- (não medido). Os elétrons e múons ficam sem AMM. Só entram com
+// `HadronsMatter::with_anomalous_moments(true)`; o padrão é kappa = 0.
+pub const KAPPA_B: [f64; 8] = [
+    -1.913,
+    2.793 - MP / 938.272081323,
+    -0.613,
+    -1.160 + MP / 1193.0,
+    0.649,
+    2.458 - MP / 1193.0,
+    -0.650 + MP / 1318.0,
+    -1.250,
+];
 
 // BDD Constants
 pub const BCE: f64 = ML[0] * ML[0] / QE;

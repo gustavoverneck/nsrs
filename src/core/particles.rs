@@ -60,38 +60,67 @@ pub fn density_baryon_neutral(
     }
 
     let m_star = engine.m_eff[idx];
-    let amm = engine.amm_b[idx];
-    let b = engine.b;
-
-    let m_up = m_star - amm * b;
-    let m_down = m_star + amm * b;
+    let a = engine.amm_b[idx] * engine.b;
 
     let mut rhos_total = 0.0;
     let mut dens_total = 0.0;
 
-    // Quando B=0, m_up == m_down
-    let spins = [m_up, m_down];
-    for spin_idx in 0..2 {
-        let m_spin = spins[spin_idx];
-        let kf2 = ef.powi(2) - m_spin.powi(2);
-        if kf2 > 0.0 {
-            let kf = kf2.sqrt();
-            let m_safe = m_spin.abs().max(1e-15);
-
-            rhos_total +=
-                (m_spin / (4.0 * PI2)) * (ef * kf - m_spin.powi(2) * ((kf + ef) / m_safe).ln());
-
-            dens_total += kf.powi(3) / (6.0 * PI2);
-
-            // Grava o kf no buffer correto usando push()
+    // Spin up: a = +kappa mu_N B; spin down: a = -kappa mu_N B (mesma convenção
+    // dos bárions carregados, m_eff_spin = m_landau -/+ amm b).
+    for (spin_idx, a_s) in [a, -a].into_iter().enumerate() {
+        if let Some(state) = neutral_amm_spin(m_star, ef, a_s) {
+            rhos_total += state.scalar_density;
+            dens_total += state.density;
             if spin_idx == 0 {
-                engine.kf_b_up[idx].push(kf);
+                engine.kf_b_up[idx].push(state.kf);
             } else {
-                engine.kf_b_down[idx].push(kf);
+                engine.kf_b_down[idx].push(state.kf);
             }
         }
     }
     (rhos_total, dens_total)
+}
+
+/// Um estado de spin de um bárion neutro com momento magnético anômalo.
+pub(crate) struct NeutralSpinState {
+    /// k_F ao longo de B (p_perp = 0): sqrt(E_F^2 - m_bar^2), m_bar = m* - a.
+    pub kf: f64,
+    pub density: f64,
+    pub scalar_density: f64,
+    pub energy: f64,
+}
+
+/// Bárion neutro, um estado de spin, com acoplamento de Pauli a = s kappa mu_N B
+/// (unidades de M_N). Espectro E = sqrt(p_z^2 + (sqrt(m*^2 + p_perp^2) - a)^2).
+/// Com m_bar = m* - a, k_F = sqrt(E_F^2 - m_bar^2), A = asin(m_bar/E_F) - pi/2 e
+/// L = ln((E_F + k_F)/|m_bar|):
+///   n   = [k_F^3/3 - (a/2)(m_bar k_F + E_F^2 A)] / 2pi^2
+///   eps = [E_F^3 k_F/2 - (m_bar/4)(m_bar k_F E_F + m_bar^3 L)
+///          - (a/3)(E_F m_bar k_F + m_bar^3 L) - (2/3) a E_F^3 A] / 4pi^2
+///   n_s = m* [E_F k_F - m_bar^2 L] / 4pi^2
+/// (cf. Broderick, Prakash & Lattimer, ApJ 537, 351 (2000)). Formas fechadas
+/// derivadas e conferidas contra quadratura numérica e contra dP/dE_F = n e
+/// d(eps - E_F n)/dm* = n_s; com a = 0 reduzem-se ao gás isotrópico com g = 1.
+/// Retorna None se o estado está vazio (E_F <= |m_bar|).
+pub(crate) fn neutral_amm_spin(m_star: f64, ef: f64, a: f64) -> Option<NeutralSpinState> {
+    let m_bar = m_star - a;
+    let kf2 = ef * ef - m_bar * m_bar;
+    if ef <= 0.0 || kf2 <= 0.0 {
+        return None;
+    }
+    let kf = kf2.sqrt();
+    let m2 = m_bar * m_bar;
+    let log = if m_bar == 0.0 { 0.0 } else { ((ef + kf) / m_bar.abs()).ln() };
+    let angle = (m_bar / ef).clamp(-1.0, 1.0).asin() - 0.5 * std::f64::consts::PI;
+
+    let density = (kf * kf2 / 3.0 - 0.5 * a * (m_bar * kf + ef * ef * angle)) / (2.0 * PI2);
+    let energy = (0.5 * ef.powi(3) * kf
+        - 0.25 * m_bar * (m_bar * kf * ef + m2 * m_bar * log)
+        - (a / 3.0) * (ef * m_bar * kf + m2 * m_bar * log)
+        - (2.0 / 3.0) * a * ef.powi(3) * angle)
+        / (4.0 * PI2);
+    let scalar_density = m_star * (ef * kf - m2 * log) / (4.0 * PI2);
+    Some(NeutralSpinState { kf, density, scalar_density, energy })
 }
 
 fn density_baryon_charged(
@@ -289,4 +318,78 @@ pub fn density_lepton(engine: &mut HadronsMatter, idx: usize) -> (f64, f64) {
     engine.n_l[idx] = n_occupied;
 
     (rhos, dens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// n, eps, n_s de um estado de spin por quadratura. Com u = sqrt(m^2 + p_perp^2) - a,
+    /// p_perp dp_perp = (u + a) du e a integral em p_z é analítica; u = E - (E - m_bar) s^2
+    /// remove a raiz em u = E. Requer m_bar > 0.
+    fn quadrature(m: f64, ef: f64, a: f64) -> (f64, f64, f64) {
+        let m_bar = m - a;
+        let steps = 20_000;
+        let h = 1.0 / steps as f64;
+        let (mut n, mut eps, mut ns) = (0.0, 0.0, 0.0);
+        for k in 0..=steps {
+            let s = k as f64 * h;
+            let w = if k == 0 || k == steps { 1.0 } else if k % 2 == 1 { 4.0 } else { 2.0 };
+            let u = ef - (ef - m_bar) * s * s;
+            let jac = 2.0 * (ef - m_bar) * s;
+            let kz = (ef * ef - u * u).max(0.0).sqrt();
+            let log = ((kz + ef) / u).ln();
+            n += w * jac * (u + a) * 2.0 * kz;
+            eps += w * jac * (u + a) * (kz * ef + u * u * log);
+            ns += w * jac * 2.0 * m * u * log;
+        }
+        let norm = h / 3.0 / (4.0 * PI2);
+        (n * norm, eps * norm, ns * norm)
+    }
+
+    const CASES: [(f64, f64, f64); 5] =
+        [(0.65, 0.9, 0.01), (0.65, 0.9, -0.01), (0.6, 1.1, 0.05), (0.7, 0.75, -0.04), (0.3, 0.5, 0.08)];
+
+    #[test]
+    fn neutral_amm_closed_forms_match_quadrature() {
+        for (m, ef, a) in CASES {
+            let state = neutral_amm_spin(m, ef, a).unwrap();
+            let (n, eps, ns) = quadrature(m, ef, a);
+            for (name, closed, num) in
+                [("n", state.density, n), ("eps", state.energy, eps), ("n_s", state.scalar_density, ns)]
+            {
+                assert!(((closed - num) / num).abs() < 1e-9, "{name}({m}, {ef}, {a}): {closed} vs {num}");
+            }
+        }
+    }
+
+    #[test]
+    fn neutral_amm_without_field_is_isotropic_gas() {
+        let (m, ef) = (0.65, 0.9);
+        let state = neutral_amm_spin(m, ef, 0.0).unwrap();
+        let kf = (ef * ef - m * m).sqrt();
+        let log = ((ef + kf) / m).ln();
+        let n = kf.powi(3) / (6.0 * PI2);
+        let eps = (ef.powi(3) * kf / 2.0 - (m / 4.0) * (m * kf * ef + m.powi(3) * log)) / (4.0 * PI2);
+        let ns = m * (ef * kf - m * m * log) / (4.0 * PI2);
+        assert!((state.density / n - 1.0).abs() < 1e-14);
+        assert!((state.energy / eps - 1.0).abs() < 1e-14);
+        assert!((state.scalar_density / ns - 1.0).abs() < 1e-14);
+    }
+
+    #[test]
+    fn neutral_amm_is_thermodynamically_consistent() {
+        // P = E_F n - eps: dP/dE_F = n e d(eps - E_F n)/dm* = n_s.
+        let h = 1e-6;
+        for (m, ef, a) in CASES {
+            let at = |m: f64, ef: f64| neutral_amm_spin(m, ef, a).unwrap();
+            let p = |ef: f64| ef * at(m, ef).density - at(m, ef).energy;
+            let omega = |m: f64| at(m, ef).energy - ef * at(m, ef).density;
+            let dp = (p(ef + h) - p(ef - h)) / (2.0 * h);
+            let domega = (omega(m + h) - omega(m - h)) / (2.0 * h);
+            let state = at(m, ef);
+            assert!((dp / state.density - 1.0).abs() < 1e-7, "dP/dE_F = {dp}, n = {}", state.density);
+            assert!((domega / state.scalar_density - 1.0).abs() < 1e-7, "{domega} vs {}", state.scalar_density);
+        }
+    }
 }

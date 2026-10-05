@@ -125,6 +125,41 @@ $n_0$ e $6n_0$ (verificado em `tests/magnetic_profiles.rs`). Para o perfil BDD, 
 termos em $dB/dn_B$ desprezados valem $\lesssim10^{-3}$ até $B_0=10^{18}$ G e
 ~2% em $B_0=5\times10^{18}$ G.
 
+### Momentos magnéticos anômalos (AMM)
+
+Desligados por padrão; `HadronsMatter::with_anomalous_moments(true)` (ou `--amm` em
+`nsrs study b`) acrescenta o termo de Pauli
+$\tfrac12\kappa_b\mu_N\bar\psi_b\sigma_{\mu\nu}F^{\mu\nu}\psi_b$, com
+$\kappa_b=\mu_b/\mu_N-q_b\,m_p/m_b$ (PDG; `KAPPA_B` em `constants.rs`) e
+$\mu_N=e/2m_p$. Com $s=\pm1$ e $a_s=s\,\kappa_b\mu_N B$:
+
+- bárions carregados: $E=\sqrt{k_z^2+\big(\sqrt{M^{*2}+2\nu|q_b|B}-a_s\big)^2}$, e
+  $\nu=0$ tem um único estado de spin;
+- bárions neutros: $E=\sqrt{k_z^2+\big(\sqrt{M^{*2}+k_\perp^2}-a_s\big)^2}$.
+
+Para os neutros, com $\bar m=M^*-a_s$, $k_F=\sqrt{E_F^2-\bar m^2}$,
+$A=\arcsin(\bar m/E_F)-\pi/2$ e $L=\ln[(E_F+k_F)/|\bar m|]$, cada estado de spin dá
+
+$$
+n=\frac{1}{2\pi^2}\Big[\frac{k_F^3}{3}-\frac{a_s}{2}\big(\bar m k_F+E_F^2A\big)\Big],\qquad
+n_s=\frac{M^*}{4\pi^2}\big[E_Fk_F-\bar m^2L\big],
+$$
+
+$$
+\epsilon=\frac{1}{4\pi^2}\Big[\frac{E_F^3k_F}{2}-\frac{\bar m}{4}\big(\bar mk_FE_F+\bar m^3L\big)
+-\frac{a_s}{3}\big(E_F\bar mk_F+\bar m^3L\big)-\frac{2}{3}a_sE_F^3A\Big]
+$$
+
+(cf. Broderick, Prakash & Lattimer, ApJ 537, 351 (2000)). As formas fechadas foram
+derivadas e conferidas contra quadratura numérica, $dP/dE_F=n$ e
+$\partial(\epsilon-E_Fn)/\partial M^*=n_s$ (testes em `particles.rs`); com $a_s=0$
+reduzem-se ao gás isotrópico. Com AMM a $10^{18}$ G, $dP/d\mu_n=n_B$ continua valendo
+(teste `anomalous_moments_keep_pressure_consistent`). Para o nêutron
+($\kappa_n=-1.913$) o desdobramento é $|a_s|\approx6$ MeV a $10^{18}$ G; o efeito na
+estrutura só aparece acima de ~$10^{18}$ G (GM1, campo constante: $R_{1.4}$ cai de 13.01
+para 12.64 km a $3\times10^{18}$ G). O valor de $\kappa_{\Sigma^0}$ é a média de
+$\Sigma^\pm$ (não medido); léptons ficam sem AMM.
+
 ### Magnetização e pressão anisotrópica da matéria
 
 A pressão termodinâmica da matéria, $P_\parallel=-\Omega$, é a pressão ao longo do

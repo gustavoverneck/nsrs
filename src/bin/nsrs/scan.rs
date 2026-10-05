@@ -52,8 +52,11 @@ pub fn b(raw: &[String]) -> Result<(), String> {
 /// `scan log <exp_min> <exp_max> <pontos_por_década> <B...>`: NLEM
 /// logarítmica com xi (Gauss) em escala log.
 /// Saída: output/nlem_log/<modelo>/B_<b>/default/csi_<xi>/eos.dat
+/// (output/nlem_log_amm/ com `--amm`).
 pub fn log(raw: &[String]) -> Result<(), String> {
-    let args = Args::parse(raw, &[])?;
+    let args = Args::parse(raw, &["amm"])?;
+    let amm = args.switch("amm");
+    let root = if amm { "output/nlem_log_amm" } else { "output/nlem_log" };
     let p = &args.positional;
     if p.len() < 4 {
         return Err("uso: scan log <exp_min> <exp_max> <pontos_por_década> <B1> [B2 ...]".into());
@@ -73,13 +76,14 @@ pub fn log(raw: &[String]) -> Result<(), String> {
     for (name, params) in args.models(&ALL_MODELS)? {
         for &b_field in &fields {
             println!("\nModelo={name} | B = {:.2e} G | Varrendo {} valores de ξ...", b_field, xis.len());
-            let base = format!("output/nlem_log/{name}/B_{:.2e}/default", b_field);
+            let base = format!("{root}/{name}/B_{:.2e}/default", b_field);
             let mut engines = Vec::new();
             for &xi in &xis {
                 let dir = format!("{base}/csi_{:.2e}", xi);
                 create_dir(&dir)?;
                 let engine = HadronsMatter::new(params, b_field)
                     .with_nlem(NlemModel::Log(xi))
+                    .with_anomalous_moments(amm)
                     .with_limits(0.01, 2.0)
                     .with_points(2000)
                     .with_eos_output(format!("{dir}/eos.dat"));
@@ -88,7 +92,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
             Solver::solve_parallel(engines, args.threads()?);
         }
     }
-    println!("\nConcluído. Dados em output/nlem_log/");
+    println!("\nConcluído. Dados em {root}/");
     Ok(())
 }
 

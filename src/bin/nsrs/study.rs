@@ -123,10 +123,11 @@ fn negative_pressure_onset(xi: f64, b0: f64, x_star: f64) -> Option<f64> {
     Some((-(1.0 - fraction).ln() / BDD_BETAA).powf(1.0 / BDD_ALPHAA))
 }
 
-fn run(job: &Job, points: usize, hyperons: bool, save_dir: Option<&str>) -> Outcome {
+fn run(job: &Job, points: usize, hyperons: bool, amm: bool, save_dir: Option<&str>) -> Outcome {
     let mut engine = HadronsMatter::new(job.model, job.b0)
         .with_topology(job.topology)
         .with_hyperons(hyperons)
+        .with_anomalous_moments(amm)
         .with_limits(0.02, 3.0)
         .with_points(points);
     engine = match job.case.nlem() {
@@ -217,7 +218,7 @@ fn opt_sci(value: Option<f64>) -> String {
 /// `study log <exp_min> <exp_max> <por_década> <B0...>`
 /// Saída: results/study_log/summary.csv (ou --out).
 pub fn log(raw: &[String]) -> Result<(), String> {
-    let args = Args::parse(raw, &["no-hyperons", "save-eos"])?;
+    let args = Args::parse(raw, &["no-hyperons", "save-eos", "amm"])?;
     let p = &args.positional;
     if p.len() < 4 {
         return Err("uso: study log <exp_min> <exp_max> <por_década> <B0_1> [B0_2 ...]".into());
@@ -243,6 +244,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
     };
     let points = args.usize_or("points", 1500)?;
     let hyperons = !args.switch("no-hyperons");
+    let amm = args.switch("amm");
     let out = args.value("out").unwrap_or("results/study_log/summary.csv").to_string();
 
     let mut jobs = Vec::new();
@@ -260,7 +262,8 @@ pub fn log(raw: &[String]) -> Result<(), String> {
     }
     let save_dir = |job: &Job| {
         format!(
-            "output/study_log/{}/{}/B0_{}",
+            "output/study_log{}/{}/{}/B0_{}",
+            if amm { "_amm" } else { "" },
             job.model_name,
             topology_label(job.topology),
             format_sci(job.b0)
@@ -273,7 +276,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
     }
 
     println!(
-        "study log: {} EoS ({} valores de xi, {} B0, {} topologia(s)), hyperons = {hyperons}",
+        "study log: {} EoS ({} valores de xi, {} B0, {} topologia(s)), hyperons = {hyperons}, amm = {amm}",
         jobs.len(),
         xis.len(),
         fields.len(),
@@ -288,7 +291,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
             .with_max_len(1)
             .map(|job| {
                 let dir = args.switch("save-eos").then(|| save_dir(job));
-                run(job, points, hyperons, dir.as_deref())
+                run(job, points, hyperons, amm, dir.as_deref())
             })
             .collect()
     });
@@ -300,7 +303,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
     let mut line = |text: String| writeln!(csv, "{text}").map_err(|e| e.to_string());
     line(
         [
-            "model,topology,hyperons,b0_G,case,xi_G,status,rows,core_nonmonotonic_rows",
+            "model,topology,hyperons,amm,b0_G,case,xi_G,status,rows,core_nonmonotonic_rows",
             "m_max_Msun,r_at_m_max_km,nc_over_n0,b_center_G,x_center,x_threshold",
             "p_field_over_p_center,n_negative_field_pressure_over_n0",
             "r14_km,lambda14,dm_max_vs_maxwell,dm_max_vs_no_stress,dr14_vs_maxwell_km",
@@ -333,10 +336,11 @@ pub fn log(raw: &[String]) -> Result<(), String> {
         let dr14 = delta(outcome.r14, maxwell.and_then(|o| o.r14));
 
         line(format!(
-            "{},{},{},{:.4e},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{:.4e},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             job.model_name,
             topology_label(job.topology),
             hyperons,
+            amm,
             job.b0,
             job.case.label(),
             opt_sci(job.case.xi()),

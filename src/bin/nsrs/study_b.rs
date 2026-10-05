@@ -207,7 +207,7 @@ fn star_lines(model_name: &str, nlem: &str, profile: Profile, b: f64, eos: &Eos,
         .map(|(topology, pressure)| {
             let s = if has_core { stars(&eos.rows, &pressure) } else { stars(&[], &pressure) };
             format!(
-                "{model_name},{nlem},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.5},{:.4},{:.4},{:.4},{:.2},{},{nonmonotonic:.4},{negative}",
+                "{model_name},{nlem},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.7},{:.6},{:.4},{:.6},{:.2},{},{nonmonotonic:.4},{negative}",
                 profile.label(),
                 eos.rows.len(),
                 eos.termination,

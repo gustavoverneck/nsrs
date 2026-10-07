@@ -339,7 +339,10 @@ def fig_center_field(sb, out: Path):
 def table_endpoints(path: Path, stability: Path, out: Path, topology="perp"):
     """Por que cada curva (modelo, NLEM, perfil) termina: primeiro B inválido,
     seu término, B/xi local na maior densidade alcançada e qual critério físico
-    vale ali. 'solver' indica que nenhum critério físico explica o fim."""
+    vale ali. 'solver' indica que nenhum critério físico explica o fim. Uma
+    curva Log que termina no mesmo B que a Maxwell do mesmo modelo e perfil
+    recebe 'as Maxwell': o fim vem da matéria ou do solver, não da Log, e os
+    critérios f_vac/P_perp ficam só como sinalização."""
     groups = defaultdict(list)
     for row in csv.DictReader(open(path, encoding="utf-8")):
         if row["topology"] == topology and fnum(row["B_G"]) > 0:
@@ -354,13 +357,23 @@ def table_endpoints(path: Path, stability: Path, out: Path, topology="perp"):
         w = csv.writer(handle)
         w.writerow(["model", "nlem", "profile", "B_last_valid_G", "B_first_invalid_G", "termination",
                     "n_max_over_n0", "B_local_over_xi", "f_vac_negative", "pperp_negative_rows",
-                    "magnetically_unstable", "cause"])
-        for (model, nlem, profile), rows in sorted(groups.items()):
+                    "magnetically_unstable", "ends_with_maxwell", "cause"])
+
+        def first_bad(rows):
+            return next((i for i, r in enumerate(rows) if r["anomalous"] == "true"
+                         or not math.isfinite(fnum(r["m_max_Msun"]))), None)
+
+        for rows in groups.values():
             rows.sort(key=lambda r: fnum(r["B_G"]))
-            bad = next((i for i, r in enumerate(rows) if r["anomalous"] == "true"
-                        or not math.isfinite(fnum(r["m_max_Msun"]))), None)
+        end_maxwell = {}
+        for (model, nlem, profile), rows in groups.items():
+            if nlem == "maxwell":
+                i = first_bad(rows)
+                end_maxwell[(model, profile)] = rows[i]["B_G"] if i is not None else None
+        for (model, nlem, profile), rows in sorted(groups.items()):
+            bad = first_bad(rows)
             if bad is None:
-                w.writerow([model, nlem, profile, rows[-1]["B_G"], "", "", "", "", "", "", "", "none"])
+                w.writerow([model, nlem, profile, rows[-1]["B_G"], "", "", "", "", "", "", "", "", "none"])
                 continue
             r = rows[bad]
             xi = nlem_xi(nlem)
@@ -368,11 +381,12 @@ def table_endpoints(path: Path, stability: Path, out: Path, topology="perp"):
             fvac_neg = math.isfinite(u) and u > math.sqrt(2.0)
             pneg = int(fnum(r["pperp_negative_rows"]) or 0)
             mag = profile == "constante" and (model, nlem, r["B_G"]) in unstable
-            cause = ("f_vac<0" if fvac_neg else "P_perp<0" if pneg > 0
+            same = nlem != "maxwell" and end_maxwell.get((model, profile)) == r["B_G"]
+            cause = ("as Maxwell" if same else "f_vac<0" if fvac_neg else "P_perp<0" if pneg > 0
                      else "magnetic instability" if mag else "solver")
             w.writerow([model, nlem, profile, rows[bad - 1]["B_G"] if bad else "", r["B_G"],
                         r["termination"], r["n_max_over_n0"], f"{u:.3g}" if math.isfinite(u) else "",
-                        fvac_neg, pneg, mag, cause])
+                        fvac_neg, pneg, mag, same if nlem != "maxwell" else "", cause])
     print(f"tabela: {out / 'table_endpoints.csv'}")
 
 

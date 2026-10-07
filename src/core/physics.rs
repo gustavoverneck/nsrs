@@ -62,7 +62,7 @@ impl NlemModel {
     /// perpendicular a um campo magnético estático B (Gauss), em vácuo.
     /// Retorna (n_par, n_perp): campo elétrico da onda paralelo e
     /// perpendicular a B. Para L(F, G), com F = (B^2 - E^2)/2 e G = E.B,
-    /// n_par^2 = 1 - L_GG B^2 / L_F e n_perp^2 = (H/B)/f_vac.
+    /// via `photon_indices_squared`; para L(F) puro, n_perp^2 = (H/B)/f_vac.
     /// Log (Gaete e Helayël-Neto 2014), com x = B^2/(2 xi^2): n_par^2 = 1 + 2x e
     /// n_perp^2 = (1 + x)/(1 - x); n_perp diverge em B = sqrt(2) xi (f_vac = 0)
     /// e é NaN acima (o modo não se propaga). ModMax não é implementado.
@@ -71,13 +71,25 @@ impl NlemModel {
             NlemModel::Maxwell => Some((1.0, 1.0)),
             NlemModel::Modmax(_) => None,
             NlemModel::Log(xi) => {
+                // L = -xi^2 ln(1 + F/xi^2 - G^2/(2 xi^4)), com F = B^2/2 no fundo.
                 let x = b_gauss * b_gauss / (2.0 * xi * xi);
-                let n_perp2 = self.h_over_b(b_gauss) / self.vacuum_curvature(b_gauss);
-                let n_perp = if n_perp2 > 0.0 { n_perp2.sqrt() } else { f64::NAN };
-                Some(((1.0 + 2.0 * x).sqrt(), n_perp))
+                let l_f = -1.0 / (1.0 + x);
+                let l_ff = 1.0 / (xi * xi * (1.0 + x) * (1.0 + x));
+                let l_gg = 1.0 / (xi * xi * (1.0 + x));
+                let (n_par2, n_perp2) = photon_indices_squared(l_f, l_ff, l_gg, b_gauss * b_gauss);
+                let root = |n2: f64| if n2 > 0.0 { n2.sqrt() } else { f64::NAN };
+                Some((root(n_par2), root(n_perp2)))
             }
         }
     }
+}
+
+/// (n_par^2, n_perp^2) de um fóton fraco perpendicular a um campo magnético de
+/// fundo, para L(F, G) com F = (B^2 - E^2)/2 e G = E.B, a partir das derivadas
+/// no fundo: n_par^2 = 1 - L_GG B^2 / L_F e n_perp^2 = 1/(1 + L_FF B^2 / L_F).
+/// Maxwell (L = -F) dá 1 nos dois modos.
+pub fn photon_indices_squared(l_f: f64, l_ff: f64, l_gg: f64, b2: f64) -> (f64, f64) {
+    (1.0 - l_gg * b2 / l_f, 1.0 / (1.0 + l_ff * b2 / l_f))
 }
 
 #[derive(Clone)]
@@ -893,6 +905,22 @@ mod tests {
         let (_, nq) = NlemModel::Log(xi).photon_indices_perp(1.414 * xi).unwrap();
         assert!(nq > 30.0);
         assert!(NlemModel::Log(xi).photon_indices_perp(1.5 * xi).unwrap().1.is_nan());
+    }
+
+    /// As mesmas fórmulas, aplicadas a Euler-Heisenberg em campo fraco
+    /// (L = -F + c (4F^2 + 7G^2), c = 2 alpha^2/(45 m^4)), reproduzem Adler (1971):
+    /// n_par - 1 = 7 alpha/(90 pi) (B/B_c)^2 e n_perp - 1 = 4 alpha/(90 pi) (B/B_c)^2.
+    #[test]
+    fn photon_indices_reproduce_adler() {
+        let alpha = 1.0 / 137.035999;
+        let r = 0.1; // B/B_c
+        // Unidades com m = 1 e e^2 = 4 pi alpha, logo B_c = 1/e.
+        let b2 = r * r / (4.0 * std::f64::consts::PI * alpha);
+        let c = 2.0 * alpha * alpha / 45.0;
+        let (n_par2, n_perp2) = photon_indices_squared(-1.0, 8.0 * c, 14.0 * c, b2);
+        let unit = alpha / (90.0 * std::f64::consts::PI) * r * r;
+        assert!(((n_par2 - 1.0) / 2.0 / unit - 7.0).abs() < 1e-4);
+        assert!(((n_perp2 - 1.0) / 2.0 / unit - 4.0).abs() < 1e-4);
     }
 
     /// Solves the three meson equations at fixed (mu_n, mu_e) with B = 0,

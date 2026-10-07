@@ -331,7 +331,7 @@ def fig_center_field(sb, out: Path):
     handles += [Line2D([], [], color="0.3", ls="-", label="constant $B$"),
                 Line2D([], [], color="0.3", ls="--", label="BDD profile"),
                 Line2D([], [], color="0.4", ls="-.", lw=0.6, label=r"$f_{\rm vac}=0$"),
-                Line2D([], [], color="0.4", ls=":", lw=0.6, label=r"$P_\perp=0$; 10\% of $P$")]
+                Line2D([], [], color="0.4", ls=":", lw=0.6, label=r"$P_\perp=0$; 10% of $P$")]
     top_legend(fig, handles, ncol=4, top=0.88, h_pad=0.4, w_pad=0.6)
     save(fig, out, "fig4_center_field")
 

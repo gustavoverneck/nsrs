@@ -137,6 +137,10 @@ struct Stars {
     r14: f64,
     lambda14: f64,
     true_maximum: bool,
+    /// Pressão central da estrela de massa máxima (MeV/fm^3).
+    p_c: f64,
+    /// Índice da linha da EoS no centro dessa estrela.
+    center: Option<usize>,
 }
 
 fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
@@ -147,6 +151,8 @@ fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
         r14: f64::NAN,
         lambda14: f64::NAN,
         true_maximum: false,
+        p_c: f64::NAN,
+        center: None,
     };
     if rows.len() < 5 {
         return empty;
@@ -158,17 +164,20 @@ fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
     let Some(max) = branch.last() else {
         return empty;
     };
-    // Densidade central: menor n_B do núcleo com P >= P_c.
-    let nc = rows
+    // Centro: linha do núcleo de menor n_B com P >= P_c.
+    let center = rows
         .iter()
         .zip(pressure)
-        .filter(|(r, p)| r[0] > 0.0 && **p >= max.central_pressure)
-        .map(|(r, _)| r[0])
-        .fold(f64::NAN, f64::min);
+        .enumerate()
+        .filter(|(_, (r, p))| r[0] > 0.0 && **p >= max.central_pressure)
+        .min_by(|a, b| a.1 .0[0].total_cmp(&b.1 .0[0]))
+        .map(|(i, _)| i);
     Stars {
         m_max: max.mass,
         r_max: max.radius,
-        nc,
+        nc: center.map_or(f64::NAN, |i| rows[i][0]),
+        p_c: max.central_pressure,
+        center,
         r14: interpolate_at_mass(branch, 1.4, |s| s.radius).unwrap_or(f64::NAN),
         lambda14: interpolate_at_mass(branch, 1.4, |s| s.tidal_deformability).unwrap_or(f64::NAN),
         true_maximum: branch.len() + 10 <= sequence.len(),
@@ -206,8 +215,13 @@ fn star_lines(model_name: &str, nlem: &str, profile: Profile, b: f64, eos: &Eos,
         .into_iter()
         .map(|(topology, pressure)| {
             let s = if has_core { stars(&eos.rows, &pressure) } else { stars(&[], &pressure) };
+            // Pressão do campo puro no centro, na mesma topologia da TOV.
+            let p_field_c = s.center.and_then(|i| eos.field_stress.get(i)).map_or(f64::NAN, |f| match topology {
+                "perp" => f.p_perpendicular,
+                _ => (f.p_parallel + 2.0 * f.p_perpendicular) / 3.0,
+            });
             format!(
-                "{model_name},{nlem},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.7},{:.6},{:.4},{:.6},{:.2},{},{nonmonotonic:.4},{negative}",
+                "{model_name},{nlem},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.7},{:.6},{:.4},{:.6},{:.2},{},{nonmonotonic:.4},{negative},{:.6e},{p_field_c:.6e}",
                 profile.label(),
                 eos.rows.len(),
                 eos.termination,
@@ -218,6 +232,7 @@ fn star_lines(model_name: &str, nlem: &str, profile: Profile, b: f64, eos: &Eos,
                 s.r14,
                 s.lambda14,
                 s.true_maximum,
+                s.p_c,
             )
         })
         .collect()
@@ -380,7 +395,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     let mut stars_csv = fs::File::create(&stars_path).map_err(|e| format!("{stars_path}: {e}"))?;
     writeln!(
         stars_csv,
-        "model,nlem,profile,B_G,hyperons,rows,n_max_over_n0,termination,anomalous,topology,m_max_Msun,r_max_km,nc_over_n0,r14_km,lambda14,true_maximum,pperp_nonmonotonic_fraction,pperp_negative_rows"
+        "model,nlem,profile,B_G,hyperons,rows,n_max_over_n0,termination,anomalous,topology,m_max_Msun,r_max_km,nc_over_n0,r14_km,lambda14,true_maximum,pperp_nonmonotonic_fraction,pperp_negative_rows,p_c_MeV_fm3,p_field_c_MeV_fm3"
     )
     .map_err(|e| e.to_string())?;
     let mut summary = Vec::new();

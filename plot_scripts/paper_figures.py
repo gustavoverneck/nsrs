@@ -3,9 +3,12 @@
 Só as figuras que sustentam a análise do artigo:
   fig1  tensões do campo Log em função de B/xi (analítica, explica as demais)
   fig2  Delta M_max(xi) em relação ao caso sem tensão (study log)
-  fig3  M_max e R_1.4 em função de B, Maxwell x Log (study b)
-  fig4  curvas M-R em B0 = 1e18 G, sem e com AMM (study log --save-eos)
-  fig5  desvio do AMM em função de B (study b, sem e com --amm)
+  fig3  M_max, R_1.4 e Lambda_1.4 em função de B, Maxwell x Log (study b)
+  fig4  B/xi e P_campo/P_c no centro da estrela de massa máxima (study b):
+        liga a fig3 aos limiares da fig1 e mede a validade do TOV esférico
+  fig5  curvas M-R em B0 = 1e18 G, sem e com AMM (study log --save-eos)
+  fig6  desvio do AMM em função de B (study b, sem e com --amm)
+  table_endpoints.csv  por que cada curva da fig3 termina (study b)
 O efeito do AMM ao longo de xi é constante e as populações quase não mudam com
 o AMM; esses números vão para o texto, não para figuras.
 
@@ -57,8 +60,14 @@ NLEM_STYLE = {
 # PSR J0740+6620 (Fonseca et al., ApJL 915, L12 (2021)): 2.08 +- 0.07 M_sun.
 J0740 = (2.08, 0.07)
 # Figuras de versões anteriores deste script, apagadas de --out para não confundir.
+# GW170817 (Abbott et al., PRL 121, 161101 (2018)): Lambda_1.4 = 190 +390 -120 (90%).
+GW170817_L14 = (70.0, 580.0)
+# Perfil BDD do campo local usado na energia e nas tensões (core::magnetic).
+B_SURF, BDD_BETA, BDD_GAMMA = 1e15, 0.01, 3.0
+# Figuras de versões anteriores deste script, apagadas de --out para não confundir.
 OBSOLETE = ["fig1_dmmax_vs_xi", "fig2_amm_shift_vs_xi", "fig3_mass_radius_B0_1e18",
-            "fig4_stars_vs_B", "fig6_populations_B1e18_xi1e17"]
+            "fig4_stars_vs_B", "fig4_mass_radius_B0_1e18", "fig5_amm_shift_vs_B",
+            "fig6_populations_B1e18_xi1e17"]
 TOPO_LABEL = {"anisotropica": r"$P_\perp$", "isotropica": r"$(P_\parallel+2P_\perp)/3$"}
 
 
@@ -97,6 +106,16 @@ def save(fig, out: Path, name: str):
     fig.savefig(out / f"{name}.png", dpi=300)
     plt.close(fig)
     print(f"figura: {out / name}.pdf")
+
+
+def local_field(b0: float, nb_over_n0: float) -> float:
+    """Campo local (G) do perfil BDD, também usado pela energia no perfil constante."""
+    return B_SURF + b0 * (1.0 - math.exp(-BDD_BETA * max(nb_over_n0, 0.0) ** BDD_GAMMA))
+
+
+def nlem_xi(nlem: str) -> float:
+    """xi (G) de um rótulo 'log:1.00e17'; NaN para Maxwell."""
+    return float(nlem.split(":")[1]) if nlem.startswith("log:") else math.nan
 
 
 def j0740_band(ax):
@@ -221,7 +240,7 @@ def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="anisotropica"):
                 Line2D([], [], color="0.3", ls="--", label="with AMM"),
                 Patch(color="0.85", label="PSR J0740+6620")]
     top_legend(fig, handles, ncol=6, top=0.89, w_pad=0.4)
-    save(fig, out, "fig4_mass_radius_B0_1e18")
+    save(fig, out, "fig5_mass_radius_B0_1e18")
 
 
 # ------------------------------------------------------------------ study b
@@ -246,33 +265,115 @@ def load_study_b(path: Path, topology="perp"):
 
 
 def fig_b_scan(sb, out: Path):
-    fig, axes = plt.subplots(2, 3, figsize=(PAGE_W, 4.0), sharex=True)
+    fig, axes = plt.subplots(3, 3, figsize=(PAGE_W, 5.6), sharex=True)
     for col, model in enumerate(MODELS):
         for nlem, st in NLEM_STYLE.items():
             for profile, ls in [("constante", "-"), ("bdd", "--")]:
                 rows = sb.get((model, nlem, profile), [])
                 b = np.array([fnum(r["B_G"]) for r in rows])
-                for row, field in enumerate(["m_max_Msun", "r14_km"]):
+                for row, field in enumerate(["m_max_Msun", "r14_km", "lambda14"]):
                     y = np.array([fnum(r[field]) for r in rows])
                     axes[row, col].plot(b, y, color=st["color"], ls=ls)
                     if len(b):  # fim da EoS válida
                         axes[row, col].plot(b[-1], y[-1], color=st["color"], marker="x", ms=4)
-        for row in range(2):
+        for row in range(3):
             ax = axes[row, col]
             ax.set_xscale("log")
             ax.set_xlim(1e16, 3e19)
             panel_label(ax, row * 3 + col, model)
         j0740_band(axes[0, col])
-        axes[1, col].set_xlabel(r"$B$ (constant) or $B_0$ (BDD) [G]")
+        axes[2, col].axhspan(*GW170817_L14, color="#cfe3f2", lw=0, zorder=0)
+        axes[2, col].set_yscale("log")
+        axes[2, col].set_xlabel(r"$B$ (constant) or $B_0$ (BDD) [G]")
     axes[0, 0].set_ylabel(r"$M_{\max}$ [$M_\odot$]")
     axes[1, 0].set_ylabel(r"$R_{1.4}$ [km]")
+    axes[2, 0].set_ylabel(r"$\Lambda_{1.4}$")
     handles = [Line2D([], [], color=s["color"], label=s["label"]) for s in NLEM_STYLE.values()]
     handles += [Line2D([], [], color="0.3", ls="-", label="constant $B$"),
                 Line2D([], [], color="0.3", ls="--", label="BDD profile"),
                 Line2D([], [], color="0.3", ls="none", marker="x", label="last valid EoS"),
-                Patch(color="0.85", label="PSR J0740+6620")]
-    top_legend(fig, handles, ncol=4, top=0.87, h_pad=0.4, w_pad=0.6)
+                Patch(color="0.85", label="PSR J0740+6620"),
+                Patch(color="#cfe3f2", label="GW170817 (90%)")]
+    top_legend(fig, handles, ncol=4, top=0.89, h_pad=0.4, w_pad=0.6)
     save(fig, out, "fig3_stars_vs_B")
+
+
+def fig_center_field(sb, out: Path):
+    """No centro da estrela de massa máxima: B_c/xi (onde as estrelas caem na
+    fig1) e P_campo/P_c (validade do TOV esférico; ~10% como referência)."""
+    fig, axes = plt.subplots(2, 3, figsize=(PAGE_W, 4.0), sharex=True)
+    for col, model in enumerate(MODELS):
+        for nlem, st in NLEM_STYLE.items():
+            xi = nlem_xi(nlem)
+            for profile, ls in [("constante", "-"), ("bdd", "--")]:
+                rows = sb.get((model, nlem, profile), [])
+                b = np.array([fnum(r["B_G"]) for r in rows])
+                bc = np.array([local_field(fnum(r["B_G"]), fnum(r["nc_over_n0"])) for r in rows])
+                ratio = np.array([fnum(r.get("p_field_c_MeV_fm3")) / fnum(r.get("p_c_MeV_fm3"))
+                                  for r in rows])
+                if math.isfinite(xi):
+                    axes[0, col].plot(b, bc / xi, color=st["color"], ls=ls)
+                axes[1, col].plot(b, ratio, color=st["color"], ls=ls)
+        axes[0, col].axhline(math.sqrt(2.0), color="0.4", lw=0.6, ls="-.")
+        axes[0, col].axhline(2.8006, color="0.4", lw=0.6, ls=":")
+        axes[1, col].axhline(0.1, color="0.4", lw=0.6, ls=":")
+        axes[1, col].axhline(0.0, color="0.5", lw=0.5, zorder=0)
+        axes[0, col].set_yscale("log")
+        for row in range(2):
+            ax = axes[row, col]
+            ax.set_xscale("log")
+            ax.set_xlim(1e16, 3e19)
+            panel_label(ax, row * 3 + col, model)
+        axes[1, col].set_xlabel(r"$B$ (constant) or $B_0$ (BDD) [G]")
+    axes[0, 0].set_ylabel(r"$B_c/\xi$")
+    axes[1, 0].set_ylabel(r"$P_{\rm field}/P$ at center")
+    handles = [Line2D([], [], color=s["color"], label=s["label"]) for s in NLEM_STYLE.values()]
+    handles += [Line2D([], [], color="0.3", ls="-", label="constant $B$"),
+                Line2D([], [], color="0.3", ls="--", label="BDD profile"),
+                Line2D([], [], color="0.4", ls="-.", lw=0.6, label=r"$f_{\rm vac}=0$"),
+                Line2D([], [], color="0.4", ls=":", lw=0.6, label=r"$P_\perp=0$; 10\% of $P$")]
+    top_legend(fig, handles, ncol=4, top=0.88, h_pad=0.4, w_pad=0.6)
+    save(fig, out, "fig4_center_field")
+
+
+def table_endpoints(path: Path, stability: Path, out: Path, topology="perp"):
+    """Por que cada curva (modelo, NLEM, perfil) termina: primeiro B inválido,
+    seu término, B/xi local na maior densidade alcançada e qual critério físico
+    vale ali. 'solver' indica que nenhum critério físico explica o fim."""
+    groups = defaultdict(list)
+    for row in csv.DictReader(open(path, encoding="utf-8")):
+        if row["topology"] == topology and fnum(row["B_G"]) > 0:
+            groups[(row["model"], row["nlem"], row["profile"])].append(row)
+    unstable = set()
+    if stability.exists():
+        for row in csv.DictReader(open(stability, encoding="utf-8")):
+            if row["magnetically_unstable"] == "true":
+                unstable.add((row["model"], row["nlem"], row["B_G"]))
+    out.mkdir(parents=True, exist_ok=True)
+    with open(out / "table_endpoints.csv", "w", newline="", encoding="utf-8") as handle:
+        w = csv.writer(handle)
+        w.writerow(["model", "nlem", "profile", "B_last_valid_G", "B_first_invalid_G", "termination",
+                    "n_max_over_n0", "B_local_over_xi", "f_vac_negative", "pperp_negative_rows",
+                    "magnetically_unstable", "cause"])
+        for (model, nlem, profile), rows in sorted(groups.items()):
+            rows.sort(key=lambda r: fnum(r["B_G"]))
+            bad = next((i for i, r in enumerate(rows) if r["anomalous"] == "true"
+                        or not math.isfinite(fnum(r["m_max_Msun"]))), None)
+            if bad is None:
+                w.writerow([model, nlem, profile, rows[-1]["B_G"], "", "", "", "", "", "", "", "none"])
+                continue
+            r = rows[bad]
+            xi = nlem_xi(nlem)
+            u = local_field(fnum(r["B_G"]), fnum(r["n_max_over_n0"])) / xi
+            fvac_neg = math.isfinite(u) and u > math.sqrt(2.0)
+            pneg = int(fnum(r["pperp_negative_rows"]) or 0)
+            mag = profile == "constante" and (model, nlem, r["B_G"]) in unstable
+            cause = ("f_vac<0" if fvac_neg else "P_perp<0" if pneg > 0
+                     else "magnetic instability" if mag else "solver")
+            w.writerow([model, nlem, profile, rows[bad - 1]["B_G"] if bad else "", r["B_G"],
+                        r["termination"], r["n_max_over_n0"], f"{u:.3g}" if math.isfinite(u) else "",
+                        fvac_neg, pneg, mag, cause])
+    print(f"tabela: {out / 'table_endpoints.csv'}")
 
 
 def fig_b_amm(sb, sb_amm, out: Path):
@@ -306,7 +407,7 @@ def fig_b_amm(sb, sb_amm, out: Path):
                 Line2D([], [], color="0.3", ls="--", label="BDD profile"),
                 Line2D([], [], color="0.3", ls="none", marker="x", label="last valid EoS pair")]
     top_legend(fig, handles, ncol=5, top=0.93, h_pad=0.4, w_pad=0.6)
-    save(fig, out, "fig5_amm_shift_vs_B")
+    save(fig, out, "fig6_amm_shift_vs_B")
 
 
 def main():
@@ -327,8 +428,11 @@ def main():
     fig_field_stress(args.out)
     fig_mmax_vs_xi(sl, args.out)
     fig_b_scan(sb, args.out)
+    fig_center_field(sb, args.out)
     fig_mass_radius(args.output, args.out)
     fig_b_amm(sb, sb_amm, args.out)
+    table_endpoints(args.results / "study_b" / "stars.csv",
+                    args.results / "study_b" / "stability.csv", args.out)
 
 
 if __name__ == "__main__":

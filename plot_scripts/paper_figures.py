@@ -1,10 +1,18 @@
 """Figuras de publicação (Physical Review D) para a NLEM log, sem e com AMM.
 
+Só as figuras que sustentam a análise do artigo:
+  fig1  tensões do campo Log em função de B/xi (analítica, explica as demais)
+  fig2  Delta M_max(xi) em relação ao caso sem tensão (study log)
+  fig3  M_max e R_1.4 em função de B, Maxwell x Log (study b)
+  fig4  curvas M-R em B0 = 1e18 G, sem e com AMM (study log --save-eos)
+  fig5  desvio do AMM em função de B (study b, sem e com --amm)
+O efeito do AMM ao longo de xi é constante e as populações quase não mudam com
+o AMM; esses números vão para o texto, não para figuras.
+
 Lê apenas resultados já calculados:
-  results/study_log{,_amm}/summary.csv     (study log)
+  results/study_log/summary.csv             (study log)
   output/study_log{,_amm}/.../*_stars.txt   (curvas M-R, gravadas com --save-eos)
   results/study_b{,_amm}/stars.csv          (study b)
-  output/nlem_log{,_amm}/.../eos.dat        (populações)
 
 Gera PDF (vetorial) e PNG em results/paper/, com larguras de coluna (3.375")
 e de página (7.0") do revtex. Os textos das figuras são em inglês.
@@ -26,6 +34,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 plt.style.use(HERE / "paper.mplstyle")
@@ -45,6 +54,11 @@ NLEM_STYLE = {
     "log:1.00e17": dict(color="#D55E00", label=r"Log, $\xi=10^{17}$ G"),
     "log:1.00e18": dict(color="#009E73", label=r"Log, $\xi=10^{18}$ G"),
 }
+# PSR J0740+6620 (Fonseca et al., ApJL 915, L12 (2021)): 2.08 +- 0.07 M_sun.
+J0740 = (2.08, 0.07)
+# Figuras de versões anteriores deste script, apagadas de --out para não confundir.
+OBSOLETE = ["fig1_dmmax_vs_xi", "fig2_amm_shift_vs_xi", "fig3_mass_radius_B0_1e18",
+            "fig4_stars_vs_B", "fig6_populations_B1e18_xi1e17"]
 TOPO_LABEL = {"anisotropica": r"$P_\perp$", "isotropica": r"$(P_\parallel+2P_\perp)/3$"}
 
 
@@ -83,6 +97,43 @@ def save(fig, out: Path, name: str):
     fig.savefig(out / f"{name}.png", dpi=300)
     plt.close(fig)
     print(f"figura: {out / name}.pdf")
+
+
+def j0740_band(ax):
+    m, dm = J0740
+    ax.axhspan(m - dm, m + dm, color="0.85", lw=0, zorder=0)
+
+
+# ------------------------------------------------------------ campo Log
+
+
+def fig_field_stress(out: Path):
+    """eps, P_perp e f_vac da Log normalizados por Maxwell, em função de B/xi.
+
+    eps = xi^2 ln(1+x)/(4 pi), x = B^2/(2 xi^2) (core::magnetic::magnetic_stress);
+    P_perp = H B - eps, P_par = -eps; f_vac = (1-x)/(1+x)^2 (NlemModel::vacuum_curvature).
+    """
+    u = np.logspace(-1, 2, 600)  # B/xi
+    x = u**2 / 2
+    eps = np.log1p(x) / x
+    p_perp = 2 / (1 + x) - eps
+    f_vac = (1 - x) / (1 + x) ** 2
+    fig, ax = plt.subplots(figsize=(3.375, 2.5))
+    ax.axhline(1.0, color="0.5", lw=0.6, ls=":", zorder=0)
+    ax.axhline(0.0, color="0.5", lw=0.5, zorder=0)
+    ax.plot(u, eps, color="#0072B2", label=r"$\varepsilon_B/\varepsilon_B^{\rm Max}$")
+    ax.plot(u, p_perp, color="#D55E00", label=r"$P_\perp/\varepsilon_B^{\rm Max}$")
+    ax.plot(u, -eps, color="#009E73", label=r"$P_\parallel/\varepsilon_B^{\rm Max}$")
+    ax.plot(u, f_vac, color="#000000", ls="--", label=r"$f_{\rm vac}$")
+    # f_vac = 0 em x = 1; P_perp = 0 em x = 3.92 (B/xi = 2.80).
+    for xc in (np.sqrt(2.0), 2.8006):
+        ax.axvline(xc, color="0.6", lw=0.5, ls="-.", zorder=0)
+    ax.set_xscale("log")
+    ax.set_xlim(u[0], u[-1])
+    ax.set_ylim(-1.15, 1.15)
+    ax.set_xlabel(r"$B/\xi$")
+    ax.legend(loc="upper right")
+    save(fig, out, "fig1_log_field_stress")
 
 
 # ---------------------------------------------------------------- study log
@@ -132,38 +183,7 @@ def fig_mmax_vs_xi(sl, out: Path):
                       label=b0_label(b)) for b in B0S]
     handles.append(Line2D([], [], color="0.3", ls=":", lw=0.8, label=r"Maxwell ($\xi\to\infty$)"))
     top_legend(fig, handles, ncol=4, top=0.93, h_pad=0.4, w_pad=0.6)
-    save(fig, out, "fig1_dmmax_vs_xi")
-
-
-def fig_amm_shifts(sl, sl_amm, out: Path):
-    """Desvio causado pelos momentos anômalos em M_max e R_1.4 ao longo de xi."""
-    fig, axes = plt.subplots(2, 3, figsize=(PAGE_W, 4.0), sharex=True)
-    for col, model in enumerate(MODELS):
-        for topo, ls in [("anisotropica", "-"), ("isotropica", "--")]:
-            for b0 in B0S:
-                off, on = sl[(model, topo, b0)], sl_amm[(model, topo, b0)]
-                xi = np.array([x for x, _ in off["log"]])
-                st = B0_STYLE[b0]
-                for row, (field, scale) in enumerate([("m_max_Msun", 1e3), ("r14_km", 1.0)]):
-                    d = np.array([fnum(b[field]) - fnum(a[field])
-                                  for (_, a), (_, b) in zip(off["log"], on["log"])]) * scale
-                    axes[row, col].plot(xi, d, color=st["color"], ls=ls, marker=st["marker"],
-                                        markevery=6, mfc="white" if ls == "--" else st["color"])
-        for row in range(2):
-            ax = axes[row, col]
-            ax.axhline(0.0, color="0.5", lw=0.5, zorder=0)
-            ax.set_xscale("log")
-            ax.set_xlim(1e15, 1e21)
-            panel_label(ax, row * 3 + col, model)
-        axes[1, col].set_xlabel(r"$\xi$ [G]")
-    axes[0, 0].set_ylabel(r"$\Delta M_{\max}^{\rm AMM}$ [$10^{-3}\,M_\odot$]")
-    axes[1, 0].set_ylabel(r"$\Delta R_{1.4}^{\rm AMM}$ [km]")
-    handles = [Line2D([], [], color=B0_STYLE[b]["color"], marker=B0_STYLE[b]["marker"],
-                      label=b0_label(b)) for b in B0S]
-    handles += [Line2D([], [], color="0.3", ls="-", label=r"$P_\perp$"),
-                Line2D([], [], color="0.3", ls="--", label=r"$(P_\parallel+2P_\perp)/3$")]
-    top_legend(fig, handles, ncol=5, top=0.93, h_pad=0.4, w_pad=0.6)
-    save(fig, out, "fig2_amm_shift_vs_xi")
+    save(fig, out, "fig2_dmmax_vs_xi")
 
 
 def read_stars(path: Path):
@@ -190,16 +210,18 @@ def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="anisotropica"):
                 if path.exists():
                     r, m = read_stars(path)
                     ax.plot(r, m, color=color, ls=ls, lw=1.0)
+        j0740_band(ax)
         ax.set_xlim(10.5, 15.5)
-        ax.set_ylim(0.8, 2.15)
+        ax.set_ylim(0.8, 2.2)
         ax.set_xlabel(r"$R$ [km]")
         panel_label(ax, col, model)
     axes[0].set_ylabel(r"$M$ [$M_\odot$]")
     handles = [Line2D([], [], color=c, label=lab) for _, c, lab in cases]
     handles += [Line2D([], [], color="0.3", ls="-", label="without AMM"),
-                Line2D([], [], color="0.3", ls="--", label="with AMM")]
-    top_legend(fig, handles, ncol=5, top=0.89, w_pad=0.4)
-    save(fig, out, "fig3_mass_radius_B0_1e18")
+                Line2D([], [], color="0.3", ls="--", label="with AMM"),
+                Patch(color="0.85", label="PSR J0740+6620")]
+    top_legend(fig, handles, ncol=6, top=0.89, w_pad=0.4)
+    save(fig, out, "fig4_mass_radius_B0_1e18")
 
 
 # ------------------------------------------------------------------ study b
@@ -240,15 +262,17 @@ def fig_b_scan(sb, out: Path):
             ax.set_xscale("log")
             ax.set_xlim(1e16, 3e19)
             panel_label(ax, row * 3 + col, model)
+        j0740_band(axes[0, col])
         axes[1, col].set_xlabel(r"$B$ (constant) or $B_0$ (BDD) [G]")
     axes[0, 0].set_ylabel(r"$M_{\max}$ [$M_\odot$]")
     axes[1, 0].set_ylabel(r"$R_{1.4}$ [km]")
     handles = [Line2D([], [], color=s["color"], label=s["label"]) for s in NLEM_STYLE.values()]
     handles += [Line2D([], [], color="0.3", ls="-", label="constant $B$"),
                 Line2D([], [], color="0.3", ls="--", label="BDD profile"),
-                Line2D([], [], color="0.3", ls="none", marker="x", label="last valid EoS")]
-    top_legend(fig, handles, ncol=4, top=0.89, h_pad=0.4, w_pad=0.6)
-    save(fig, out, "fig4_stars_vs_B")
+                Line2D([], [], color="0.3", ls="none", marker="x", label="last valid EoS"),
+                Patch(color="0.85", label="PSR J0740+6620")]
+    top_legend(fig, handles, ncol=4, top=0.87, h_pad=0.4, w_pad=0.6)
+    save(fig, out, "fig3_stars_vs_B")
 
 
 def fig_b_amm(sb, sb_amm, out: Path):
@@ -285,52 +309,6 @@ def fig_b_amm(sb, sb_amm, out: Path):
     save(fig, out, "fig5_amm_shift_vs_B")
 
 
-# --------------------------------------------------------------- populações
-
-SPECIES = [  # (coluna, rótulo, cor, bárion?)
-    (5, "n", "#000000", True),
-    (6, "p", "#0072B2", True),
-    (3, r"e^-", "#56B4E9", False),
-    (4, r"\mu^-", "#009E73", False),
-    (7, r"\Lambda", "#D55E00", True),
-    (8, r"\Sigma^-", "#E69F00", True),
-    (9, r"\Sigma^0", "#8C510A", True),
-    (10, r"\Sigma^+", "#999999", True),
-    (11, r"\Xi^-", "#CC79A7", True),
-    (12, r"\Xi^0", "#7B3294", True),
-]
-
-
-def fig_populations(root: Path, out: Path, b="1.00e18", csi="1.00e17"):
-    fig, axes = plt.subplots(1, 3, figsize=(PAGE_W, 2.6), sharey=True)
-    present = set()
-    for col, model in enumerate(MODELS):
-        ax = axes[col]
-        for amm, ls in [("", "-"), ("_amm", "--")]:
-            path = root / f"nlem_log{amm}" / model / f"B_{b}" / "default" / f"csi_{csi}" / "eos.dat"
-            d = np.loadtxt(path, comments="#")
-            d = d[d[:, 0] > 0]
-            nb = sum(d[:, c] for c, *_, baryon in SPECIES if baryon)
-            for c, lab, color, _ in SPECIES:
-                y = d[:, c] / nb
-                if np.nanmax(y) < 1e-3:
-                    continue
-                ax.plot(d[:, 0], y, color=color, ls=ls, lw=0.9)
-                present.add(c)
-        ax.set_yscale("log")
-        ax.set_ylim(1e-3, 1.2)
-        ax.set_xlim(0, 8)
-        ax.set_xlabel(r"$n_B/n_0$")
-        panel_label(ax, col, model)
-    axes[0].set_ylabel(r"$Y_i = n_i/n_B$")
-    handles = [Line2D([], [], color=color, label=f"${lab}$")
-               for c, lab, color, _ in SPECIES if c in present]
-    handles += [Line2D([], [], color="0.3", ls="-", label="without AMM"),
-                Line2D([], [], color="0.3", ls="--", label="with AMM")]
-    top_legend(fig, handles, ncol=6, top=0.80, w_pad=0.4)
-    save(fig, out, "fig6_populations_B1e18_xi1e17")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("results/paper"))
@@ -338,17 +316,19 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("output"))
     args = parser.parse_args()
 
+    for name in OBSOLETE:
+        for ext in ("pdf", "png"):
+            (args.out / f"{name}.{ext}").unlink(missing_ok=True)
+
     sl = load_study_log(args.results / "study_log" / "summary.csv")
-    sl_amm = load_study_log(args.results / "study_log_amm" / "summary.csv")
     sb = load_study_b(args.results / "study_b" / "stars.csv")
     sb_amm = load_study_b(args.results / "study_b_amm" / "stars.csv")
 
+    fig_field_stress(args.out)
     fig_mmax_vs_xi(sl, args.out)
-    fig_amm_shifts(sl, sl_amm, args.out)
-    fig_mass_radius(args.output, args.out)
     fig_b_scan(sb, args.out)
+    fig_mass_radius(args.output, args.out)
     fig_b_amm(sb, sb_amm, args.out)
-    fig_populations(args.output, args.out)
 
 
 if __name__ == "__main__":

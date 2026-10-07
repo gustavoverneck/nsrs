@@ -30,7 +30,7 @@ pub enum MagneticTopology {
 impl NlemModel {
     /// Razão H/B do campo auxiliar, H = d eps_B / dB, para um campo
     /// magnético estático puro B (Gauss). Maxwell: 1; ModMax: e^{-gamma};
-    /// Log: 1/(1 + B^2/(2 xi^2)), com xi em Gauss (Soleng 1995).
+    /// Log: 1/(1 + B^2/(2 xi^2)), com xi em Gauss (Gaete e Helayël-Neto 2014; Soleng 1995).
     ///
     /// As partículas acoplam ao potencial vetor, portanto os níveis de Landau
     /// usam B; a eletrodinâmica não linear entra apenas na energia e nas

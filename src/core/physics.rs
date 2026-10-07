@@ -57,6 +57,27 @@ impl NlemModel {
             }
         }
     }
+
+    /// Índices de refração dos dois modos de um fóton fraco que se propaga
+    /// perpendicular a um campo magnético estático B (Gauss), em vácuo.
+    /// Retorna (n_par, n_perp): campo elétrico da onda paralelo e
+    /// perpendicular a B. Para L(F, G), com F = (B^2 - E^2)/2 e G = E.B,
+    /// n_par^2 = 1 - L_GG B^2 / L_F e n_perp^2 = (H/B)/f_vac.
+    /// Log (Gaete e Helayël-Neto 2014), com x = B^2/(2 xi^2): n_par^2 = 1 + 2x e
+    /// n_perp^2 = (1 + x)/(1 - x); n_perp diverge em B = sqrt(2) xi (f_vac = 0)
+    /// e é NaN acima (o modo não se propaga). ModMax não é implementado.
+    pub fn photon_indices_perp(&self, b_gauss: f64) -> Option<(f64, f64)> {
+        match *self {
+            NlemModel::Maxwell => Some((1.0, 1.0)),
+            NlemModel::Modmax(_) => None,
+            NlemModel::Log(xi) => {
+                let x = b_gauss * b_gauss / (2.0 * xi * xi);
+                let n_perp2 = self.h_over_b(b_gauss) / self.vacuum_curvature(b_gauss);
+                let n_perp = if n_perp2 > 0.0 { n_perp2.sqrt() } else { f64::NAN };
+                Some(((1.0 + 2.0 * x).sqrt(), n_perp))
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -856,6 +877,23 @@ mod tests {
     use super::*;
     use crate::core::model::{FSU2, GM1};
     use nalgebra::{Matrix3, Vector3};
+
+    #[test]
+    fn photon_indices_log() {
+        assert_eq!(NlemModel::Maxwell.photon_indices_perp(1e18), Some((1.0, 1.0)));
+        let xi = 1e17;
+        // Campo fraco: os dois modos valem 1 + x e a diferença é ~x^2.
+        let b = 1e-2 * xi;
+        let x = b * b / (2.0 * xi * xi);
+        let (np, nq) = NlemModel::Log(xi).photon_indices_perp(b).unwrap();
+        assert!((np - 1.0 - x).abs() < 2.0 * x * x);
+        assert!((nq - 1.0 - x).abs() < 2.0 * x * x);
+        assert!(((nq - np) - x * x).abs() < 1e-3 * x * x);
+        // n_perp diverge em f_vac = 0 e não existe acima.
+        let (_, nq) = NlemModel::Log(xi).photon_indices_perp(1.414 * xi).unwrap();
+        assert!(nq > 30.0);
+        assert!(NlemModel::Log(xi).photon_indices_perp(1.5 * xi).unwrap().1.is_nan());
+    }
 
     /// Solves the three meson equations at fixed (mu_n, mu_e) with B = 0,
     /// i.e. without imposing charge neutrality. Returns the fields and

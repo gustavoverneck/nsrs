@@ -34,13 +34,13 @@ use nsrs::{EngineMode, FieldProfile, HadronsMatter, NlemModel, Solver};
 
 use crate::cli::{Args, create_dir};
 
-type Row = [f64; RESULTS_SIZE];
+pub(crate) type Row = [f64; RESULTS_SIZE];
 
 /// MeV/fm^3 -> erg/cm^3 (= G^2).
-const ERG_PER_MEV_FM3: f64 = 1.602176634e33;
+pub(crate) const ERG_PER_MEV_FM3: f64 = 1.602176634e33;
 
 #[derive(Clone, Copy, PartialEq)]
-enum Profile {
+pub(crate) enum Profile {
     /// Níveis de Landau com o B central em todas as densidades; energia do
     /// campo pelo perfil BDD (comportamento padrão do código).
     Constant,
@@ -50,7 +50,7 @@ enum Profile {
 }
 
 impl Profile {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Profile::Constant => "constante",
             Profile::Bdd => "bdd",
@@ -58,17 +58,17 @@ impl Profile {
     }
 }
 
-struct Config {
-    points: usize,
-    mu_max: f64,
-    hyperons: bool,
-    landau_max: usize,
+pub(crate) struct Config {
+    pub(crate) points: usize,
+    pub(crate) mu_max: f64,
+    pub(crate) hyperons: bool,
+    pub(crate) landau_max: usize,
     /// Momentos magnéticos anômalos dos bárions (`--amm`).
-    amm: bool,
+    pub(crate) amm: bool,
 }
 
 /// Rótulo da eletrodinâmica nos CSVs: maxwell, log:<xi>, modmax:<gamma>.
-fn nlem_label(nlem: NlemModel) -> String {
+pub(crate) fn nlem_label(nlem: NlemModel) -> String {
     match nlem {
         NlemModel::Maxwell => "maxwell".into(),
         NlemModel::Log(xi) => format!("log:{xi:.2e}"),
@@ -77,7 +77,7 @@ fn nlem_label(nlem: NlemModel) -> String {
 }
 
 /// `--nlem maxwell,log:1e17,...` (xi em Gauss).
-fn parse_nlem(text: &str) -> Result<Vec<NlemModel>, String> {
+pub(crate) fn parse_nlem(text: &str) -> Result<Vec<NlemModel>, String> {
     text.split(',')
         .map(|item| {
             let item = item.trim();
@@ -97,16 +97,16 @@ fn parse_nlem(text: &str) -> Result<Vec<NlemModel>, String> {
 
 /// EoS resolvida, com 𝓜B, a pressão sem magnetização e as tensões do campo
 /// por linha.
-struct Eos {
-    rows: Vec<Row>,
-    magnetization_b: Vec<f64>,
+pub(crate) struct Eos {
+    pub(crate) rows: Vec<Row>,
+    pub(crate) magnetization_b: Vec<f64>,
     stability_pressure: Vec<f64>,
-    field_stress: Vec<MagneticStress>,
+    pub(crate) field_stress: Vec<MagneticStress>,
     termination: String,
     anomalous: bool,
 }
 
-fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: &Config) -> Eos {
+pub(crate) fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: &Config) -> Eos {
     let mut engine = HadronsMatter::new(model, b)
         .with_nlem(nlem)
         .with_hyperons(config.hyperons)
@@ -130,7 +130,7 @@ fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: 
     }
 }
 
-struct Stars {
+pub(crate) struct Stars {
     m_max: f64,
     r_max: f64,
     nc: f64,
@@ -138,12 +138,12 @@ struct Stars {
     lambda14: f64,
     true_maximum: bool,
     /// Pressão central da estrela de massa máxima (MeV/fm^3).
-    p_c: f64,
+    pub(crate) p_c: f64,
     /// Índice da linha da EoS no centro dessa estrela.
     center: Option<usize>,
 }
 
-fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
+pub(crate) fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
     let empty = Stars {
         m_max: f64::NAN,
         r_max: f64::NAN,
@@ -330,7 +330,7 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, nlems: &[NlemModel],
 }
 
 /// Barra de progresso por tarefa concluída.
-fn progress(total: usize) -> indicatif::ProgressBar {
+pub(crate) fn progress(total: usize) -> indicatif::ProgressBar {
     let bar = indicatif::ProgressBar::new(total as u64);
     if let Ok(style) = indicatif::ProgressStyle::with_template("  [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} (resta ~{eta})") {
         bar.set_style(style);

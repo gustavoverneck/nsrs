@@ -13,6 +13,7 @@ mod report;
 mod scan;
 mod study;
 mod study_b;
+mod study_profile;
 mod tools;
 mod validate;
 mod validation;
@@ -45,6 +46,12 @@ Estudos (tabela para análise e publicação):
                 [--nlem maxwell,log:1e17] [--out results/study_b]
                 Varredura completa em B (de 0 até quebrar): estrelas, cobertura da EoS
                 e estabilidade mecânica e magnética local.            -> results/study_b/
+
+  study profile [--models GM1,GM3,FSU2] [--b0 1e17,1e18] [--profiles constante,bdd]
+                [--nlem maxwell,log:1e16,log:1e17,log:1e18] [--points 1500] [--delta 1e-4] [--amm]
+                [--out results/study_profile]
+                Permeabilidade, magnetização, razões campo/total e estabilidade magnética
+                local por densidade e ao longo do raio (M_max e 1.4 M_sun). -> results/study_profile/
 
 Setor escuro:
   dark scan        [--models GM1,GM3] [--b 1e17]  Grade 10^4 (epsilon, m_X, g_D, Y_chi). -> output/darkphotons_scan/
@@ -85,6 +92,7 @@ fn main() {
         ("scan", "topology") => scan::topology(tail),
         ("study", "log") => study::log(tail),
         ("study", "b") => study_b::run(tail),
+        ("study", "profile") => study_profile::run(tail),
         ("dark", "scan") => dark::scan(tail),
         ("dark", "benchmarks") => dark::benchmarks(tail),
         ("dark", "single") => dark::single(tail),

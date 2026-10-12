@@ -9,7 +9,6 @@ Lê <dir>/eos.csv e <dir>/radial.csv de `nsrs study profile` e gera, para cada B
 Linhas: cor pela eletrodinâmica, contínua = BDD, tracejada = campo constante.
 Painéis (de cima para baixo):
   H/B = 1/mu            inverso da permeabilidade, (H/B)_vac - 4 pi M/B
-  4 pi M/B              magnetização da matéria (Landau)
   f_vac                 parte do vácuo de s = dH/dB = f_vac - c_m; f_vac < 0
                         (B > sqrt(2) xi) basta para instabilidade. A parte da
                         matéria, c_m, oscila com os níveis de Landau a T = 0 e
@@ -52,7 +51,6 @@ NLEM_STYLE = {
 PROFILE_STYLE = {"bdd": dict(ls="-", label="BDD"), "constante": dict(ls="--", label="constant")}
 PANELS = [
     ("h_over_b", r"$H/B=\mu^{-1}$", "symlog"),
-    ("m_over_b", r"$4\pi\mathcal{M}/B$", "symlog"),
     ("f_vac", r"$f_{\rm vac}$", "symlog"),
     ("eps_ratio", r"$\varepsilon_{\rm field}/\varepsilon$", "log"),
     ("p_ratio", r"$P_{\perp,{\rm field}}/P_\perp$", "symlog"),
@@ -114,7 +112,7 @@ def setup_axis(ax, scale, name):
         ax.set_yscale("symlog", linthresh=1e-3, linscale=0.6)
     elif scale == "log":
         ax.set_yscale("log")
-    if name in ("f_vac", "h_over_b", "m_over_b", "p_ratio"):
+    if name in ("f_vac", "h_over_b", "p_ratio"):
         ax.axhline(0.0, color="0.5", lw=0.5, zorder=0)
     if name in ("f_vac", "h_over_b"):
         ax.axhline(1.0, color="0.5", lw=0.5, ls=":", zorder=0)
@@ -122,7 +120,7 @@ def setup_axis(ax, scale, name):
 
 def figure(data, radial, b0, out: Path, by_radius: bool):
     nlems = [k for k in NLEM_STYLE if any(key[3] == k for key in data)]
-    fig, axes = plt.subplots(len(PANELS), len(MODELS), figsize=(PAGE_W, 8.6), sharex="col", sharey="row")
+    fig, axes = plt.subplots(len(PANELS), len(MODELS), figsize=(PAGE_W, 7.2), sharex="col", sharey="row")
     for col, model in enumerate(MODELS):
         for row, (name, ylabel, scale) in enumerate(PANELS):
             ax = axes[row, col]
@@ -139,13 +137,6 @@ def figure(data, radial, b0, out: Path, by_radius: bool):
                         x, values = star["r"], along_radius(eos, star)
                     else:
                         x, values = eos["n"], eos
-                    # A matéria não depende da NLEM (acoplamento mínimo):
-                    # magnetização uma vez por perfil, em cinza.
-                    matter_once = nlem == nlems[0]
-                    if name == "m_over_b":
-                        if matter_once:
-                            ax.plot(x, values[name], color="0.35", ls=pstyle["ls"], lw=0.8)
-                        continue
                     ax.plot(x, values[name], color=NLEM_STYLE[nlem]["color"], ls=pstyle["ls"], lw=0.9, zorder=2)
             if row == 0:
                 ax.set_title(model)

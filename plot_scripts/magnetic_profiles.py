@@ -84,6 +84,19 @@ def load_eos(path: Path):
     return data
 
 
+def load_csv_rows(path: Path):
+    """{(model, b0, profile, nlem): dict(n, eps, p, B)} para as figuras de base."""
+    raw = defaultdict(list)
+    for r in csv.DictReader(open(path, encoding="utf-8")):
+        raw[(r["model"], r["B0_G"], r["profile"], r["nlem"])].append(r)
+    out = {}
+    for key, rows in raw.items():
+        rows.sort(key=lambda r: float(r["n_over_n0"]))
+        f = lambda name: np.array([float(r[name]) for r in rows])  # noqa: E731
+        out[key] = dict(n=f("n_over_n0"), eps=f("eps_MeV_fm3"), p=f("p_perp_MeV_fm3"), B=f("B_field_G"))
+    return out
+
+
 def load_radial(path: Path):
     """{(model, b0, profile, nlem, star): dict(M, R, r, m, n)}"""
     raw = defaultdict(list)

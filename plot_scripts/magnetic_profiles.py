@@ -8,7 +8,10 @@ Lê <dir>/eos.csv e <dir>/radial.csv de `nsrs study profile` e gera, para cada B
 
 Linhas: cor pela eletrodinâmica, contínua = BDD, tracejada = campo constante.
 Painéis (de cima para baixo):
-  H/B = 1/mu            inverso da permeabilidade, (H/B)_vac - 4 pi M/B
+  (H/B)_vac = 1/(1+x)   parte do vácuo do inverso da permeabilidade. A matéria
+                        soma -4 pi M/B (<~ 2% de B, independente da NLEM e com
+                        oscilações de Landau a T = 0 não convergidas), que
+                        esconderia a diferença entre os perfis
   f_vac                 parte do vácuo de s = dH/dB = f_vac - c_m; f_vac < 0
                         (B > sqrt(2) xi) basta para instabilidade. A parte da
                         matéria, c_m, oscila com os níveis de Landau a T = 0 e
@@ -50,7 +53,7 @@ NLEM_STYLE = {
 }
 PROFILE_STYLE = {"bdd": dict(ls="-", label="BDD"), "constante": dict(ls="--", label="constant")}
 PANELS = [
-    ("h_over_b", r"$H/B=\mu^{-1}$", "symlog"),
+    ("h_over_b_vac", r"$(H/B)_{\rm vac}$", "log"),
     ("f_vac", r"$f_{\rm vac}$", "symlog"),
     ("eps_ratio", r"$\varepsilon_{\rm field}/\varepsilon$", "log"),
     ("p_ratio", r"$P_{\perp,{\rm field}}/P_\perp$", "symlog"),
@@ -70,7 +73,7 @@ def load_eos(path: Path):
         data[key] = dict(
             n=f("n_over_n0"),
             h_over_b=f("h_over_b_vac") - f("four_pi_M_over_B"),
-            m_over_b=f("four_pi_M_over_B"),
+            h_over_b_vac=f("h_over_b_vac"),
             s=f("s"),
             f_vac=f("f_vac"),
             c_m=f("c_matter"),
@@ -114,7 +117,7 @@ def setup_axis(ax, scale, name):
         ax.set_yscale("log")
     if name in ("f_vac", "h_over_b", "p_ratio"):
         ax.axhline(0.0, color="0.5", lw=0.5, zorder=0)
-    if name in ("f_vac", "h_over_b"):
+    if name in ("f_vac", "h_over_b_vac"):
         ax.axhline(1.0, color="0.5", lw=0.5, ls=":", zorder=0)
 
 

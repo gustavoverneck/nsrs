@@ -10,8 +10,10 @@ Linhas: cor pela eletrodinâmica, contínua = BDD, tracejada = campo constante.
 Painéis (de cima para baixo):
   H/B = 1/mu            inverso da permeabilidade, (H/B)_vac - 4 pi M/B
   4 pi M/B              magnetização da matéria (Landau)
-  f_vac e c_m           parte do vácuo (cores) e da matéria (cinza) de
-                        s = dH/dB = f_vac - c_m; instável (domínios) onde c_m > f_vac
+  f_vac                 parte do vácuo de s = dH/dB = f_vac - c_m; f_vac < 0
+                        (B > sqrt(2) xi) basta para instabilidade. A parte da
+                        matéria, c_m, oscila com os níveis de Landau a T = 0 e
+                        não está convergida: entra só em unstable_fraction.csv
   eps_campo/eps         fração da energia no campo
   P_perp,campo/P_perp   fração da pressão (topologia anisotrópica)
 
@@ -47,13 +49,13 @@ NLEM_STYLE = {
     "log:1.00e17": dict(color="#D55E00", label=r"Log, $\xi=10^{17}$ G"),
     "log:1.00e18": dict(color="#009E73", label=r"Log, $\xi=10^{18}$ G"),
 }
-PROFILE_STYLE = {"bdd": dict(ls="-", label="BDD"), "constante": dict(ls="--", label="constante")}
+PROFILE_STYLE = {"bdd": dict(ls="-", label="BDD"), "constante": dict(ls="--", label="constant")}
 PANELS = [
     ("h_over_b", r"$H/B=\mu^{-1}$", "symlog"),
     ("m_over_b", r"$4\pi\mathcal{M}/B$", "symlog"),
-    ("f_vac", r"$f_{\rm vac}$ (cores), $c_m$ (cinza)", "symlog"),
-    ("eps_ratio", r"$\varepsilon_{\rm campo}/\varepsilon$", "log"),
-    ("p_ratio", r"$P_{\perp,{\rm campo}}/P_\perp$", "symlog"),
+    ("f_vac", r"$f_{\rm vac}$", "symlog"),
+    ("eps_ratio", r"$\varepsilon_{\rm field}/\varepsilon$", "log"),
+    ("p_ratio", r"$P_{\perp,{\rm field}}/P_\perp$", "symlog"),
 ]
 
 
@@ -138,14 +140,12 @@ def figure(data, radial, b0, out: Path, by_radius: bool):
                     else:
                         x, values = eos["n"], eos
                     # A matéria não depende da NLEM (acoplamento mínimo):
-                    # magnetização e c_m uma vez por perfil, em cinza.
+                    # magnetização uma vez por perfil, em cinza.
                     matter_once = nlem == nlems[0]
                     if name == "m_over_b":
                         if matter_once:
                             ax.plot(x, values[name], color="0.35", ls=pstyle["ls"], lw=0.8)
                         continue
-                    if name == "f_vac" and matter_once:
-                        ax.plot(x, values["c_m"], color="0.6", ls=pstyle["ls"], lw=0.6, zorder=1)
                     ax.plot(x, values[name], color=NLEM_STYLE[nlem]["color"], ls=pstyle["ls"], lw=0.9, zorder=2)
             if row == 0:
                 ax.set_title(model)
@@ -157,7 +157,7 @@ def figure(data, radial, b0, out: Path, by_radius: bool):
     handles = [Line2D([], [], color=NLEM_STYLE[k]["color"], label=NLEM_STYLE[k]["label"]) for k in nlems]
     handles += [Line2D([], [], color="0.3", ls=s["ls"], label=s["label"]) for s in PROFILE_STYLE.values()]
     exp = int(round(math.log10(float(b0))))
-    where = "estrela de massa máxima" if by_radius else "EoS"
+    where = "maximum-mass star" if by_radius else "EoS"
     fig.legend(handles=handles, loc="upper center", ncol=6, fontsize=7, bbox_to_anchor=(0.5, 1.0),
                title=rf"$B_0=10^{{{exp}}}$ G ({where})", title_fontsize=7.5)
     fig.tight_layout(rect=(0, 0, 1, 0.94), h_pad=0.4, w_pad=0.6)

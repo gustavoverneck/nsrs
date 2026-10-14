@@ -84,4 +84,12 @@ fn scoring_uses_asymmetric_errors_and_credibility() {
     let mut p = constraint(ConstraintKind::MassRadius, 11.6, 1.0, 1.0, "68%");
     p.mass = Some((1.4, 0.1, 0.1));
     assert!(assess(&p, &stars, None).unwrap().distance < 1e-12);
+
+    // Ponto M-R a 90%: a barra da massa também é reescalada para 1 sigma.
+    // M = 1.43 (+-0.1) e R = 11.6 (+-1000): melhor estrela (1.4, 11.6),
+    // d = 0.03/(0.1/1.645).
+    let mut p = constraint(ConstraintKind::MassRadius, 11.6, 1000.0, 1000.0, "90%");
+    p.mass = Some((1.43, 0.1, 0.1));
+    let a = assess(&p, &stars, None).unwrap();
+    assert!((a.distance - 0.03 * 1.645 / 0.1).abs() < 1e-9);
 }

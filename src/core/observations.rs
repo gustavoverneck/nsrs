@@ -199,7 +199,9 @@ pub fn assess(
             let best = branch
                 .iter()
                 .map(|s| {
-                    let zm = (s.mass - m_obs) / if s.mass >= m_obs { m_plus } else { m_minus };
+                    let m_err = if s.mass >= m_obs { m_plus } else { m_minus };
+                    // Massa e raio vêm do mesmo intervalo de credibilidade.
+                    let zm = (s.mass - m_obs) / (m_err * constraint.sigma_scale());
                     let zr = constraint.z(s.radius);
                     ((zm * zm + zr * zr).sqrt(), s.radius)
                 })

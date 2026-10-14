@@ -4,7 +4,10 @@ pub const PI: f64 = std::f64::consts::PI;
 pub const PI2: f64 = std::f64::consts::PI * std::f64::consts::PI;
 
 pub const HBAR_C: f64 = 197.3269804; // MeV * fm
-pub const M_NUCLEON: f64 = 939.56534623; //938.9187; // Massa média do nucleon (MeV)
+/// Massa do nucleon (MeV), igual para nêutron e próton: é a massa com que
+/// GM1, GM3 (Glendenning & Moszkowski 1991) e FSU2 (Chen & Piekarewicz 2014)
+/// foram ajustados. As massas físicas ficam em MN e MP.
+pub const M_NUCLEON: f64 = 939.0;
 pub const N0: f64 = 0.153; // Densidade de saturação nuclear (fm^-3)
 pub const MS_TOV: f64 = 5660.57; // fator para converter MeV/fm³ -> M_sun/km³
 pub const GMS_TOV: f64 = 1.47556; // GM_sun/c²  [km]
@@ -20,8 +23,9 @@ pub const G_C2: f64 = 1.4766; // km / M_sol
 
 // Baryon masses
 pub const MB: [f64; 8] = [
-    939.56534623 / M_NUCLEON,
-    938.272081323 / M_NUCLEON,
+    // n e p degenerados, como nos ajustes dos modelos.
+    1.0,
+    1.0,
     1116.0 / M_NUCLEON,
     1193.0 / M_NUCLEON,
     1193.0 / M_NUCLEON,

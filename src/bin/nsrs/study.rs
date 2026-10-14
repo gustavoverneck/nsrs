@@ -19,7 +19,7 @@ use nsrs::core::observations::{interpolate_at_mass, stable_branch};
 use nsrs::core::tov_solver::generate_star_sequence;
 use nsrs::{EngineMode, HadronsMatter, MagneticTopology, NlemModel, Solver};
 
-use crate::cli::{Args, create_dir, f64_list, format_sci};
+use crate::cli::{Args, create_dir, f64_list, format_sci, progress, tick};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Case {
@@ -290,15 +290,19 @@ pub fn log(raw: &[String]) -> Result<(), String> {
         .num_threads(args.threads()?)
         .build()
         .map_err(|e| e.to_string())?;
+    let bar = progress(jobs.len(), if amm { "study log (AMM)" } else { "study log" });
     let outcomes: Vec<Outcome> = pool.install(|| {
         jobs.par_iter()
             .with_max_len(1)
             .map(|job| {
                 let dir = args.switch("save-eos").then(|| save_dir(job));
-                run(job, points, step_tol, hyperons, amm, dir.as_deref())
+                let outcome = run(job, points, step_tol, hyperons, amm, dir.as_deref());
+                tick(&bar);
+                outcome
             })
             .collect()
     });
+    bar.finish_and_clear();
 
     if let Some(parent) = std::path::Path::new(&out).parent() {
         create_dir(&parent.to_string_lossy())?;

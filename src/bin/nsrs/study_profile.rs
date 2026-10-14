@@ -31,8 +31,8 @@ use nsrs::core::observations::{interpolate_at_mass, stable_branch};
 use nsrs::core::tov_solver::{generate_star_sequence, radial_profile};
 use nsrs::HadronsMatter;
 
-use crate::cli::{Args, create_dir, f64_list};
-use crate::study_b::{Config, ERG_PER_MEV_FM3, Eos, Profile, Row, nlem_label, parse_nlem, progress, solve};
+use crate::cli::{Args, create_dir, f64_list, progress, tick};
+use crate::study_b::{Config, ERG_PER_MEV_FM3, Eos, Profile, Row, nlem_label, parse_nlem, solve};
 
 /// MeV/fm^3 de B^2/8pi para B = 1 G.
 const MAXWELL_MEV_FM3_PER_G2: f64 = 1.0 / (8.0 * std::f64::consts::PI * ERG_PER_MEV_FM3);
@@ -170,13 +170,13 @@ pub fn run(raw: &[String]) -> Result<(), String> {
 
     // 1. EoS de cada caso.
     println!("\n[1/2] EoS...");
-    let bar = progress(jobs.len());
+    let bar = progress(jobs.len(), "EoS");
     let eos: Vec<Eos> = jobs
         .par_iter()
         .with_max_len(1)
         .map(|(_, model, b0, profile, nlem)| {
             let e = solve(*model, *b0, *profile, *nlem, &config);
-            bar.inc(1);
+            tick(&bar);
             e
         })
         .collect();
@@ -192,7 +192,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         .flat_map(|&j| (1..eos_ref[j].rows.len().saturating_sub(1)).filter(move |&i| eos_ref[j].rows[i][0] >= 0.05).map(move |i| (j, i)))
         .collect();
     println!("[2/2] curvatura da matéria: {} pontos, 4 soluções cada (delta = {delta:e} e delta/2)...", tasks.len());
-    let bar = progress(tasks.len());
+    let bar = progress(tasks.len(), "curvatura");
     let curvatures: HashMap<(usize, usize), (f64, f64)> = tasks
         .par_iter()
         .with_max_len(1)
@@ -201,7 +201,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
             let row = &eos[j].rows[i];
             let (b_landau, _) = fields(*profile, *b0, row[0]);
             let c = matter_curvature(*model, row, b_landau, delta, &config);
-            bar.inc(1);
+            tick(&bar);
             c.map(|c| ((j, i), c))
         })
         .flatten()

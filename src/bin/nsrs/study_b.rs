@@ -32,7 +32,7 @@ use nsrs::core::tov_solver::generate_star_sequence;
 use nsrs::core::magnetic::MagneticStress;
 use nsrs::{EngineMode, FieldProfile, HadronsMatter, NlemModel, Solver};
 
-use crate::cli::{Args, create_dir};
+use crate::cli::{Args, create_dir, progress, tick};
 
 pub(crate) type Row = [f64; RESULTS_SIZE];
 
@@ -346,15 +346,6 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, nlems: &[NlemModel],
     points.collect()
 }
 
-/// Barra de progresso por tarefa concluída.
-pub(crate) fn progress(total: usize) -> indicatif::ProgressBar {
-    let bar = indicatif::ProgressBar::new(total as u64);
-    if let Ok(style) = indicatif::ProgressStyle::with_template("  [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} (resta ~{eta})") {
-        bar.set_style(style);
-    }
-    bar
-}
-
 /// `study b [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
 ///  [--profiles constante,bdd] [--step-tol 1e-3 | --uniform --points 1500] [--mu-max 3.0] [--no-hyperons]
 ///  [--no-stability] [--delta 1e-4] [--landau-max 20000] [--amm] [--nlem maxwell,log:1e17]
@@ -427,7 +418,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
             }
         }
         println!("\n[{model_name}] estrelas: {} EoS...", jobs.len());
-        let bar = progress(jobs.len());
+        let bar = progress(jobs.len(), &format!("{model_name} estrelas"));
         // with_max_len(1): cada (NLEM, perfil, B) é uma tarefa; uma thread livre
         // pega a próxima assim que termina (sem blocos contíguos de B).
         let results: Vec<(NlemModel, Profile, f64, Vec<String>, bool, f64)> = jobs
@@ -437,7 +428,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
                 let eos = solve(*model, b, profile, nlem, &config);
                 let lines = star_lines(model_name, &nlem_label(nlem), profile, b, &eos, config.hyperons);
                 let n_max = eos.rows.iter().map(|r| r[0]).fold(0.0, f64::max);
-                bar.inc(1);
+                tick(&bar);
                 (nlem, profile, b, lines, eos.anomalous, n_max)
             })
             .collect();
@@ -479,13 +470,13 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         for (model_name, model) in &models {
             let positive: Vec<f64> = fields.iter().copied().filter(|&b| b > 0.0).collect();
             println!("\n[{model_name}] estabilidade: {} valores de B, 4 pontos extras por densidade (delta = {delta:e} e delta/2)...", positive.len());
-            let bar = progress(positive.len());
+            let bar = progress(positive.len(), &format!("{model_name} estabilidade"));
             let maps: Vec<(f64, Vec<StabilityPoint>)> = positive
                 .par_iter()
                 .with_max_len(1)
                 .map(|&b| {
                     let points = stability_points(*model, b, delta, &nlems, &config);
-                    bar.inc(1);
+                    tick(&bar);
                     (b, points)
                 })
                 .collect();

@@ -253,6 +253,26 @@ fn adaptive_step_crosses_the_vacuum_threshold_with_fewer_points() {
     }
 }
 
+/// Sem AMM e com campo constante forte, o limiar logo acima de mu_n = M é
+/// uma transição de primeira ordem de n_B ~ 0 para ~0,5 n0. Os dois passos
+/// devem saltar para o ramo denso em vez de parar no vácuo.
+#[test]
+fn strong_constant_field_onset_jumps_to_the_dense_branch() {
+    for (model, b) in [(GM1, 1e19), (GM3, 5.6234e18), (GM3, 8.0011e18)] {
+        for adaptive in [false, true] {
+            let mut engine = HadronsMatter::new(model, b).with_limits(0.02, 3.0).with_points(1500);
+            if adaptive {
+                engine = engine.with_step_tolerance(1e-3);
+            }
+            let mut solver = Solver::new(EngineMode::Hadrons(engine));
+            let rows = solver.solve();
+            let nb_max = rows.iter().map(|r| r[COL_NB]).fold(0.0, f64::max);
+            assert!(nb_max > 5.0, "B = {b:e}, adaptive = {adaptive}: n_B max = {nb_max}, termination = {:?}", solver.termination());
+            assert!(!solver.termination().unwrap().is_anomalous());
+        }
+    }
+}
+
 /// FSU2 tem lambda < 0 e, em alta densidade, M*/M do nêutron cruza zero. A
 /// EoS deve parar ali (depois de M_max, em ~6.2 n0) sem gravar linhas com
 /// massa efetiva não positiva.

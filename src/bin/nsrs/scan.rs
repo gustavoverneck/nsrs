@@ -7,7 +7,8 @@ use std::io::{BufRead, BufReader, Write};
 
 use nsrs::constants::BCE_G;
 use nsrs::core::plotting::Artist;
-use nsrs::core::tov_solver::generate_mr_curve;
+use nsrs::core::observations::stable_branch;
+use nsrs::core::tov_solver::generate_star_sequence;
 use nsrs::{EngineMode, HadronsMatter, MagneticTopology, NlemModel, Solver};
 
 use crate::cli::{Args, create_dir, f64_list, format_sci, model};
@@ -216,16 +217,15 @@ pub fn topology(raw: &[String]) -> Result<(), String> {
                 let eps: Vec<f64> = physical.iter().map(|r| r[1]).collect();
                 let p: Vec<f64> = physical.iter().map(|r| r[2]).collect();
                 let rho: Vec<f64> = physical.iter().map(|r| r[0]).collect();
-                let (masses, radii, _, _) = generate_mr_curve(&eps, &p, &rho, false);
+                let stars = generate_star_sequence(&eps, &p, &rho, false);
+                let masses: Vec<f64> = stars.iter().map(|s| s.mass).collect();
+                let radii: Vec<f64> = stars.iter().map(|s| s.radius).collect();
                 let curve_label = format!("{b_string} ({label})");
                 eos_plot = eos_plot.add_curve(&eps, &p, &curve_label);
                 mr_plot = mr_plot.add_curve(&radii, &masses, &curve_label);
                 any_curve = true;
-                let (m_max, r_max) = masses
-                    .iter()
-                    .zip(&radii)
-                    .filter(|(_, r)| **r < 16.0)
-                    .fold((0.0, 0.0), |acc, (&m, &r)| if m > acc.0 { (m, r) } else { acc });
+                // Mesmo critério de `study log` e `study b`: topo do ramo estável.
+                let (m_max, r_max) = stable_branch(&stars).last().map_or((0.0, 0.0), |s| (s.mass, s.radius));
                 summary.push(format!("{b_string},{label},{m_max:.4},{r_max:.4}"));
             }
 

@@ -141,9 +141,18 @@ pub fn derived_diagnostics(results: &[[f64; RESULTS_SIZE]]) -> Vec<DerivedDiagno
     (0..n)
         .map(|i| {
             let row = &results[i];
-            let (lo, hi) = (i.saturating_sub(1), (i + 1).min(n.saturating_sub(1)));
+            // Diferença central só dentro da matéria (n_B > 0): no vácuo c_s^2 = 0,
+            // e no primeiro ponto de matéria usa-se a diferença progressiva,
+            // em vez da secante P/eps a partir do vácuo.
+            let is_matter = |k: usize| results[k][0] > 0.0;
+            let lo = if i > 0 && is_matter(i - 1) { i - 1 } else { i };
+            let hi = if i + 1 < n && is_matter(i + 1) { i + 1 } else { i };
             let de = results[hi][1] - results[lo][1];
-            let cs2 = if hi > lo && de > 0.0 { (results[hi][2] - results[lo][2]) / de } else { 0.0 };
+            let cs2 = if is_matter(i) && hi > lo && de > 0.0 {
+                (results[hi][2] - results[lo][2]) / de
+            } else {
+                0.0
+            };
             let (eps, p) = (row[1], row[2]);
             let n_b = row[0] * crate::core::constants::N0;
             let frac = |x: f64| if n_b > 0.0 { x / n_b } else { 0.0 };
@@ -319,6 +328,31 @@ mod tests {
         assert_eq!(values[RESULTS_SIZE], 1.4);
         assert_eq!(values[RESULTS_SIZE + 1], 12.0);
         assert_eq!(values[RESULTS_SIZE + 2], 1.5);
+    }
+
+    #[test]
+    fn sound_speed_does_not_mix_vacuum_and_matter_rows() {
+        // Vácuo, vácuo e três pontos de matéria com P = eps/3 + c (c_s^2 = 1/3).
+        let points = [
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.1, 100.0, 5.0),
+            (0.2, 200.0, 5.0 + 100.0 / 3.0),
+            (0.3, 300.0, 5.0 + 200.0 / 3.0),
+        ];
+        let rows: Vec<[f64; RESULTS_SIZE]> = points
+            .iter()
+            .map(|&(nb, eps, p)| {
+                let mut row = [0.0; RESULTS_SIZE];
+                (row[0], row[1], row[2]) = (nb, eps, p);
+                row
+            })
+            .collect();
+        let cs2: Vec<f64> = derived_diagnostics(&rows).iter().map(|d| d.sound_speed_squared).collect();
+        assert_eq!(&cs2[..2], &[0.0, 0.0]);
+        for value in &cs2[2..] {
+            assert!((value - 1.0 / 3.0).abs() < 1e-12, "cs2 = {cs2:?}");
+        }
     }
 
     #[test]

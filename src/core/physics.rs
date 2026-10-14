@@ -114,6 +114,9 @@ pub struct HadronsMatter {
     pub mun_inf: f64,
     pub mun_sup: f64,
     pub n_points: usize,
+    /// Tolerância do passo adaptativo em mu_n (`None`: malha uniforme de
+    /// `n_points`). Ver `Solver::solve`.
+    pub step_tolerance: Option<f64>,
 
     // --- Estado mutável para o ponto atual ---
     // Potenciais químicos
@@ -258,6 +261,7 @@ impl HadronsMatter {
             mun_inf: 0.02,
             mun_sup: 1.80,
             n_points: 1201,
+            step_tolerance: None,
 
             mun: 0.0,
             mue: 0.0,
@@ -491,6 +495,14 @@ impl HadronsMatter {
 
     pub fn with_points(mut self, n: usize) -> Self {
         self.n_points = n;
+        self
+    }
+
+    /// Passo adaptativo em mu_n com tolerância relativa `tol` (ex.: 1e-3):
+    /// passo grosso no vácuo, fino no limiar e nas quinas da EoS. `n_points`
+    /// passa a valer só como passo das sondagens de `jump_to_dense_branch`.
+    pub fn with_step_tolerance(mut self, tol: f64) -> Self {
+        self.step_tolerance = Some(tol);
         self
     }
 

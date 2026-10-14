@@ -123,13 +123,16 @@ fn negative_pressure_onset(xi: f64, b0: f64, x_star: f64) -> Option<f64> {
     Some((-(1.0 - fraction).ln() / BDD_BETAA).powf(1.0 / BDD_ALPHAA))
 }
 
-fn run(job: &Job, points: usize, hyperons: bool, amm: bool, save_dir: Option<&str>) -> Outcome {
+fn run(job: &Job, points: usize, step_tol: Option<f64>, hyperons: bool, amm: bool, save_dir: Option<&str>) -> Outcome {
     let mut engine = HadronsMatter::new(job.model, job.b0)
         .with_topology(job.topology)
         .with_hyperons(hyperons)
         .with_anomalous_moments(amm)
         .with_limits(0.02, 3.0)
         .with_points(points);
+    if let Some(tol) = step_tol {
+        engine = engine.with_step_tolerance(tol);
+    }
     engine = match job.case.nlem() {
         Some(nlem) => engine.with_nlem(nlem),
         None => engine.with_field_stress(false),
@@ -184,7 +187,7 @@ fn run(job: &Job, points: usize, hyperons: bool, amm: bool, save_dir: Option<&st
         outcome.status = flags.join("+");
         return outcome;
     };
-    if branch.len() + 10 > stars.len() {
+    if branch.len() + 2 > stars.len() {
         flags.push("max_no_fim".into());
     }
     outcome.m_max = Some(max.mass);
@@ -218,7 +221,7 @@ fn opt_sci(value: Option<f64>) -> String {
 /// `study log <exp_min> <exp_max> <por_década> <B0...>`
 /// Saída: results/study_log/summary.csv (ou --out).
 pub fn log(raw: &[String]) -> Result<(), String> {
-    let args = Args::parse(raw, &["no-hyperons", "save-eos", "amm"])?;
+    let args = Args::parse(raw, &["no-hyperons", "save-eos", "amm", "uniform"])?;
     let p = &args.positional;
     if p.len() < 4 {
         return Err("uso: study log <exp_min> <exp_max> <por_década> <B0_1> [B0_2 ...]".into());
@@ -243,6 +246,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
         other => return Err(format!("--topology '{other}': use aniso, iso ou ambas")),
     };
     let points = args.usize_or("points", 1500)?;
+    let step_tol = crate::study_b::step_tolerance(&args)?;
     let hyperons = !args.switch("no-hyperons");
     let amm = args.switch("amm");
     let out = args.value("out").unwrap_or("results/study_log/summary.csv").to_string();
@@ -291,7 +295,7 @@ pub fn log(raw: &[String]) -> Result<(), String> {
             .with_max_len(1)
             .map(|job| {
                 let dir = args.switch("save-eos").then(|| save_dir(job));
-                run(job, points, hyperons, amm, dir.as_deref())
+                run(job, points, step_tol, hyperons, amm, dir.as_deref())
             })
             .collect()
     });

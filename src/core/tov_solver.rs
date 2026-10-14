@@ -520,69 +520,182 @@ pub fn unify_with_crust(
     (final_eps, final_p, final_rho)
 }
 
+/// Passo da malha de pressões centrais de `generate_star_sequence`, em ln P_c.
+const STAR_DLNP: f64 = 0.06;
+
+/// Tabelas da TOV (já em M_sun/km^3) e pressões do núcleo (MeV/fm^3) em que
+/// começam as estrelas. `None` se a EoS limpa tiver menos de 5 pontos.
+struct StarTables {
+    eps_tov: Vec<f64>,
+    p_tov: Vec<f64>,
+    rho_tov: Vec<f64>,
+    /// Pressões da EoS limpa (MeV/fm^3) a partir da primeira do núcleo.
+    core_p: Vec<f64>,
+}
+
+impl StarTables {
+    fn new(eps_array: &[f64], p_array: &[f64], rho_array: &[f64], with_crust: bool) -> Option<Self> {
+        // 1. Costura a crosta APENAS se a flag for verdadeira
+        let (clean_eps, clean_p, clean_rho) = if with_crust {
+            // A função unify_with_crust já faz a conversão do núcleo internamente agora
+            unify_with_crust(eps_array, p_array, rho_array)
+        } else {
+            // ``rho_array`` segue o contrato da coluna 0 da EOS: n_B/n_0.
+            let converted_rho: Vec<f64> = rho_array
+                .iter()
+                .map(|&nb_over_n0| nb_over_n0 * N0 * M_NUCLEON)
+                .collect();
+
+            (eps_array.to_vec(), p_array.to_vec(), converted_rho)
+        };
+
+        // 2. Limpa e ordena para satisfazer a GSL
+        let (clean_eps, clean_p, clean_rho) = clean_eos_with_rho(&clean_eps, &clean_p, &clean_rho);
+
+        if clean_p.len() < 5 {
+            return None;
+        }
+
+        // 3. Converte unidades uma unica vez
+        let eps_tov: Vec<f64> = clean_eps.iter().map(|&e| e * MEV_FM3_TO_MSUN_KM3).collect();
+        let p_tov: Vec<f64> = clean_p.iter().map(|&p| p * MEV_FM3_TO_MSUN_KM3).collect();
+        let rho_tov: Vec<f64> = clean_rho
+            .iter()
+            .map(|&rho| rho * MEV_FM3_TO_MSUN_KM3)
+            .collect();
+
+        // 4. Define onde começar a iterar as pressões centrais
+        // Se tiver crosta, pulamos os pontos de baixa pressão para não criar estrelas "ocas".
+        // Com a EoS começando no vácuo (P = 0, ou só a pressão do campo), p_array[0]
+        // fica abaixo da crosta; o corte exige também estar acima do topo da crosta.
+        let core_start_idx = if with_crust && !p_array.is_empty() {
+            let p_crust = crust_top_pressure();
+            clean_p
+                .iter()
+                .position(|&p| p > p_crust && p >= p_array[0])
+                .unwrap_or(clean_p.len())
+        } else {
+            0
+        };
+
+        let core_p = clean_p[core_start_idx..].iter().copied().filter(|&p| p > 0.0).collect();
+        Some(StarTables { eps_tov, p_tov, rho_tov, core_p })
+    }
+
+    /// Estrela de pressão central `pc_mev` (MeV/fm^3); descarta as que não
+    /// chegam a 0.05 M_sun ou 2 km.
+    fn star(&self, pc_mev: f64) -> Option<StarProperties> {
+        let pc_tov = pc_mev * MEV_FM3_TO_MSUN_KM3;
+        integrate_star_properties(pc_tov, self.p_tov[0], &self.p_tov, &self.eps_tov, &self.rho_tov)
+            .filter(|star| star.mass > 0.05 && star.radius > 2.0)
+    }
+}
+
 /// Sequência de estrelas com M, R, M_B, maré, momento de inércia e redshift.
+///
+/// As pressões centrais formam uma malha própria, uniforme em ln P_c com passo
+/// `STAR_DLNP`, do início do núcleo até a última pressão da EoS (independente
+/// do número de linhas da EoS). A essa malha somam-se a estrela de massa
+/// máxima, localizada por seção áurea, e a de 1.4 M_sun no ramo estável, por
+/// secante: `stable_branch(..).last()` e `interpolate_at_mass(.., 1.4, ..)`
+/// ficam sem erro de amostragem. Ordenada por pressão central.
 pub fn generate_star_sequence(
     eps_array: &[f64],
     p_array: &[f64],
     rho_array: &[f64],
     with_crust: bool,
 ) -> Vec<StarProperties> {
-    let mut stars = Vec::new();
-
-    // 1. Costura a crosta APENAS se a flag for verdadeira
-    let (clean_eps, clean_p, clean_rho) = if with_crust {
-        // A função unify_with_crust já faz a conversão do núcleo internamente agora
-        unify_with_crust(eps_array, p_array, rho_array)
-    } else {
-        // ``rho_array`` segue o contrato da coluna 0 da EOS: n_B/n_0.
-        let converted_rho: Vec<f64> = rho_array
-            .iter()
-            .map(|&nb_over_n0| nb_over_n0 * N0 * M_NUCLEON)
-            .collect();
-
-        (eps_array.to_vec(), p_array.to_vec(), converted_rho)
+    let Some(tables) = StarTables::new(eps_array, p_array, rho_array, with_crust) else {
+        return Vec::new();
     };
-
-    // 2. Limpa e ordena para satisfazer a GSL
-    let (clean_eps, clean_p, clean_rho) = clean_eos_with_rho(&clean_eps, &clean_p, &clean_rho);
-
-    if clean_p.len() < 5 {
-        return stars;
-    }
-
-    // 3. Converte unidades uma unica vez
-    let eps_tov: Vec<f64> = clean_eps.iter().map(|&e| e * MEV_FM3_TO_MSUN_KM3).collect();
-    let p_tov: Vec<f64> = clean_p.iter().map(|&p| p * MEV_FM3_TO_MSUN_KM3).collect();
-    let rho_tov: Vec<f64> = clean_rho
-        .iter()
-        .map(|&rho| rho * MEV_FM3_TO_MSUN_KM3)
+    let (Some(&lo), Some(&hi)) = (tables.core_p.first(), tables.core_p.last()) else {
+        return Vec::new();
+    };
+    let intervals = ((hi / lo).ln() / STAR_DLNP).ceil().max(1.0) as usize;
+    let mut stars: Vec<StarProperties> = (0..=intervals)
+        .filter_map(|k| tables.star(lo * (hi / lo).powf(k as f64 / intervals as f64)))
         .collect();
-    let p_min = p_tov[0];
+    if let Some(star) = refine_maximum_mass(&stars, &tables) {
+        stars.push(star);
+        stars.sort_by(|a, b| a.central_pressure.total_cmp(&b.central_pressure));
+    }
+    if let Some(star) = refine_mass(&stars, 1.4, &tables) {
+        stars.push(star);
+        stars.sort_by(|a, b| a.central_pressure.total_cmp(&b.central_pressure));
+    }
+    stars
+}
 
-    // 4. Define onde começar a iterar as pressões centrais
-    // Se tiver crosta, pulamos os pontos de baixa pressão para não criar estrelas "ocas".
-    // Com a EoS começando no vácuo (P = 0, ou só a pressão do campo), p_array[0]
-    // fica abaixo da crosta; o corte exige também estar acima do topo da crosta.
-    let core_start_idx = if with_crust && !p_array.is_empty() {
-        let p_crust = crust_top_pressure();
-        clean_p
-            .iter()
-            .position(|&p| p > p_crust && p >= p_array[0])
-            .unwrap_or(clean_p.len())
-    } else {
-        0
-    };
+/// Uma estrela por linha do núcleo da EoS (comportamento antigo de
+/// `generate_star_sequence`): base de `generate_mr_curve`, cujas colunas do
+/// eos.dat casam cada linha com a estrela da mesma pressão central.
+fn star_sequence_at_rows(
+    eps_array: &[f64],
+    p_array: &[f64],
+    rho_array: &[f64],
+    with_crust: bool,
+) -> Vec<StarProperties> {
+    StarTables::new(eps_array, p_array, rho_array, with_crust)
+        .map(|tables| tables.core_p.iter().filter_map(|&pc| tables.star(pc)).collect())
+        .unwrap_or_default()
+}
 
-    for &pc_mev in &clean_p[core_start_idx..] {
-        let pc_tov = pc_mev * MEV_FM3_TO_MSUN_KM3;
-        if let Some(star) = integrate_star_properties(pc_tov, p_min, &p_tov, &eps_tov, &rho_tov) {
-            if star.mass > 0.05 && star.radius > 2.0 {
-                stars.push(star);
-            }
+/// Massa máxima por seção áurea em ln P_c entre os vizinhos do maior M da
+/// malha. `None` se o máximo estiver na borda (EoS truncada antes dele).
+fn refine_maximum_mass(stars: &[StarProperties], tables: &StarTables) -> Option<StarProperties> {
+    let i = (0..stars.len()).max_by(|&a, &b| stars[a].mass.total_cmp(&stars[b].mass))?;
+    if i == 0 || i + 1 >= stars.len() {
+        return None;
+    }
+    let mass = |x: f64| tables.star(x.exp());
+    let golden = 0.5 * (5f64.sqrt() - 1.0);
+    let (mut a, mut b) = (stars[i - 1].central_pressure.ln(), stars[i + 1].central_pressure.ln());
+    let (mut c, mut d) = (b - golden * (b - a), a + golden * (b - a));
+    let (mut sc, mut sd) = (mass(c)?, mass(d)?);
+    while b - a > 1e-4 {
+        if sc.mass > sd.mass {
+            (b, d, sd) = (d, c, sc);
+            c = b - golden * (b - a);
+            sc = mass(c)?;
+        } else {
+            (a, c, sc) = (c, d, sd);
+            d = a + golden * (b - a);
+            sd = mass(d)?;
         }
     }
+    let best = if sc.mass > sd.mass { sc } else { sd };
+    (best.mass >= stars[i].mass).then_some(best)
+}
 
-    stars
+/// Estrela de massa `target` no ramo estável, por secante (regula falsi,
+/// variante de Illinois) em ln P_c. `None` se `target` não estiver no ramo.
+fn refine_mass(stars: &[StarProperties], target: f64, tables: &StarTables) -> Option<StarProperties> {
+    let i_max = (0..stars.len()).max_by(|&a, &b| stars[a].mass.total_cmp(&stars[b].mass))?;
+    let k = (1..=i_max).find(|&k| stars[k - 1].mass < target && stars[k].mass >= target)?;
+    let (mut a, mut fa) = (stars[k - 1].central_pressure.ln(), stars[k - 1].mass - target);
+    let (mut b, mut fb) = (stars[k].central_pressure.ln(), stars[k].mass - target);
+    let mut best = stars[k];
+    let mut side = 0;
+    for _ in 0..60 {
+        if fb.abs() < 1e-10 {
+            break;
+        }
+        let x = (a * fb - b * fa) / (fb - fa);
+        best = tables.star(x.exp())?;
+        let fx = best.mass - target;
+        if fx * fb > 0.0 {
+            (b, fb) = (x, fx);
+            if side == -1 {
+                fa *= 0.5;
+            }
+            side = -1;
+        } else {
+            (a, fa) = (b, fb);
+            (b, fb) = (x, fx);
+            side = 1;
+        }
+    }
+    Some(best)
 }
 
 /// Perfil radial da estrela de pressão central `pc_mev` (MeV/fm^3), com a
@@ -635,7 +748,7 @@ pub fn generate_mr_curve(
     rho_array: &[f64],
     with_crust: bool,
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
-    let stars = generate_star_sequence(eps_array, p_array, rho_array, with_crust);
+    let stars = star_sequence_at_rows(eps_array, p_array, rho_array, with_crust);
     (
         stars.iter().map(|s| s.mass).collect(),
         stars.iter().map(|s| s.radius).collect(),

@@ -25,13 +25,14 @@ fn nucleonic_stars(model: ModelParams) -> Vec<StarProperties> {
     generate_star_sequence(&e, &p, &n, true)
 }
 
-/// Massa máxima, exigindo que seja um máximo de fato (há estrelas depois).
+/// Massa máxima, exigindo que seja um máximo de fato (há estrelas depois; a
+/// malha de pressões centrais tem passo 0.06 em ln P_c).
 fn maximum_mass(stars: &[StarProperties]) -> f64 {
     let i = (0..stars.len())
         .max_by(|&a, &b| stars[a].mass.total_cmp(&stars[b].mass))
         .unwrap();
     assert!(
-        i + 10 < stars.len(),
+        i + 2 < stars.len(),
         "maximum at the end of the sequence: EoS too short"
     );
     stars[i].mass

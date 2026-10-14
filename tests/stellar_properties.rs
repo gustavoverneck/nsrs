@@ -87,7 +87,7 @@ fn stars_follow_the_universal_i_love_relation() {
             assert!(rel(star.redshift, z) < 1e-12);
             checked += 1;
         }
-        assert!(checked > 50);
+        assert!(checked > 20, "{checked} stars");
     }
 }
 
@@ -110,4 +110,31 @@ fn direct_urca_threshold_and_causality() {
             assert!(d.adiabatic_index > 0.0);
         }
     }
+}
+
+/// Passo adaptativo em mu_n: com tol = 1e-3 as estrelas concordam com uma
+/// malha adaptativa 4x mais fina (M_max a 1e-4, R_1.4 e Lambda_1.4 a 2e-3).
+/// A malha uniforme de 1500 pontos é grossa no limiar e erra R_1.4 em ~0.15%
+/// já com B = 0.
+#[test]
+fn adaptive_grid_converges_star_properties() {
+    use nsrs::core::observations::{interpolate_at_mass, stable_branch};
+    let summary = |tol: f64| {
+        let engine = HadronsMatter::new(GM1, 0.0).with_limits(0.02, 3.0).with_points(1500).with_step_tolerance(tol);
+        let rows = Solver::new(EngineMode::Hadrons(engine)).solve();
+        let e: Vec<f64> = rows.iter().map(|r| r[1]).collect();
+        let p: Vec<f64> = rows.iter().map(|r| r[2]).collect();
+        let n: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+        let stars = generate_star_sequence(&e, &p, &n, true);
+        let branch = stable_branch(&stars);
+        (
+            branch.last().unwrap().mass,
+            interpolate_at_mass(branch, 1.4, |s| s.radius).unwrap(),
+            interpolate_at_mass(branch, 1.4, |s| s.tidal_deformability).unwrap(),
+        )
+    };
+    let (coarse, fine) = (summary(1e-3), summary(2.5e-4));
+    assert!(rel(coarse.0, fine.0) < 1e-4, "M_max {coarse:?} vs {fine:?}");
+    assert!(rel(coarse.1, fine.1) < 2e-3, "R_1.4 {coarse:?} vs {fine:?}");
+    assert!(rel(coarse.2, fine.2) < 2e-3, "Lambda_1.4 {coarse:?} vs {fine:?}");
 }

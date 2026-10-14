@@ -109,9 +109,9 @@ fn chosen_stars(rows: &[Row]) -> Vec<(&'static str, f64, f64)> {
 
 /// `study profile [--models GM1,GM3,FSU2] [--b0 1e17,1e18]
 ///  [--nlem maxwell,log:1e16,log:1e17,log:1e18] [--profiles constante,bdd]
-///  [--points 1500] [--delta 1e-4] [--no-hyperons] [--amm] [--out results/study_profile]`
+///  [--step-tol 1e-3 | --uniform --points 1500] [--delta 1e-4] [--no-hyperons] [--amm] [--out results/study_profile]`
 pub fn run(raw: &[String]) -> Result<(), String> {
-    let args = Args::parse(raw, &["no-hyperons", "amm"])?;
+    let args = Args::parse(raw, &["no-hyperons", "amm", "uniform"])?;
     let delta = args.f64_or("delta", 1e-4)?;
     if !(1e-6..=1e-2).contains(&delta) {
         return Err("use 1e-6 <= --delta <= 1e-2".into());
@@ -122,6 +122,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         hyperons: !args.switch("no-hyperons"),
         landau_max: args.usize_or("landau-max", nsrs::constants::MAX_LANDAU_LIMIT)?,
         amm: args.switch("amm"),
+        step_tol: crate::study_b::step_tolerance(&args)?,
     };
     let b0s = f64_list(
         &args.value("b0").unwrap_or("1e17,1e18").split(',').map(|s| s.trim().to_string()).collect::<Vec<_>>(),

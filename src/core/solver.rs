@@ -67,6 +67,18 @@ pub struct PointDiagnostics {
 const ADAPTIVE_H_MIN: f64 = 1e-4;
 const ADAPTIVE_H_MAX: f64 = 1e-2;
 const ADAPTIVE_H_VACUUM: f64 = 2e-2;
+/// Chutes genéricos (mu_e, sigma, omega, rho, X_0) para achar o ramo denso
+/// quando a continuação a partir do ramo diluído falha, do menos ao mais denso.
+const DENSE_SEEDS: [[f64; 5]; 8] = [
+    [0.05, 0.1, 0.05, -0.02, 0.0],
+    [0.05, 0.1, 0.1, -0.02, 0.0],
+    [0.05, 0.2, 0.1, -0.02, 0.0],
+    [0.1, 0.2, 0.1, -0.03, 0.0],
+    [0.1, 0.2, 0.2, -0.03, 0.0],
+    [0.1, 0.3, 0.2, -0.03, 0.0],
+    [0.1, 0.05, 0.02, 0.0, 0.0],
+    [0.2, 0.3, 0.2, -0.05, 0.0],
+];
 /// Sondagens adiante após falha do Newton no passo mínimo: até 2^7 H_MIN.
 const ADAPTIVE_PROBES: usize = 7;
 
@@ -464,6 +476,10 @@ impl Solver {
     /// forte há uma faixa estreita de mu_n logo acima do limiar (~1 MeV com
     /// GM1 a 1e18 G) em que o Newton não converge, e a malha que cai nela
     /// encerrava a EoS sem matéria.
+    /// Se nenhum desses chutes converge, tenta `DENSE_SEEDS`: sem AMM e com
+    /// campo constante acima de ~5e18 G, o limiar é uma transição de primeira
+    /// ordem de n_B ~ 0 para ~0,5 n0 logo acima de mu_n = M (GM1 a 1e19 G,
+    /// GM3 de 5,6e18 a 1e19 G), longe demais dos campos do ramo diluído.
     fn jump_to_dense_branch(
         &mut self,
         last_mun: f64,
@@ -476,40 +492,40 @@ impl Solver {
             return None;
         }
         let saved_nb = engine.last_nb_over_n0;
-        if last_nb <= 0.0 {
-            for j in 1..=20 {
-                let mu_try = last_mun + j as f64 * step;
-                engine.last_nb_over_n0 = saved_nb;
-                if let Some((x, row)) = engine.solve_point(mu_try, last_x) {
-                    if row[0] > 0.0 {
-                        engine.last_nb_over_n0 = saved_nb;
-                        return Some((mu_try, x));
-                    }
-                }
-            }
+        let try_guess = |engine: &mut HadronsMatter, mu: f64, guess: &[f64; 5], nb_min: f64| {
             engine.last_nb_over_n0 = saved_nb;
-            return None;
-        }
-        if last_nb <= 1e-6 {
-            return None;
-        }
-        for j in 1..=20 {
+            let found = engine.solve_point(mu, guess).filter(|(_, row)| row[0] > nb_min).map(|(x, _)| (mu, x));
+            engine.last_nb_over_n0 = saved_nb;
+            found
+        };
+        // n_B > 0 no nível do arredondamento (<= 1e-6) não serve de chute
+        // ampliado: só os chutes genéricos, abaixo.
+        for j in (1..=20).filter(|_| last_nb <= 0.0 || last_nb > 1e-6) {
             let mu_try = last_mun + j as f64 * step;
+            if last_nb <= 0.0 {
+                if let Some(found) = try_guess(engine, mu_try, last_x, 0.0) {
+                    return Some(found);
+                }
+                continue;
+            }
             for scale in [2.0, 4.0, 8.0, 16.0, 32.0] {
                 let mut guess = *last_x;
                 for value in &mut guess[1..4] {
                     *value *= scale;
                 }
-                engine.last_nb_over_n0 = saved_nb;
-                if let Some((x, row)) = engine.solve_point(mu_try, &guess) {
-                    if row[0] >= 1.5 * last_nb {
-                        engine.last_nb_over_n0 = saved_nb;
-                        return Some((mu_try, x));
-                    }
+                if let Some(found) = try_guess(engine, mu_try, &guess, 1.5 * last_nb) {
+                    return Some(found);
                 }
             }
         }
-        engine.last_nb_over_n0 = saved_nb;
+        for j in 1..=20 {
+            let mu_try = last_mun + j as f64 * step;
+            for seed in &DENSE_SEEDS {
+                if let Some(found) = try_guess(engine, mu_try, seed, (1.5 * last_nb).max(1e-2)) {
+                    return Some(found);
+                }
+            }
+        }
         None
     }
 

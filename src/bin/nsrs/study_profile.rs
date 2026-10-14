@@ -184,12 +184,25 @@ pub fn run(raw: &[String]) -> Result<(), String> {
 
     // 2. Curvatura da matéria: não depende da NLEM (acoplamento mínimo), uma
     // vez por (modelo, B0, perfil), nas linhas da EoS de Maxwell (ou da
-    // primeira NLEM). As demais NLEMs usam a linha de mesmo mu_n mais próxima.
+    // primeira NLEM). Com o passo adaptativo cada NLEM tem sua própria malha
+    // em mu_n: as linhas das demais NLEMs sem mu_n idêntico na referência
+    // são calculadas diretamente.
     let reference: Vec<usize> = (0..jobs.len()).step_by(nlems.len()).collect();
+    let same_mu = |a: f64, b: f64| (a - b).abs() <= 1e-9 * b.abs().max(1.0);
+    let reference_row = |j: usize, mu: f64| -> Option<usize> {
+        let rows = &eos[j - j % nlems.len()].rows;
+        let i = rows.partition_point(|r| r[17] < mu);
+        [i.checked_sub(1), Some(i)].into_iter().flatten().filter(|&k| k < rows.len()).find(|&k| same_mu(rows[k][17], mu))
+    };
     let eos_ref = &eos;
-    let tasks: Vec<(usize, usize)> = reference
-        .iter()
-        .flat_map(|&j| (1..eos_ref[j].rows.len().saturating_sub(1)).filter(move |&i| eos_ref[j].rows[i][0] >= 0.05).map(move |i| (j, i)))
+    let tasks: Vec<(usize, usize)> = (0..jobs.len())
+        .flat_map(|j| {
+            let is_reference = reference.contains(&j);
+            (1..eos_ref[j].rows.len().saturating_sub(1))
+                .filter(move |&i| eos_ref[j].rows[i][0] >= 0.05)
+                .filter(move |&i| is_reference || reference_row(j, eos_ref[j].rows[i][17]).is_none())
+                .map(move |i| (j, i))
+        })
         .collect();
     println!("[2/2] curvatura da matéria: {} pontos, 4 soluções cada (delta = {delta:e} e delta/2)...", tasks.len());
     let bar = progress(tasks.len(), "curvatura");
@@ -222,13 +235,8 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     for (j, (name, _, b0, profile, nlem)) in jobs.iter().enumerate() {
         let label = nlem_label(*nlem);
         let reference_job = j - j % nlems.len();
-        let reference_rows = &eos[reference_job].rows;
-        let curvature_at = |mu: f64| -> Option<(f64, f64)> {
-            let i = (0..reference_rows.len()).min_by(|&a, &b| (reference_rows[a][17] - mu).abs().total_cmp(&(reference_rows[b][17] - mu).abs()))?;
-            if (reference_rows[i][17] - mu).abs() > 1e-9 * mu.abs().max(1.0) {
-                return None;
-            }
-            curvatures.get(&(reference_job, i)).copied()
+        let curvature_at = |i: usize| -> Option<(f64, f64)> {
+            curvatures.get(&(j, i)).copied().or_else(|| reference_row(j, eos[j].rows[i][17]).and_then(|k| curvatures.get(&(reference_job, k)).copied()))
         };
         let e = &eos[j];
         for (i, row) in e.rows.iter().enumerate() {
@@ -242,7 +250,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
             let h_over_b = nlem.h_over_b(b_landau);
             let permeability = 1.0 / (h_over_b - four_pi_m_over_b);
             let f_vac = nlem.vacuum_curvature(b_landau);
-            let (c, c_half) = curvature_at(row[17]).unwrap_or((f64::NAN, f64::NAN));
+            let (c, c_half) = curvature_at(i).unwrap_or((f64::NAN, f64::NAN));
             let (s, s_half) = (f_vac - c, f_vac - c_half);
             writeln!(
                 eos_csv,

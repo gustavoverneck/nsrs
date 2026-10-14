@@ -436,19 +436,28 @@ fn check_thermodynamics(data: &EosData) -> Vec<Check> {
         detail: format!("non_finite_values={finite_violations}"),
     });
 
-    let nonpositive_eps = usable.iter().filter(|row| row[COL_EPS] <= 0.0).count();
-    let negative_press = usable.iter().filter(|row| row[COL_PRESS] < 0.0).count();
+    // As varreduras começam abaixo do limiar vácuo-matéria: nas linhas de
+    // vácuo (n_B = 0) eps e P são constantes (0, ou o campo de superfície),
+    // e os testes termodinâmicos abaixo só valem para a matéria.
+    let matter = matter_rows(&usable);
+    let vacuum_rows = usable.len() - matter.len();
+
+    let nonpositive_eps = matter.iter().filter(|row| row[COL_EPS] <= 0.0).count();
+    let negative_press = matter.iter().filter(|row| row[COL_PRESS] < 0.0).count();
     checks.push(Check {
         name: "positive_eos",
-        severity: if nonpositive_eps == 0 && negative_press == 0 {
+        severity: if !matter.is_empty() && nonpositive_eps == 0 && negative_press == 0 {
             Severity::Pass
         } else {
             Severity::Fail
         },
-        detail: format!("eps<=0 rows={nonpositive_eps}, pressure<0 rows={negative_press}"),
+        detail: format!(
+            "matter_rows={}, vacuum_rows={vacuum_rows}, eps<=0 rows={nonpositive_eps}, pressure<0 rows={negative_press}",
+            matter.len()
+        ),
     });
 
-    let mut eps_p: Vec<(f64, f64)> = usable
+    let mut eps_p: Vec<(f64, f64)> = matter
         .iter()
         .filter_map(|row| {
             let eps = row[COL_EPS];
@@ -469,7 +478,7 @@ fn check_thermodynamics(data: &EosData) -> Vec<Check> {
     let mut cs2_values = Vec::new();
     let mut dominant_energy_violations = 0;
 
-    for row in &usable {
+    for row in &matter {
         let eps = row[COL_EPS];
         let press = row[COL_PRESS];
         if eps.is_finite() && press.is_finite() && press > eps + PRESS_DIFF_TOL {
@@ -545,6 +554,11 @@ fn check_thermodynamics(data: &EosData) -> Vec<Check> {
     });
 
     checks
+}
+
+/// Linhas de matéria (n_B > 0), na ordem do arquivo.
+fn matter_rows<'a>(rows: &[&'a Vec<f64>]) -> Vec<&'a Vec<f64>> {
+    rows.iter().copied().filter(|row| row[COL_NB_OVER_N0] > 0.0).collect()
 }
 
 fn check_composition(data: &EosData) -> Vec<Check> {
@@ -728,6 +742,8 @@ fn check_total_chemical_potential(data: &EosData) -> Vec<Check> {
         .iter()
         .filter(|row| row.len() >= MIN_BASE_COLUMNS)
         .collect();
+    // mu_total/n_B só é definido na matéria; no vácuo é exportado como 0.
+    let usable = matter_rows(&usable);
 
     let mut nonfinite = 0;
     let mut nonpositive = 0;
@@ -1079,6 +1095,30 @@ mod tests {
         row[COL_EPS_X] = 0.5 * row[COL_M_X].powi(2) * row[COL_X0].powi(2) / HBAR_C.powi(3);
         row[COL_P_X] = row[COL_EPS_X];
         row
+    }
+
+    /// Prefixo de vácuo (n_B = 0, eps = P = mu_total = 0) seguido de matéria
+    /// com P = eps/3: nenhum teste termodinâmico deve reprovar o vácuo.
+    #[test]
+    fn thermodynamic_checks_ignore_vacuum_rows() {
+        let mut rows = vec![vec![0.0; RESULTS_SIZE]; 3];
+        for k in 1..=4 {
+            let mut row = vec![0.0; RESULTS_SIZE];
+            row[COL_NB_OVER_N0] = 0.1 * k as f64;
+            row[COL_EPS] = 100.0 * k as f64;
+            row[COL_PRESS] = row[COL_EPS] / 3.0;
+            row[COL_MU_TOTAL] = 1.0 + 0.01 * k as f64;
+            rows.push(row);
+        }
+        let data = EosData {
+            rows,
+            max_cols: RESULTS_SIZE,
+        };
+        let mut checks = check_thermodynamics(&data);
+        checks.extend(check_total_chemical_potential(&data));
+        for check in checks {
+            assert_eq!(check.severity, Severity::Pass, "{}: {}", check.name, check.detail);
+        }
     }
 
     #[test]

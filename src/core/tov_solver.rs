@@ -126,10 +126,9 @@ fn tov_derivatives(
     let y = s[3];
     let dy_dr = -(y * y + y * big_f + r * r * big_q) / r;
 
-    // Rotação lenta: j'/j = -nu'/2 + (1/2) d ln f / dr.
-    let dnu_dr = 2.0 * mass_term;
-    let dlnf_dr = (-2.0 * 4.0 * PI * r * r * eps_g / r + 2.0 * m_g / (r * r)) / f;
-    let dlnj_dr = -0.5 * dnu_dr + 0.5 * dlnf_dr;
+    // Rotação lenta: j = e^{-nu/2} sqrt(f), logo j'/j = -nu'/2 + (1/2) d ln f / dr.
+    // Os termos m/(r^2 f) se cancelam: j'/j = -4 pi r (eps + p) / f (Hartle 1967).
+    let dlnj_dr = -4.0 * PI * r * (eps_g + p_g) / f;
     let (w, psi) = (s[4], s[5]);
     let dpsi_dr = -(4.0 / r) * psi - dlnj_dr * (psi + 4.0 * w / r);
 

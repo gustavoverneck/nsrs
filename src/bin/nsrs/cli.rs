@@ -1,6 +1,9 @@
 // Utilitários de linha de comando compartilhados pelos subcomandos.
 
 use std::collections::HashMap;
+use std::time::Duration;
+
+use indicatif::{ProgressBar, ProgressStyle};
 
 use nsrs::core::model::ModelParams;
 use nsrs::{FSU2, GM1, GM3};
@@ -93,4 +96,46 @@ pub fn format_sci(value: f64) -> String {
 
 pub fn create_dir(path: &str) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|e| format!("não foi possível criar '{path}': {e}"))
+}
+
+/// Frases da barra de progresso dos estudos; trocam a cada poucos segundos.
+const PROGRESS_PHRASES: [&str; 12] = [
+    "colapsando estrelas",
+    "empilhando níveis de Landau",
+    "convencendo nêutrons a não decair",
+    "domando campos de 1e18 G",
+    "perguntando ao ξ se está tudo bem",
+    "integrando TOV com carinho",
+    "desviando de buracos negros",
+    "alinhando momentos anômalos",
+    "chamando Tolman, Oppenheimer e Volkoff",
+    "espremendo híperons",
+    "medindo o raio com régua de 10 m",
+    "acalmando o vácuo de Gaete-Helayël",
+];
+
+/// Barra de progresso dos estudos: um pulsar girando, a etapa, estrelas
+/// enchendo a barra, tempo decorrido e restante, e uma frase que muda.
+pub fn progress(total: usize, stage: &str) -> ProgressBar {
+    let bar = ProgressBar::new(total as u64);
+    if let Ok(style) = ProgressStyle::with_template(
+        "  {spinner:.magenta} {prefix:.bold.cyan} {bar:30.yellow/blue} {pos}/{len} [{elapsed_precise}, resta ~{eta}] {msg:.dim}",
+    ) {
+        bar.set_style(
+            style
+                .tick_strings(&["✶", "✷", "✸", "✹", "✺", "✹", "✸", "✷", "★"])
+                .progress_chars("★✦·"),
+        );
+    }
+    bar.set_prefix(stage.to_string());
+    bar.set_message(PROGRESS_PHRASES[0]);
+    bar.enable_steady_tick(Duration::from_millis(120));
+    bar
+}
+
+/// Conta uma tarefa concluída na barra e troca a frase a cada 5 s.
+pub fn tick(bar: &ProgressBar) {
+    bar.inc(1);
+    let i = (bar.elapsed().as_secs() / 5) as usize % PROGRESS_PHRASES.len();
+    bar.set_message(PROGRESS_PHRASES[i]);
 }

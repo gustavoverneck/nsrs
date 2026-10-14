@@ -149,7 +149,8 @@ fn axpy(s: &TovState, h: f64, terms: &[(f64, &TovState)]) -> TovState {
 }
 
 /// Passo de Cash-Karp. O erro devolvido considera apenas (P, m, m_B), de
-/// modo que os passos (e a curva M-R) são os mesmos da TOV pura.
+/// modo que os passos (e a curva M-R) são os mesmos da TOV pura. Devolve
+/// também k1 = dy/dr em r, usado na escala do erro em `rkqs_step`.
 fn rkck_step(
     r: f64,
     y: &TovState,
@@ -157,7 +158,7 @@ fn rkck_step(
     p_array: &[f64],
     eps_array: &[f64],
     rho_array: &[f64],
-) -> (TovState, [f64; 3]) {
+) -> (TovState, [f64; 3], TovState) {
     let d = |r: f64, s: &TovState| tov_derivatives(r, s, p_array, eps_array, rho_array);
 
     let (a2, a3, a4, a5, a6) = (0.2, 0.3, 0.6, 1.0, 0.875);
@@ -197,7 +198,7 @@ fn rkck_step(
     for i in 0..3 {
         yerr[i] = h * (dc1 * k1[i] + dc3 * k3[i] + dc4 * k4[i] + dc5 * k5[i] + dc6 * k6[i]);
     }
-    (yout, yerr)
+    (yout, yerr, k1)
 }
 
 fn rkqs_step(
@@ -217,11 +218,13 @@ fn rkqs_step(
 
     let mut h = htry;
     loop {
-        let (yout, yerr) = rkck_step(r, y, h, p_array, eps_array, rho_array);
+        let (yout, yerr, dydr) = rkck_step(r, y, h, p_array, eps_array, rho_array);
 
         let mut errmax: f64 = 0.0;
         for i in 0..3 {
-            let yscal = y[i].abs() + (h * yerr[i]).abs() + tiny;
+            // Escala de Numerical Recipes: |y| + |h dy/dr|. O termo em h dy/dr
+            // evita que m = m_B = 0 no centro force reduções artificiais.
+            let yscal = y[i].abs() + (h * dydr[i]).abs() + tiny;
             errmax = errmax.max((yerr[i] / yscal).abs());
         }
         errmax /= eps;
@@ -351,7 +354,7 @@ pub fn integrate_star_properties(
             let mut y_surface = y;
             for _ in 0..60 {
                 let h_mid = 0.5 * (h_lo + h_hi);
-                let (y_mid, _) = rkck_step(r, &y, h_mid, p_tov, eps_tov, rho_tov);
+                let (y_mid, _, _) = rkck_step(r, &y, h_mid, p_tov, eps_tov, rho_tov);
                 if !y_mid.iter().all(|value| value.is_finite()) {
                     return None;
                 }

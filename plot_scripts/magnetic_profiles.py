@@ -17,7 +17,13 @@ Painéis (de cima para baixo):
                         matéria, c_m, oscila com os níveis de Landau a T = 0 e
                         não está convergida: entra só em unstable_fraction.csv
   eps_campo/eps         fração da energia no campo
-  P_perp,campo/P_perp   fração da pressão (topologia anisotrópica)
+  Pbar_campo/Pbar       fração da pressão isotrópica, (P_par + 2 P_perp)/3, a
+                        usada na TOV das figuras do artigo
+
+No perfil constante, (H/B)_vac, f_vac e c_m usam o B uniforme (o campo que a
+matéria sente, como em study profile), enquanto a energia e as tensões do
+campo seguem o perfil BDD. Pontos com n_B < N_MIN (0.3 n0) não são plotados:
+ali P da matéria é pequena e a razão da pressão oscila sem significado.
 
 Gera também unstable_fraction.csv: fração do volume e da massa de cada estrela
 (M_max e 1.4 M_sun) em que s < 0 com os dois passos da derivada.
@@ -51,12 +57,13 @@ NLEM_STYLE = {
     "log:1.00e17": dict(color="#D55E00", label=r"Log, $\xi=10^{17}$ G"),
     "log:1.00e18": dict(color="#009E73", label=r"Log, $\xi=10^{18}$ G"),
 }
+N_MIN = 0.3  # n_B/n0 mínimo plotado (abaixo, razões da pressão sem significado)
 PROFILE_STYLE = {"bdd": dict(ls="-", label="BDD"), "constante": dict(ls="--", label="constant")}
 PANELS = [
     ("h_over_b_vac", r"$(H/B)_{\rm vac}$", "log"),
     ("f_vac", r"$f_{\rm vac}$", "symlog"),
     ("eps_ratio", r"$\varepsilon_{\rm field}/\varepsilon$", "log"),
-    ("p_ratio", r"$P_{\perp,{\rm field}}/P_\perp$", "symlog"),
+    ("p_ratio", r"$\bar P_{\rm field}/\bar P$", "symlog"),
 ]
 
 
@@ -69,7 +76,12 @@ def load_eos(path: Path):
     for key, rows in raw.items():
         rows.sort(key=lambda r: float(r["n_over_n0"]))
         f = lambda name: np.array([float(r[name]) for r in rows])  # noqa: E731
-        eps, p = f("eps_MeV_fm3"), f("p_perp_MeV_fm3")
+        eps = f("eps_MeV_fm3")
+        # Pressão isotrópica: matéria P_m - (2/3) MB (P_perp = P_m - MB inclui o
+        # campo) mais (P_par + 2 P_perp)/3 do campo, como em physics.rs.
+        p_field = (f("p_par_field_MeV_fm3") + 2 * f("p_perp_field_MeV_fm3")) / 3
+        p_matter = f("p_perp_MeV_fm3") - f("p_perp_field_MeV_fm3") + f("MB_MeV_fm3") / 3
+        p = p_matter + p_field
         data[key] = dict(
             n=f("n_over_n0"),
             h_over_b=f("h_over_b_vac") - f("four_pi_M_over_B"),
@@ -78,14 +90,15 @@ def load_eos(path: Path):
             f_vac=f("f_vac"),
             c_m=f("c_matter"),
             eps_ratio=f("eps_field_MeV_fm3") / eps,
-            p_ratio=f("p_perp_field_MeV_fm3") / p,
+            p_ratio=p_field / p,
             unstable=np.array([r["magnetically_unstable"] == "true" for r in rows]),
         )
     return data
 
 
 def load_csv_rows(path: Path):
-    """{(model, b0, profile, nlem): dict(n, eps, p, B)} para as figuras de base."""
+    """{(model, b0, profile, nlem): dict(n, eps, p, p_iso, B)} para as figuras de base
+    (p = P_perp; p_iso = (P_par + 2 P_perp)/3, a pressão da TOV do artigo)."""
     raw = defaultdict(list)
     for r in csv.DictReader(open(path, encoding="utf-8")):
         raw[(r["model"], r["B0_G"], r["profile"], r["nlem"])].append(r)
@@ -93,7 +106,10 @@ def load_csv_rows(path: Path):
     for key, rows in raw.items():
         rows.sort(key=lambda r: float(r["n_over_n0"]))
         f = lambda name: np.array([float(r[name]) for r in rows])  # noqa: E731
-        out[key] = dict(n=f("n_over_n0"), eps=f("eps_MeV_fm3"), p=f("p_perp_MeV_fm3"), B=f("B_field_G"))
+        p_iso = (f("p_perp_MeV_fm3") + f("MB_MeV_fm3") / 3
+                 + (f("p_par_field_MeV_fm3") - f("p_perp_field_MeV_fm3")) / 3)
+        out[key] = dict(n=f("n_over_n0"), eps=f("eps_MeV_fm3"), p=f("p_perp_MeV_fm3"), p_iso=p_iso,
+                        B=f("B_field_G"))
     return out
 
 
@@ -150,10 +166,11 @@ def figure(data, radial, b0, out: Path, by_radius: bool):
                         star = radial.get((model, b0, profile, nlem, "max"))
                         if star is None:
                             continue
-                        x, values = star["r"], along_radius(eos, star)
+                        x, values, n = star["r"], along_radius(eos, star), star["n"]
                     else:
-                        x, values = eos["n"], eos
-                    ax.plot(x, values[name], color=NLEM_STYLE[nlem]["color"], ls=pstyle["ls"], lw=0.9, zorder=2)
+                        x, values, n = eos["n"], eos, eos["n"]
+                    y = np.where(np.nan_to_num(n) >= N_MIN, values[name], np.nan)
+                    ax.plot(x, y, color=NLEM_STYLE[nlem]["color"], ls=pstyle["ls"], lw=0.9, zorder=2)
             if row == 0:
                 ax.set_title(model)
             if col == 0:

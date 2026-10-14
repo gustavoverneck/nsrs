@@ -236,6 +236,9 @@ def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="isotropica"):
     fig, axes = plt.subplots(1, 3, figsize=(PAGE_W, 2.5), sharey=True)
     for col, model in enumerate(MODELS):
         ax = axes[col]
+        # Zoom no máximo de massa, onde as curvas se separam (~0.01 M_sun).
+        inset = ax.inset_axes([0.60, 0.40, 0.30, 0.40])
+        peak = []
         for amm, ls in [("", "-"), ("_amm", "--")]:
             base = root / f"study_log{amm}" / model / topo / f"B0_{b0}"
             for name, color, _ in cases:
@@ -243,6 +246,15 @@ def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="isotropica"):
                 if path.exists():
                     r, m = read_stars(path)
                     ax.plot(r, m, color=color, ls=ls, lw=1.0)
+                    inset.plot(r, m, color=color, ls=ls, lw=0.8)
+                    peak.append((r[np.argmax(m)], m.max()))
+        if peak:
+            r0 = min(p[0] for p in peak)
+            m0 = max(p[1] for p in peak)
+            inset.set_xlim(r0 - 0.1, r0 + 0.4)
+            inset.set_ylim(m0 - 0.03, m0 + 0.005)
+        inset.tick_params(labelsize=5, length=2, pad=1)
+        inset.yaxis.tick_right()
         j0740_band(ax)
         ax.set_xlim(10.5, 15.5)
         ax.set_ylim(0.8, 2.2)
@@ -293,7 +305,7 @@ def fig_b_scan(sb, out: Path):
         for row in range(3):
             ax = axes[row, col]
             ax.set_xscale("log")
-            ax.set_xlim(1e16, 3e19)
+            ax.set_xlim(1e16, 1e20)
             panel_label(ax, row * 3 + col, model)
         j0740_band(axes[0, col])
         axes[2, col].axhspan(*GW170817_L14, color="#cfe3f2", lw=0, zorder=0)
@@ -330,13 +342,15 @@ def fig_center_field(sb, out: Path, topology="iso"):
                 axes[1, col].plot(b, ratio, color=st["color"], ls=ls)
         axes[0, col].axhline(math.sqrt(2.0), color="0.4", lw=0.6, ls="-.")
         axes[0, col].axhline(FIELD_P_ZERO[topology], color="0.4", lw=0.6, ls=":")
-        axes[1, col].axhline(0.1, color="0.4", lw=0.6, ls=":")
+        # Validade do TOV esférico: |P_campo| < 10% de P (a Log dá P_campo < 0).
+        for level in (0.1, -0.1):
+            axes[1, col].axhline(level, color="0.4", lw=0.6, ls=":")
         axes[1, col].axhline(0.0, color="0.5", lw=0.5, zorder=0)
         axes[0, col].set_yscale("log")
         for row in range(2):
             ax = axes[row, col]
             ax.set_xscale("log")
-            ax.set_xlim(1e16, 3e19)
+            ax.set_xlim(1e16, 1e20)
             panel_label(ax, row * 3 + col, model)
         axes[1, col].set_xlabel(r"$B$ (constant) or $B_0$ (BDD) [G]")
     axes[0, 0].set_ylabel(r"$B_c/\xi$")
@@ -345,7 +359,7 @@ def fig_center_field(sb, out: Path, topology="iso"):
     handles += [Line2D([], [], color="0.3", ls="-", label="constant $B$"),
                 Line2D([], [], color="0.3", ls="--", label="BDD profile"),
                 Line2D([], [], color="0.4", ls="-.", lw=0.6, label=r"$f_{\rm vac}=0$"),
-                Line2D([], [], color="0.4", ls=":", lw=0.6, label=FIELD_P_LABEL[topology] + "; 10% of $P$")]
+                Line2D([], [], color="0.4", ls=":", lw=0.6, label=FIELD_P_LABEL[topology] + r"; $\pm$10% of $P$")]
     top_legend(fig, handles, ncol=4, top=0.88, h_pad=0.4, w_pad=0.6)
     save(fig, out, "fig4_center_field")
 
@@ -428,7 +442,7 @@ def fig_b_amm(sb, sb_amm, out: Path):
             ax = axes[row, col]
             ax.axhline(0.0, color="0.5", lw=0.5, zorder=0)
             ax.set_xscale("log")
-            ax.set_xlim(1e16, 3e19)
+            ax.set_xlim(1e16, 1e20)
             panel_label(ax, row * 3 + col, model)
         axes[1, col].set_xlabel(r"$B$ (constant) or $B_0$ (BDD) [G]")
     axes[0, 0].set_ylabel(r"$\Delta M_{\max}^{\rm AMM}$ [$10^{-3}\,M_\odot$]")

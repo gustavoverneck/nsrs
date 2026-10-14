@@ -1,6 +1,7 @@
 """Figuras de base do artigo a partir de `nsrs study profile`:
 
-  eos_B0_1e18.{pdf,png}       P_perp(eps) por modelo e eletrodinâmica, BDD x constante
+  eos_B0_1e18.{pdf,png}       P(eps) isotrópica, (P_par + 2 P_perp)/3, por modelo e
+                              eletrodinâmica, BDD x constante
   field_profile.{pdf,png}     B(n_B) do perfil BDD e do campo constante
 
 Uso: python plot_scripts/paper_base_figs.py [results/study_profile] [--out results/paper_total]
@@ -29,7 +30,7 @@ def save(fig, out: Path, stem: str):
 
 
 def eos_figure(rows, out: Path, b0="1.0000e18"):
-    """Em cima P_perp(eps); embaixo o desvio relativo a Maxwell com o mesmo perfil."""
+    """Em cima P(eps) isotrópica; embaixo o desvio relativo a Maxwell com o mesmo perfil."""
     fig, axes = plt.subplots(2, len(MODELS), figsize=(PAGE_W, 4.2), sharex="col", sharey="row",
                              gridspec_kw=dict(height_ratios=[1.4, 1.0]))
     for col, model in enumerate(MODELS):
@@ -40,9 +41,9 @@ def eos_figure(rows, out: Path, b0="1.0000e18"):
                 r = rows.get((model, b0, profile, nlem))
                 if r is None:
                     continue
-                top.plot(r["eps"], r["p"], color=nstyle["color"], ls=pstyle["ls"], lw=0.9)
+                top.plot(r["eps"], r["p_iso"], color=nstyle["color"], ls=pstyle["ls"], lw=0.9)
                 if ref is not None and nlem != "maxwell":
-                    dev = r["p"] / np.interp(r["eps"], ref["eps"], ref["p"]) - 1.0
+                    dev = r["p_iso"] / np.interp(r["eps"], ref["eps"], ref["p_iso"]) - 1.0
                     bottom.plot(r["eps"], 100 * dev, color=nstyle["color"], ls=pstyle["ls"], lw=0.9)
         top.set_title(model)
         top.set_xscale("log")
@@ -50,8 +51,8 @@ def eos_figure(rows, out: Path, b0="1.0000e18"):
         top.set_ylim(1e-2, None)
         bottom.axhline(0.0, color="0.5", lw=0.5, zorder=0)
         bottom.set_xlabel(r"$\varepsilon$ [MeV fm$^{-3}$]")
-    axes[0, 0].set_ylabel(r"$P_\perp$ [MeV fm$^{-3}$]")
-    axes[1, 0].set_ylabel(r"$P_\perp/P_\perp^{\rm Maxwell}-1$ [\%]")
+    axes[0, 0].set_ylabel(r"$\bar P$ [MeV fm$^{-3}$]")
+    axes[1, 0].set_ylabel(r"$\bar P/\bar P^{\rm Maxwell}-1$ [\%]")
     handles = [Line2D([], [], color=s["color"], label=s["label"]) for s in NLEM_STYLE.values()]
     handles += [Line2D([], [], color="0.3", ls=s["ls"], label=s["label"]) for s in PROFILE_STYLE.values()]
     fig.legend(handles=handles, loc="upper center", ncol=6, fontsize=7, bbox_to_anchor=(0.5, 1.0),

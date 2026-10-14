@@ -207,6 +207,25 @@ fn solver_reports_why_the_eos_ended() {
     }
 }
 
+/// Com AMM a 1e18 G há uma faixa estreita de mu_n logo acima do limiar
+/// vácuo-matéria em que o Newton não converge. Com 1500 pontos (a malha do
+/// `study log`) um ponto cai nela; a EoS deve pular a faixa e chegar à
+/// matéria densa em vez de terminar no vácuo.
+#[test]
+fn eos_crosses_the_vacuum_threshold_with_strong_field_and_amm() {
+    for model in [GM1, GM3, FSU2] {
+        let engine = HadronsMatter::new(model, 1e18)
+            .with_anomalous_moments(true)
+            .with_limits(0.02, 3.0)
+            .with_points(1500)
+            .with_field_stress(false);
+        let mut solver = Solver::new(EngineMode::Hadrons(engine));
+        let rows = solver.solve();
+        let nb_max = rows.iter().map(|r| r[COL_NB]).fold(0.0, f64::max);
+        assert!(nb_max > 5.0, "n_B max = {nb_max}, termination = {:?}", solver.termination());
+    }
+}
+
 /// FSU2 tem lambda < 0 e, em alta densidade, M*/M do nêutron cruza zero. A
 /// EoS deve parar ali (depois de M_max, em ~6.2 n0) sem gravar linhas com
 /// massa efetiva não positiva.

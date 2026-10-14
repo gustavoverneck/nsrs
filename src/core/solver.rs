@@ -334,6 +334,10 @@ impl Solver {
     /// com os campos mesônicos ampliados. Só para hádrons e só enquanto a
     /// matéria ainda é diluída (n_B < n0); devolve (mu_n, estado) da primeira
     /// raiz com n_B pelo menos 1,5 vez maior que o último ponto aceito.
+    /// Ainda no vácuo, aceita a primeira raiz com matéria: com AMM e campo
+    /// forte há uma faixa estreita de mu_n logo acima do limiar (~1 MeV com
+    /// GM1 a 1e18 G) em que o Newton não converge, e a malha que cai nela
+    /// encerrava a EoS sem matéria.
     fn jump_to_dense_branch(
         &mut self,
         last_mun: f64,
@@ -342,10 +346,27 @@ impl Solver {
         last_nb: f64,
     ) -> Option<(f64, [f64; 5])> {
         let EngineMode::Hadrons(engine) = &mut self.engine else { return None };
-        if last_nb <= 1e-6 || last_nb >= 1.0 {
+        if last_nb >= 1.0 {
             return None;
         }
         let saved_nb = engine.last_nb_over_n0;
+        if last_nb <= 0.0 {
+            for j in 1..=20 {
+                let mu_try = last_mun + j as f64 * step;
+                engine.last_nb_over_n0 = saved_nb;
+                if let Some((x, row)) = engine.solve_point(mu_try, last_x) {
+                    if row[0] > 0.0 {
+                        engine.last_nb_over_n0 = saved_nb;
+                        return Some((mu_try, x));
+                    }
+                }
+            }
+            engine.last_nb_over_n0 = saved_nb;
+            return None;
+        }
+        if last_nb <= 1e-6 {
+            return None;
+        }
         for j in 1..=20 {
             let mu_try = last_mun + j as f64 * step;
             for scale in [2.0, 4.0, 8.0, 16.0, 32.0] {

@@ -21,7 +21,7 @@ pub struct SaturationProperties {
     pub symmetry_energy: f64,
     /// Inclinação L = 3 n0 dE_sym/dn (MeV).
     pub symmetry_slope: f64,
-    /// Massa efetiva de Dirac M*/M.
+    /// Massa efetiva de Dirac do nêutron M_n*/M_n.
     pub effective_mass: f64,
 }
 
@@ -136,7 +136,8 @@ pub fn saturation_properties(model: ModelParams) -> Option<SaturationProperties>
         incompressibility,
         symmetry_energy: symmetry_energy_sat,
         symmetry_slope,
-        effective_mass: 0.5 * (MB[0] + MB[1]) - sat.fields[0],
+        // M_n*/M_n, a mesma convenção da coluna 16 da EoS.
+        effective_mass: 1.0 - sat.fields[0],
     })
 }
 

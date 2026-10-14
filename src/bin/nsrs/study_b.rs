@@ -34,13 +34,13 @@ use nsrs::{EngineMode, FieldProfile, HadronsMatter, NlemModel, Solver};
 
 use crate::cli::{Args, create_dir};
 
-type Row = [f64; RESULTS_SIZE];
+pub(crate) type Row = [f64; RESULTS_SIZE];
 
 /// MeV/fm^3 -> erg/cm^3 (= G^2).
-const ERG_PER_MEV_FM3: f64 = 1.602176634e33;
+pub(crate) const ERG_PER_MEV_FM3: f64 = 1.602176634e33;
 
 #[derive(Clone, Copy, PartialEq)]
-enum Profile {
+pub(crate) enum Profile {
     /// Níveis de Landau com o B central em todas as densidades; energia do
     /// campo pelo perfil BDD (comportamento padrão do código).
     Constant,
@@ -50,7 +50,7 @@ enum Profile {
 }
 
 impl Profile {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Profile::Constant => "constante",
             Profile::Bdd => "bdd",
@@ -58,17 +58,17 @@ impl Profile {
     }
 }
 
-struct Config {
-    points: usize,
-    mu_max: f64,
-    hyperons: bool,
-    landau_max: usize,
+pub(crate) struct Config {
+    pub(crate) points: usize,
+    pub(crate) mu_max: f64,
+    pub(crate) hyperons: bool,
+    pub(crate) landau_max: usize,
     /// Momentos magnéticos anômalos dos bárions (`--amm`).
-    amm: bool,
+    pub(crate) amm: bool,
 }
 
 /// Rótulo da eletrodinâmica nos CSVs: maxwell, log:<xi>, modmax:<gamma>.
-fn nlem_label(nlem: NlemModel) -> String {
+pub(crate) fn nlem_label(nlem: NlemModel) -> String {
     match nlem {
         NlemModel::Maxwell => "maxwell".into(),
         NlemModel::Log(xi) => format!("log:{xi:.2e}"),
@@ -77,7 +77,7 @@ fn nlem_label(nlem: NlemModel) -> String {
 }
 
 /// `--nlem maxwell,log:1e17,...` (xi em Gauss).
-fn parse_nlem(text: &str) -> Result<Vec<NlemModel>, String> {
+pub(crate) fn parse_nlem(text: &str) -> Result<Vec<NlemModel>, String> {
     text.split(',')
         .map(|item| {
             let item = item.trim();
@@ -97,16 +97,16 @@ fn parse_nlem(text: &str) -> Result<Vec<NlemModel>, String> {
 
 /// EoS resolvida, com 𝓜B, a pressão sem magnetização e as tensões do campo
 /// por linha.
-struct Eos {
-    rows: Vec<Row>,
-    magnetization_b: Vec<f64>,
+pub(crate) struct Eos {
+    pub(crate) rows: Vec<Row>,
+    pub(crate) magnetization_b: Vec<f64>,
     stability_pressure: Vec<f64>,
-    field_stress: Vec<MagneticStress>,
+    pub(crate) field_stress: Vec<MagneticStress>,
     termination: String,
     anomalous: bool,
 }
 
-fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: &Config) -> Eos {
+pub(crate) fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: &Config) -> Eos {
     let mut engine = HadronsMatter::new(model, b)
         .with_nlem(nlem)
         .with_hyperons(config.hyperons)
@@ -130,16 +130,20 @@ fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemModel, config: 
     }
 }
 
-struct Stars {
+pub(crate) struct Stars {
     m_max: f64,
     r_max: f64,
     nc: f64,
     r14: f64,
     lambda14: f64,
     true_maximum: bool,
+    /// Pressão central da estrela de massa máxima (MeV/fm^3).
+    pub(crate) p_c: f64,
+    /// Índice da linha da EoS no centro dessa estrela.
+    center: Option<usize>,
 }
 
-fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
+pub(crate) fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
     let empty = Stars {
         m_max: f64::NAN,
         r_max: f64::NAN,
@@ -147,6 +151,8 @@ fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
         r14: f64::NAN,
         lambda14: f64::NAN,
         true_maximum: false,
+        p_c: f64::NAN,
+        center: None,
     };
     if rows.len() < 5 {
         return empty;
@@ -158,17 +164,20 @@ fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
     let Some(max) = branch.last() else {
         return empty;
     };
-    // Densidade central: menor n_B do núcleo com P >= P_c.
-    let nc = rows
+    // Centro: linha do núcleo de menor n_B com P >= P_c.
+    let center = rows
         .iter()
         .zip(pressure)
-        .filter(|(r, p)| r[0] > 0.0 && **p >= max.central_pressure)
-        .map(|(r, _)| r[0])
-        .fold(f64::NAN, f64::min);
+        .enumerate()
+        .filter(|(_, (r, p))| r[0] > 0.0 && **p >= max.central_pressure)
+        .min_by(|a, b| a.1 .0[0].total_cmp(&b.1 .0[0]))
+        .map(|(i, _)| i);
     Stars {
         m_max: max.mass,
         r_max: max.radius,
-        nc,
+        nc: center.map_or(f64::NAN, |i| rows[i][0]),
+        p_c: max.central_pressure,
+        center,
         r14: interpolate_at_mass(branch, 1.4, |s| s.radius).unwrap_or(f64::NAN),
         lambda14: interpolate_at_mass(branch, 1.4, |s| s.tidal_deformability).unwrap_or(f64::NAN),
         true_maximum: branch.len() + 10 <= sequence.len(),
@@ -206,8 +215,13 @@ fn star_lines(model_name: &str, nlem: &str, profile: Profile, b: f64, eos: &Eos,
         .into_iter()
         .map(|(topology, pressure)| {
             let s = if has_core { stars(&eos.rows, &pressure) } else { stars(&[], &pressure) };
+            // Pressão do campo puro no centro, na mesma topologia da TOV.
+            let p_field_c = s.center.and_then(|i| eos.field_stress.get(i)).map_or(f64::NAN, |f| match topology {
+                "perp" => f.p_perpendicular,
+                _ => (f.p_parallel + 2.0 * f.p_perpendicular) / 3.0,
+            });
             format!(
-                "{model_name},{nlem},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.7},{:.6},{:.4},{:.6},{:.2},{},{nonmonotonic:.4},{negative}",
+                "{model_name},{nlem},{},{b:.4e},{hyperons},{},{n_max:.4},{},{},{topology},{:.7},{:.6},{:.4},{:.6},{:.2},{},{nonmonotonic:.4},{negative},{:.6e},{p_field_c:.6e}",
                 profile.label(),
                 eos.rows.len(),
                 eos.termination,
@@ -218,6 +232,7 @@ fn star_lines(model_name: &str, nlem: &str, profile: Profile, b: f64, eos: &Eos,
                 s.r14,
                 s.lambda14,
                 s.true_maximum,
+                s.p_c,
             )
         })
         .collect()
@@ -315,7 +330,7 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, nlems: &[NlemModel],
 }
 
 /// Barra de progresso por tarefa concluída.
-fn progress(total: usize) -> indicatif::ProgressBar {
+pub(crate) fn progress(total: usize) -> indicatif::ProgressBar {
     let bar = indicatif::ProgressBar::new(total as u64);
     if let Ok(style) = indicatif::ProgressStyle::with_template("  [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} (resta ~{eta})") {
         bar.set_style(style);
@@ -380,7 +395,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     let mut stars_csv = fs::File::create(&stars_path).map_err(|e| format!("{stars_path}: {e}"))?;
     writeln!(
         stars_csv,
-        "model,nlem,profile,B_G,hyperons,rows,n_max_over_n0,termination,anomalous,topology,m_max_Msun,r_max_km,nc_over_n0,r14_km,lambda14,true_maximum,pperp_nonmonotonic_fraction,pperp_negative_rows"
+        "model,nlem,profile,B_G,hyperons,rows,n_max_over_n0,termination,anomalous,topology,m_max_Msun,r_max_km,nc_over_n0,r14_km,lambda14,true_maximum,pperp_nonmonotonic_fraction,pperp_negative_rows,p_c_MeV_fm3,p_field_c_MeV_fm3"
     )
     .map_err(|e| e.to_string())?;
     let mut summary = Vec::new();

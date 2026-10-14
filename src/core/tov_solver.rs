@@ -571,6 +571,50 @@ pub fn generate_star_sequence(
     stars
 }
 
+/// Perfil radial da estrela de pressão central `pc_mev` (MeV/fm^3), com a
+/// mesma EoS (crosta BPS incluída) e o mesmo integrador de
+/// `generate_star_sequence`: pontos [r (km), P (MeV/fm^3), m (M_sun)] em cada
+/// passo aceito, do centro até a superfície (P = P_min, interpolada no último
+/// passo). Vazio se a integração falhar.
+pub fn radial_profile(eps_array: &[f64], p_array: &[f64], rho_array: &[f64], pc_mev: f64) -> Vec<[f64; 3]> {
+    let (eps, p, rho) = unify_with_crust(eps_array, p_array, rho_array);
+    let (eps, p, rho) = clean_eos_with_rho(&eps, &p, &rho);
+    if p.len() < 5 || !pc_mev.is_finite() {
+        return Vec::new();
+    }
+    let eps_tov: Vec<f64> = eps.iter().map(|&e| e * MEV_FM3_TO_MSUN_KM3).collect();
+    let p_tov: Vec<f64> = p.iter().map(|&v| v * MEV_FM3_TO_MSUN_KM3).collect();
+    let rho_tov: Vec<f64> = rho.iter().map(|&v| v * MEV_FM3_TO_MSUN_KM3).collect();
+    let p_min = p_tov[0];
+    let pc_tov = pc_mev * MEV_FM3_TO_MSUN_KM3;
+    if pc_tov <= p_min {
+        return Vec::new();
+    }
+
+    let (mut r, mut h) = (1e-5, 1.0e-2);
+    let mut y: TovState = [pc_tov, 0.0, 0.0, 2.0, 1.0, 0.0];
+    let mut points = vec![[0.0, pc_mev, 0.0]];
+    for _ in 0..90000 {
+        let Some((ynew, hdid, hnext)) = rkqs_step(r, &y, h, 1.0e-10, &p_tov, &eps_tov, &rho_tov) else {
+            return Vec::new();
+        };
+        if !ynew.iter().all(|v| v.is_finite()) || hdid <= 0.0 {
+            return Vec::new();
+        }
+        if ynew[0] <= p_min {
+            let t = (y[0] - p_min) / (y[0] - ynew[0]);
+            let m = y[1] + t * (ynew[1] - y[1]);
+            points.push([r + t * hdid, p_min / MEV_FM3_TO_MSUN_KM3, m]);
+            return points;
+        }
+        y = ynew;
+        r += hdid;
+        h = hnext;
+        points.push([r, y[0] / MEV_FM3_TO_MSUN_KM3, y[1]]);
+    }
+    Vec::new()
+}
+
 pub fn generate_mr_curve(
     eps_array: &[f64],
     p_array: &[f64],

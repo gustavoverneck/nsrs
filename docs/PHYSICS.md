@@ -219,6 +219,13 @@ com $\epsilon_{\rm Maxwell}=B^2/8\pi$ e $x=B^2/(2\xi^2)$. Para Maxwell e ModMax
 valendo. Para o modelo logarítmico elas não valem: $P_\perp$ fica menor que
 $\epsilon_B$ e se torna negativa para $x\gtrsim3.9$ ($B\gtrsim2.8\,\xi$).
 
+O modelo Log é a Lagrangiana de Gaete e Helayël-Neto (EPJC 74, 3182 (2014)),
+$L=-\beta^2\ln\left(1-\mathcal F/\beta^2-\mathcal G^2/2\beta^4\right)$ com
+$\mathcal F=(E^2-B^2)/2$ e $\mathcal G=\mathbf E\cdot\mathbf B$, e $\xi\equiv\beta$ em
+Gauss. Com $E=0$, $\mathcal G=0$ e ela coincide com a forma logarítmica de Soleng
+(1995), de onde vêm as tensões acima; o termo $\mathcal G^2$ só importaria com campo
+elétrico ou na propagação de fótons (birrefringência), não na estrutura estelar.
+
 ## Propriedades estelares: maré, momento de inércia e redshift
 
 Junto com a TOV ($P$, $m$, $m_B$) o integrador resolve, com os mesmos passos (o

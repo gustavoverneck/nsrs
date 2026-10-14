@@ -197,7 +197,7 @@ cargo run --release --bin nsrs -- help
 | Comando | Faz | Saída | Substitui |
 |---|---|---|---|
 | `scan b [--models GM1,GM3,FSU2] [--points 100] [--bmin Bc] [--bmax 3e18]` | EoS em função do campo constante (0 e malha log de `bmin` a `bmax`) | `output/b/` | `b` |
-| `scan log <exp_min> <exp_max> <pontos_por_década> <B...> [--amm]` | NLEM logarítmica, $\xi=10^{exp}$; com `--amm` liga os momentos magnéticos anômalos e grava em pasta separada; figuras com `plot_scripts/nlem_log.py --input-root ... --output-root ...` e `plot_scripts/csi_onset_analysis.py` (ambos aceitam GM1, GM3 e FSU2) | `output/nlem_log/`, `output/nlem_log_amm/` | `nlem_log` |
+| `scan log <exp_min> <exp_max> <pontos_por_década> <B...> [--amm]` | NLEM logarítmica, $\xi=10^{exp}$; com `--amm` liga os momentos magnéticos anômalos e grava em pasta separada; as populações entram nas figuras de `plot_scripts/paper_figures.py` | `output/nlem_log/`, `output/nlem_log_amm/` | `nlem_log` |
 | `scan modmax <B...>` | ModMax, $\gamma = \{1..9\}\times10^{-10..-1}$, com `summary.csv` | `output/modmax/` | `nlem_modmax` |
 | `scan topology <modelo> <B...> [--prefix TAG] [--plot-only]` | isotrópica x anisotrópica: EoS, M-R e populações | `output/magtop/`, `results/magtop/` | `magtop` |
 | `study log <exp_min> <exp_max> <por_década> <B0...> [--topology aniso\|iso\|ambas] [--save-eos] [--amm]` | impacto de Log($\xi$) na estrela: $M_{max}$, $R_{1.4}$, $\Lambda_{1.4}$, $B_c$, $x_c=B_c^2/2\xi^2$, sinal da pressão do campo, comparados com Maxwell e sem tensão; `--amm` liga os momentos anômalos (coluna `amm` no CSV); figuras com `plot_scripts/study_log.py` | `results/study_log/summary.csv` | — |

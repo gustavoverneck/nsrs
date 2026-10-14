@@ -32,7 +32,10 @@ fn rel(a: f64, b: f64) -> f64 {
 /// introdução dos perfis. Referências: linha 900 (nB/n0 ~ 3.58) das EoS
 /// geradas antes da mudança, para Maxwell (anisotrópico e isotrópico). O
 /// caso ModMax (1e18 G) saiu: com campo constante de 1e18 G a pressão
-/// perpendicular deixa de ser monótona em baixa densidade.
+/// perpendicular deixa de ser monótona em baixa densidade. Valores
+/// regravados ao unificar B_c do elétron em 4.414e13 G (antes 4.41e13 G,
+/// o que muda B em unidades naturais em 0.09% e n_B em ~1.4e-6) e de novo
+/// com M_N = 939 MeV para n e p (antes 939.565 e 938.272 MeV).
 #[test]
 fn constant_profile_reproduces_previous_results() {
     // A pressão exportada passou a ser P_perp = P_par - w M B (w = 1 anisotrópico,
@@ -41,12 +44,12 @@ fn constant_profile_reproduces_previous_results() {
         (
             HadronsMatter::new(GM1, 1e17),
             1.0,
-            [3.58072868340806139e0, 5.89643597285503688e2, 1.07139674412909841e2],
+            [3.57280149819024118e0, 5.88052828684425776e2, 1.06769016453449140e2],
         ),
         (
             HadronsMatter::new(GM1, 1e17).with_topology(MagneticTopology::Isotropic),
             2.0 / 3.0,
-            [3.58072868340806139e0, 5.89643597285503688e2, 1.07115999268299191e2],
+            [3.57280149819024118e0, 5.88052828684425776e2, 1.06745581768871020e2],
         ),
     ];
     for (engine, weight, expected) in cases {
@@ -60,7 +63,7 @@ fn constant_profile_reproduces_previous_results() {
         assert!(mb[k] > 0.0);
         let values = [row[0], row[1], row[2] + weight * mb[k]];
         for (col, value) in expected.iter().enumerate() {
-            assert!(rel(values[col], *value) < 1e-12, "col {col}: {} vs {value}", values[col]);
+            assert!(rel(values[col], *value) < 1e-12, "col {col}: {:.17e} vs {value}", values[col]);
         }
     }
 }
@@ -152,20 +155,27 @@ fn dexheimer_profile_satisfies_the_magnetized_gibbs_duhem_relation() {
 /// Dipolo fraco (B <~ 6e15 G): o perfil de Dexheimer recupera a EoS sem campo.
 #[test]
 fn dexheimer_profile_weak_dipole_recovers_field_free_eos() {
-    let (reference, _) = solve(HadronsMatter::new(GM1, 0.0));
     let (mut weak, mb, _) =
         solve_with_magnetization(HadronsMatter::new(GM1, 0.0).with_field_profile(dexheimer(1e30)));
     for (row, m) in weak.iter_mut().zip(&mb) {
         row[2] += m;
     }
+    // A malha adaptativa das duas varreduras pode se desalinhar; a referência
+    // sem campo é resolvida terminando no mu de cada ponto. Se a referência
+    // reduzir o passo e não terminar exatamente nele, o ponto é pulado.
+    let dense: Vec<&Row> = weak.iter().filter(|r| r[0] > 0.5).collect();
+    assert!(dense.len() > 50);
     let mut compared = 0;
-    for row in weak.iter().filter(|r| r[0] > 0.5) {
-        if let Some(r0) = reference.iter().find(|r| (r[17] - row[17]).abs() < 1e-12) {
+    for row in dense.iter().step_by(dense.len() / 16) {
+        let (reference, _) =
+            solve(HadronsMatter::new(GM1, 0.0).with_limits(0.9, row[17]).with_points(301));
+        let r0 = reference.last().unwrap();
+        if (r0[17] - row[17]).abs() < 1e-12 {
             assert!(rel(matter_pressure(row), r0[2]) < 1e-5, "nB/n0 = {}", row[0]);
             compared += 1;
         }
     }
-    assert!(compared > 50);
+    assert!(compared >= 6, "compared = {compared}");
 }
 
 /// A NLEM não altera o acoplamento das partículas ao campo: no mesmo B, a

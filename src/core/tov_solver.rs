@@ -126,10 +126,9 @@ fn tov_derivatives(
     let y = s[3];
     let dy_dr = -(y * y + y * big_f + r * r * big_q) / r;
 
-    // Rotação lenta: j'/j = -nu'/2 + (1/2) d ln f / dr.
-    let dnu_dr = 2.0 * mass_term;
-    let dlnf_dr = (-2.0 * 4.0 * PI * r * r * eps_g / r + 2.0 * m_g / (r * r)) / f;
-    let dlnj_dr = -0.5 * dnu_dr + 0.5 * dlnf_dr;
+    // Rotação lenta: j = e^{-nu/2} sqrt(f), logo j'/j = -nu'/2 + (1/2) d ln f / dr.
+    // Os termos m/(r^2 f) se cancelam: j'/j = -4 pi r (eps + p) / f (Hartle 1967).
+    let dlnj_dr = -4.0 * PI * r * (eps_g + p_g) / f;
     let (w, psi) = (s[4], s[5]);
     let dpsi_dr = -(4.0 / r) * psi - dlnj_dr * (psi + 4.0 * w / r);
 
@@ -149,7 +148,8 @@ fn axpy(s: &TovState, h: f64, terms: &[(f64, &TovState)]) -> TovState {
 }
 
 /// Passo de Cash-Karp. O erro devolvido considera apenas (P, m, m_B), de
-/// modo que os passos (e a curva M-R) são os mesmos da TOV pura.
+/// modo que os passos (e a curva M-R) são os mesmos da TOV pura. Devolve
+/// também k1 = dy/dr em r, usado na escala do erro em `rkqs_step`.
 fn rkck_step(
     r: f64,
     y: &TovState,
@@ -157,7 +157,7 @@ fn rkck_step(
     p_array: &[f64],
     eps_array: &[f64],
     rho_array: &[f64],
-) -> (TovState, [f64; 3]) {
+) -> (TovState, [f64; 3], TovState) {
     let d = |r: f64, s: &TovState| tov_derivatives(r, s, p_array, eps_array, rho_array);
 
     let (a2, a3, a4, a5, a6) = (0.2, 0.3, 0.6, 1.0, 0.875);
@@ -197,7 +197,7 @@ fn rkck_step(
     for i in 0..3 {
         yerr[i] = h * (dc1 * k1[i] + dc3 * k3[i] + dc4 * k4[i] + dc5 * k5[i] + dc6 * k6[i]);
     }
-    (yout, yerr)
+    (yout, yerr, k1)
 }
 
 fn rkqs_step(
@@ -217,11 +217,13 @@ fn rkqs_step(
 
     let mut h = htry;
     loop {
-        let (yout, yerr) = rkck_step(r, y, h, p_array, eps_array, rho_array);
+        let (yout, yerr, dydr) = rkck_step(r, y, h, p_array, eps_array, rho_array);
 
         let mut errmax: f64 = 0.0;
         for i in 0..3 {
-            let yscal = y[i].abs() + (h * yerr[i]).abs() + tiny;
+            // Escala de Numerical Recipes: |y| + |h dy/dr|. O termo em h dy/dr
+            // evita que m = m_B = 0 no centro force reduções artificiais.
+            let yscal = y[i].abs() + (h * dydr[i]).abs() + tiny;
             errmax = errmax.max((yerr[i] / yscal).abs());
         }
         errmax /= eps;
@@ -351,7 +353,7 @@ pub fn integrate_star_properties(
             let mut y_surface = y;
             for _ in 0..60 {
                 let h_mid = 0.5 * (h_lo + h_hi);
-                let (y_mid, _) = rkck_step(r, &y, h_mid, p_tov, eps_tov, rho_tov);
+                let (y_mid, _, _) = rkck_step(r, &y, h_mid, p_tov, eps_tov, rho_tov);
                 if !y_mid.iter().all(|value| value.is_finite()) {
                     return None;
                 }
@@ -417,32 +419,37 @@ pub fn integrate_star(
         .map(|s| (s.mass, s.radius, s.baryonic_mass, s.central_pressure))
 }
 
+/// Constante de conversão de 1/fm⁴ para MeV/fm³.
+const HBARC: f64 = 197.3269804;
+
+// Dados da crosta em 1/fm⁴- Baym-Pethick-Sutherland - from https://github.com/mrpelicer/nuclear_physics
+const CRUST_P_FM4: &[f64] = &[
+    1.212e-11, 8.236e-11, 2.764e-10, 5.152e-10, 1.593e-09, 4.023e-09, 1.380e-08, 3.315e-08,
+    1.077e-07, 2.559e-07, 3.479e-07, 4.729e-07, 6.430e-07, 9.147e-07, 1.041e-06, 1.840e-06,
+    2.469e-06, 2.496e-06, 2.642e-06, 2.878e-06, 3.110e-06, 3.425e-06, 3.852e-06, 4.425e-06,
+    5.181e-06, 6.168e-06, 8.198e-06, 1.109e-05, 1.509e-05, 2.050e-05, 2.767e-05, 3.701e-05,
+    5.361e-05,
+];
+
+const CRUST_E_FM4: &[f64] = &[
+    9.387e-08, 3.738e-07, 9.392e-07, 1.489e-06, 3.741e-06, 7.465e-06, 1.877e-05, 3.747e-05,
+    9.418e-05, 1.881e-04, 2.369e-04, 2.982e-04, 3.758e-04, 5.242e-04, 5.958e-04, 9.452e-04,
+    1.222e-03, 1.268e-03, 1.486e-03, 1.879e-03, 2.264e-03, 2.765e-03, 3.400e-03, 4.182e-03,
+    5.131e-03, 6.260e-03, 8.329e-03, 1.090e-02, 1.402e-02, 1.776e-02, 2.218e-02, 2.732e-02,
+    3.542e-02,
+];
+
+/// Pressão no topo da crosta BPS (MeV/fm³): acima dela a EoS é a do núcleo.
+fn crust_top_pressure() -> f64 {
+    CRUST_P_FM4[CRUST_P_FM4.len() - 1] * HBARC
+}
+
 /// Unifica a crosta personalizada (1/fm⁴) com a EoS do núcleo, descartando dados inválidos
 pub fn unify_with_crust(
     core_eps: &[f64],
     core_p: &[f64],
     core_rho: &[f64],
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
-    // Constante de conversão de 1/fm⁴ para MeV/fm³
-    const HBARC: f64 = 197.3269804;
-
-    // Dados da crosta em 1/fm⁴- Baym-Pethick-Sutherland - from https://github.com/mrpelicer/nuclear_physics
-    const CRUST_P_FM4: &[f64] = &[
-        1.212e-11, 8.236e-11, 2.764e-10, 5.152e-10, 1.593e-09, 4.023e-09, 1.380e-08, 3.315e-08,
-        1.077e-07, 2.559e-07, 3.479e-07, 4.729e-07, 6.430e-07, 9.147e-07, 1.041e-06, 1.840e-06,
-        2.469e-06, 2.496e-06, 2.642e-06, 2.878e-06, 3.110e-06, 3.425e-06, 3.852e-06, 4.425e-06,
-        5.181e-06, 6.168e-06, 8.198e-06, 1.109e-05, 1.509e-05, 2.050e-05, 2.767e-05, 3.701e-05,
-        5.361e-05,
-    ];
-
-    const CRUST_E_FM4: &[f64] = &[
-        9.387e-08, 3.738e-07, 9.392e-07, 1.489e-06, 3.741e-06, 7.465e-06, 1.877e-05, 3.747e-05,
-        9.418e-05, 1.881e-04, 2.369e-04, 2.982e-04, 3.758e-04, 5.242e-04, 5.958e-04, 9.452e-04,
-        1.222e-03, 1.268e-03, 1.486e-03, 1.879e-03, 2.264e-03, 2.765e-03, 3.400e-03, 4.182e-03,
-        5.131e-03, 6.260e-03, 8.329e-03, 1.090e-02, 1.402e-02, 1.776e-02, 2.218e-02, 2.732e-02,
-        3.542e-02,
-    ];
-
     // Fallback: use crust energy density as a rho proxy until a rho table is available.
     const CRUST_RHO_FM4: &[f64] = CRUST_E_FM4;
 
@@ -462,14 +469,15 @@ pub fn unify_with_crust(
     }
 
     // O ponto de transição agora é dinamicamente o último valor da sua crosta
-    let p_transition = raw_p.last().copied().unwrap_or(0.0);
+    let p_transition = crust_top_pressure();
     let e_transition = raw_eps.last().copied().unwrap_or(0.0);
 
     // 2. Inserir o Núcleo (GM1/GM3)
     for i in 0..core_p.len() {
         // A costura só ocorre quando o núcleo supera tanto a pressão quanto a
         // densidade de energia máximas da crosta. Isso preserva (e_c, p_c) como a fronteira absoluta.
-        if core_p[i] > p_transition && core_eps[i] > e_transition {
+        // Pontos de vácuo (n_B = 0) nunca entram, mesmo com pressão de campo.
+        if core_rho[i] > 0.0 && core_p[i] > p_transition && core_eps[i] > e_transition {
             raw_p.push(core_p[i]);
             raw_eps.push(core_eps[i]);
 
@@ -553,8 +561,14 @@ pub fn generate_star_sequence(
 
     // 4. Define onde começar a iterar as pressões centrais
     // Se tiver crosta, pulamos os pontos de baixa pressão para não criar estrelas "ocas".
+    // Com a EoS começando no vácuo (P = 0, ou só a pressão do campo), p_array[0]
+    // fica abaixo da crosta; o corte exige também estar acima do topo da crosta.
     let core_start_idx = if with_crust && !p_array.is_empty() {
-        clean_p.iter().position(|&p| p >= p_array[0]).unwrap_or(0)
+        let p_crust = crust_top_pressure();
+        clean_p
+            .iter()
+            .position(|&p| p > p_crust && p >= p_array[0])
+            .unwrap_or(clean_p.len())
     } else {
         0
     };

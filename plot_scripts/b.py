@@ -115,7 +115,7 @@ def parse_args() -> argparse.Namespace:
 		"--nlem-summary-csv",
 		type=Path,
 		default=Path("results/nlem_log/summary_all_datasets.csv"),
-		help="CSV consolidado do nlem_log.py",
+		help="CSV consolidado da NLEM (opcional; o antigo nlem_log.py foi removido)",
 	)
 	parser.add_argument("--output-root", type=Path, default=Path("results/b"))
 	parser.add_argument("--dpi", type=int, default=150)

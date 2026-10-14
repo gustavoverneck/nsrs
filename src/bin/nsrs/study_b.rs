@@ -239,7 +239,7 @@ fn star_lines(model_name: &str, nlem: &str, profile: Profile, b: f64, eos: &Eos,
 }
 
 /// Ponto da estabilidade local: n_B/n0, mu_n, curvatura da matéria
-/// c_m = 4 pi d^2 P_m/dB^2 com passo delta e delta/2, e dP_perp/dn_B para cada
+/// c_m = 4 pi d^2 P_m/dB^2 com passo delta e delta/2, e dP_perp/dn_B da matéria para cada
 /// eletrodinâmica (mesma ordem de `--nlem`).
 struct StabilityPoint {
     n: f64,
@@ -262,25 +262,18 @@ impl StabilityPoint {
     }
 }
 
-/// dP_perp/dn_B da EoS no ponto da malha mais próximo de `n` (diferença central).
-fn slope_at(rows: &[Row], n: f64) -> f64 {
-    if rows.len() < 3 {
-        return f64::NAN;
-    }
-    let i = (1..rows.len() - 1)
-        .min_by(|&a, &b| (rows[a][0] - n).abs().total_cmp(&(rows[b][0] - n).abs()))
-        .unwrap_or(1);
-    let dn = rows[i + 1][0] - rows[i - 1][0];
-    if dn != 0.0 { (rows[i + 1][2] - rows[i - 1][2]) / dn } else { f64::NAN }
-}
-
 fn stability_points(model: ModelParams, b: f64, delta: f64, nlems: &[NlemModel], config: &Config) -> Vec<StabilityPoint> {
     // A matéria não depende da NLEM: a curvatura c_m vem de uma única EoS
-    // (Maxwell). A estabilidade mecânica usa a P_perp de cada eletrodinâmica.
+    // (Maxwell). Com B uniforme a tensão do campo não varia com n_B, então a
+    // estabilidade mecânica usa P_perp da matéria, P_m - 𝓜B, igual para todas
+    // as eletrodinâmicas. (No perfil `Constant` a tensão exportada segue o
+    // perfil BDD e somaria a dP_campo/dn_B espúria.)
     let center = solve(model, b, Profile::Constant, NlemModel::Maxwell, config);
-    let per_nlem: Vec<Option<Eos>> = nlems
+    let matter_perp: Vec<f64> = center
+        .rows
         .iter()
-        .map(|&nlem| (nlem != NlemModel::Maxwell).then(|| solve(model, b, Profile::Constant, nlem, config)))
+        .zip(&center.field_stress)
+        .map(|(row, f)| row[2] - f.p_perpendicular)
         .collect();
     // Cada ponto é resolvido de novo no mesmo mu_n com B(1 ± delta) e
     // B(1 ± delta/2), a partir da solução central. (A malha do solver é
@@ -314,16 +307,13 @@ fn stability_points(model: ModelParams, b: f64, delta: f64, nlems: &[NlemModel],
         // c_m = 4 pi d(dP_m/dB)/dB.
         let c_of = |plus: f64, minus: f64, step: f64| 4.0 * std::f64::consts::PI * (plus - minus) / (2.0 * step * b);
         let dn = rows[i + 1][0] - rows[i - 1][0];
-        let maxwell_slope = if dn != 0.0 { (rows[i + 1][2] - rows[i - 1][2]) / dn } else { f64::NAN };
+        let slope = if dn != 0.0 { (matter_perp[i + 1] - matter_perp[i - 1]) / dn } else { f64::NAN };
         Some(StabilityPoint {
             n: row[0],
             mu: row[17],
             c_m: c_of(slopes[0], slopes[1], delta),
             c_m_half: c_of(slopes[2], slopes[3], 0.5 * delta),
-            dp_dn: per_nlem
-                .iter()
-                .map(|eos| eos.as_ref().map_or(maxwell_slope, |e| slope_at(&e.rows, row[0])))
-                .collect(),
+            dp_dn: vec![slope; nlems.len()],
         })
     });
     points.collect()
@@ -347,8 +337,10 @@ pub fn run(raw: &[String]) -> Result<(), String> {
     let (b_min, b_max) = (args.f64_or("bmin", 1e14)?, args.f64_or("bmax", 1e20)?);
     let per_decade = args.usize_or("per-decade", 8)?;
     let delta = args.f64_or("delta", 1e-4)?;
-    if b_min <= 0.0 || b_max <= b_min || per_decade == 0 || !(1e-6..=1e-2).contains(&delta) {
-        return Err("use 0 < --bmin < --bmax, --per-decade >= 1 e 1e-6 <= --delta <= 1e-2".into());
+    // 𝓜B já é uma diferença central com passo relativo 1e-5 (physics.rs):
+    // delta/2 precisa ficar bem acima dele para a derivada segunda.
+    if b_min <= 0.0 || b_max <= b_min || per_decade == 0 || !(1e-4..=1e-2).contains(&delta) {
+        return Err("use 0 < --bmin < --bmax, --per-decade >= 1 e 1e-4 <= --delta <= 1e-2".into());
     }
     let config = Config {
         points: args.usize_or("points", 1500)?,

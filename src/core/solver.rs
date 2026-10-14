@@ -171,6 +171,13 @@ impl Solver {
                         stability_pressure: h.stability_pressure,
                         field_stress: h.field_stress,
                     },
+                    // Na fase hadrônica da híbrida, P_perp contém -M B; o teste
+                    // de monotonia usa a pressão sem magnetização, como acima.
+                    EngineMode::Hybrid(hyb) if hyb.hadronic_phase => PointDiagnostics {
+                        magnetization_b: hyb.hadrons.magnetization_b,
+                        stability_pressure: hyb.hadrons.stability_pressure,
+                        field_stress: hyb.hadrons.field_stress,
+                    },
                     _ => PointDiagnostics {
                         magnetization_b: 0.0,
                         stability_pressure: point_result[2],

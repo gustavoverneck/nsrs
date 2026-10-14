@@ -272,6 +272,9 @@ def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="isotropica"):
 # ------------------------------------------------------------------ study b
 
 
+MAX_STAR_FIELDS = ("m_max_Msun", "r_max_km", "nc_over_n0", "p_c_MeV_fm3", "p_field_c_MeV_fm3")
+
+
 def load_study_b(path: Path, topology="iso"):
     """{(model, nlem, profile): [rows ordenadas por B > 0 até a 1a EoS anômala]}"""
     groups = defaultdict(list)
@@ -285,6 +288,11 @@ def load_study_b(path: Path, topology="iso"):
         for r in rows:
             if r["anomalous"] == "true" or not math.isfinite(fnum(r["m_max_Msun"])):
                 break
+            if r["true_maximum"] != "true":
+                # A estrela mais pesada está no fim da EoS (n_max): o máximo do
+                # TOV fica além da EoS, então M_max e o centro não valem. R_1.4
+                # e Λ_1.4 continuam válidos.
+                r = dict(r, **{k: "nan" for k in MAX_STAR_FIELDS})
             kept.append(r)
         valid[key] = kept
     return valid

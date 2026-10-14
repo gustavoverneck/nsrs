@@ -4,11 +4,11 @@
 // eletrodinâmica linear (Maxwell) e não linear (ModMax, logarítmica).
 // Todas as intensidades de campo são em Gauss.
 
-use crate::core::constants::{BDD_ALPHAA, BDD_BETAA, M_NUCLEON};
+use crate::core::constants::{BCE_G, BDD_ALPHAA, BDD_BETAA, M_NUCLEON};
 use crate::core::physics::{MagneticTopology, NlemModel};
 
 /// Campo crítico do elétron, m_e^2 c^3 / (e hbar), em Gauss.
-pub const B_CRIT_ELECTRON_G: f64 = 4.414e13;
+pub const B_CRIT_ELECTRON_G: f64 = BCE_G;
 
 /// Conversão de erg/cm^3 (unidades gaussianas) para MeV/fm^3.
 const ERG_CM3_PER_MEV_FM3: f64 = 1.602176634e33;

@@ -58,7 +58,8 @@ pub const KAPPA_B: [f64; 8] = [
 
 // BDD Constants
 pub const BCE: f64 = ML[0] * ML[0] / QE;
-pub const BCE_G: f64 = 4.41e13;
+/// Campo crítico do elétron m_e^2 c^3/(e hbar) em gauss (CODATA).
+pub const BCE_G: f64 = 4.414e13;
 pub const BDD_BETAA: f64 = 1e-2;
 pub const BDD_ALPHAA: f64 = 3.0;
 

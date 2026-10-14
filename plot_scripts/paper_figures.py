@@ -1,5 +1,10 @@
 """Figuras de publicação (Physical Review D) para a NLEM log, sem e com AMM.
 
+Pressão usada na TOV: a isotrópica, P = (P_par + 2 P_perp)/3 (campo caótico,
+como em TOV esférica com campo). As fig3, fig4, fig5, fig6 e a tabela saem com
+ela em results/paper/; as mesmas com P_perp, para comparação, em
+results/paper/perp/. A fig2 mostra as duas.
+
 Só as figuras que sustentam a análise do artigo:
   fig1  tensões do campo Log em função de B/xi (analítica, explica as demais)
   fig2  Delta M_max(xi) em relação ao caso sem tensão (study log)
@@ -69,6 +74,12 @@ OBSOLETE = ["fig1_dmmax_vs_xi", "fig2_amm_shift_vs_xi", "fig3_mass_radius_B0_1e1
             "fig4_stars_vs_B", "fig4_mass_radius_B0_1e18", "fig5_amm_shift_vs_B",
             "fig6_populations_B1e18_xi1e17"]
 TOPO_LABEL = {"anisotropica": r"$P_\perp$", "isotropica": r"$(P_\parallel+2P_\perp)/3$"}
+# Topologia dos CSVs do study b -> do study log, e B/xi em que a pressão do
+# campo Log fica negativa nessa topologia (x* = 3.92 em P_perp, 0.833 na
+# isotrópica; study::negative_pressure_threshold).
+STUDY_LOG_TOPO = {"perp": "anisotropica", "iso": "isotropica"}
+FIELD_P_ZERO = {"perp": 2.8006, "iso": 1.2910}
+FIELD_P_LABEL = {"perp": r"$P_\perp^{\rm field}=0$", "iso": r"$\bar P^{\rm field}=0$"}
 
 
 def sci_tex(value: float) -> str:
@@ -136,6 +147,7 @@ def fig_field_stress(out: Path):
     x = u**2 / 2
     eps = np.log1p(x) / x
     p_perp = 2 / (1 + x) - eps
+    p_iso = (2 * p_perp - eps) / 3
     f_vac = (1 - x) / (1 + x) ** 2
     fig, ax = plt.subplots(figsize=(3.375, 2.5))
     ax.axhline(1.0, color="0.5", lw=0.6, ls=":", zorder=0)
@@ -143,9 +155,11 @@ def fig_field_stress(out: Path):
     ax.plot(u, eps, color="#0072B2", label=r"$\varepsilon_B/\varepsilon_B^{\rm Max}$")
     ax.plot(u, p_perp, color="#D55E00", label=r"$P_\perp/\varepsilon_B^{\rm Max}$")
     ax.plot(u, -eps, color="#009E73", label=r"$P_\parallel/\varepsilon_B^{\rm Max}$")
+    ax.plot(u, p_iso, color="#CC79A7", label=r"$\bar P/\varepsilon_B^{\rm Max}$")
     ax.plot(u, f_vac, color="#000000", ls="--", label=r"$f_{\rm vac}$")
-    # f_vac = 0 em x = 1; P_perp = 0 em x = 3.92 (B/xi = 2.80).
-    for xc in (np.sqrt(2.0), 2.8006):
+    # f_vac = 0 em x = 1; P_iso = 0 em x = 0.833 (B/xi = 1.29); P_perp = 0
+    # em x = 3.92 (B/xi = 2.80).
+    for xc in (FIELD_P_ZERO["iso"], np.sqrt(2.0), FIELD_P_ZERO["perp"]):
         ax.axvline(xc, color="0.6", lw=0.5, ls="-.", zorder=0)
     ax.set_xscale("log")
     ax.set_xlim(u[0], u[-1])
@@ -215,7 +229,7 @@ def read_stars(path: Path):
     return stable[:, 1], stable[:, 0]
 
 
-def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="anisotropica"):
+def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="isotropica"):
     cases = [("sem_tensao", "0.45", "No field stress"),
              ("maxwell", "#000000", "Maxwell"),
              ("xi_1.00e17", "#D55E00", r"Log, $\xi=10^{17}$ G")]
@@ -246,7 +260,7 @@ def fig_mass_radius(root: Path, out: Path, b0="1.00e18", topo="anisotropica"):
 # ------------------------------------------------------------------ study b
 
 
-def load_study_b(path: Path, topology="perp"):
+def load_study_b(path: Path, topology="iso"):
     """{(model, nlem, profile): [rows ordenadas por B > 0 até a 1a EoS anômala]}"""
     groups = defaultdict(list)
     for row in csv.DictReader(open(path, encoding="utf-8")):
@@ -298,7 +312,7 @@ def fig_b_scan(sb, out: Path):
     save(fig, out, "fig3_stars_vs_B")
 
 
-def fig_center_field(sb, out: Path):
+def fig_center_field(sb, out: Path, topology="iso"):
     """No centro da estrela de massa máxima: B_c/xi (onde as estrelas caem na
     fig1) e P_campo/P_c (validade do TOV esférico; ~10% como referência)."""
     fig, axes = plt.subplots(2, 3, figsize=(PAGE_W, 4.0), sharex=True)
@@ -315,7 +329,7 @@ def fig_center_field(sb, out: Path):
                     axes[0, col].plot(b, bc / xi, color=st["color"], ls=ls)
                 axes[1, col].plot(b, ratio, color=st["color"], ls=ls)
         axes[0, col].axhline(math.sqrt(2.0), color="0.4", lw=0.6, ls="-.")
-        axes[0, col].axhline(2.8006, color="0.4", lw=0.6, ls=":")
+        axes[0, col].axhline(FIELD_P_ZERO[topology], color="0.4", lw=0.6, ls=":")
         axes[1, col].axhline(0.1, color="0.4", lw=0.6, ls=":")
         axes[1, col].axhline(0.0, color="0.5", lw=0.5, zorder=0)
         axes[0, col].set_yscale("log")
@@ -331,18 +345,19 @@ def fig_center_field(sb, out: Path):
     handles += [Line2D([], [], color="0.3", ls="-", label="constant $B$"),
                 Line2D([], [], color="0.3", ls="--", label="BDD profile"),
                 Line2D([], [], color="0.4", ls="-.", lw=0.6, label=r"$f_{\rm vac}=0$"),
-                Line2D([], [], color="0.4", ls=":", lw=0.6, label=r"$P_\perp=0$; 10% of $P$")]
+                Line2D([], [], color="0.4", ls=":", lw=0.6, label=FIELD_P_LABEL[topology] + "; 10% of $P$")]
     top_legend(fig, handles, ncol=4, top=0.88, h_pad=0.4, w_pad=0.6)
     save(fig, out, "fig4_center_field")
 
 
-def table_endpoints(path: Path, stability: Path, out: Path, topology="perp"):
+def table_endpoints(path: Path, stability: Path, out: Path, topology="iso"):
     """Por que cada curva (modelo, NLEM, perfil) termina: primeiro B inválido,
     seu término, B/xi local na maior densidade alcançada e qual critério físico
     vale ali. 'solver' indica que nenhum critério físico explica o fim. Uma
     curva Log que termina no mesmo B que a Maxwell do mesmo modelo e perfil
     recebe 'as Maxwell': o fim vem da matéria ou do solver, não da Log, e os
-    critérios f_vac/P_perp ficam só como sinalização."""
+    critérios f_vac/P_perp ficam só como sinalização. Na isotrópica, o
+    critério de pressão é o do campo: B/xi local acima de 1.29 (P_campo < 0)."""
     groups = defaultdict(list)
     for row in csv.DictReader(open(path, encoding="utf-8")):
         if row["topology"] == topology and fnum(row["B_G"]) > 0:
@@ -380,10 +395,13 @@ def table_endpoints(path: Path, stability: Path, out: Path, topology="perp"):
             u = local_field(fnum(r["B_G"]), fnum(r["n_max_over_n0"])) / xi
             fvac_neg = math.isfinite(u) and u > math.sqrt(2.0)
             pneg = int(fnum(r["pperp_negative_rows"]) or 0)
+            p_field_neg = math.isfinite(u) and u > FIELD_P_ZERO["iso"]
             mag = profile == "constante" and (model, nlem, r["B_G"]) in unstable
             same = nlem != "maxwell" and end_maxwell.get((model, profile)) == r["B_G"]
-            cause = ("as Maxwell" if same else "f_vac<0" if fvac_neg else "P_perp<0" if pneg > 0
-                     else "magnetic instability" if mag else "solver")
+            pressure_cause = ("P_field<0" if topology == "iso" and p_field_neg
+                              else "P_perp<0" if topology == "perp" and pneg > 0 else None)
+            cause = ("as Maxwell" if same else "f_vac<0" if fvac_neg else pressure_cause
+                     or ("magnetic instability" if mag else "solver"))
             w.writerow([model, nlem, profile, rows[bad - 1]["B_G"] if bad else "", r["B_G"],
                         r["termination"], r["n_max_over_n0"], f"{u:.3g}" if math.isfinite(u) else "",
                         fvac_neg, pneg, mag, same if nlem != "maxwell" else "", cause])
@@ -436,17 +454,18 @@ def main():
             (args.out / f"{name}.{ext}").unlink(missing_ok=True)
 
     sl = load_study_log(args.results / "study_log" / "summary.csv")
-    sb = load_study_b(args.results / "study_b" / "stars.csv")
-    sb_amm = load_study_b(args.results / "study_b_amm" / "stars.csv")
-
     fig_field_stress(args.out)
     fig_mmax_vs_xi(sl, args.out)
-    fig_b_scan(sb, args.out)
-    fig_center_field(sb, args.out)
-    fig_mass_radius(args.output, args.out)
-    fig_b_amm(sb, sb_amm, args.out)
-    table_endpoints(args.results / "study_b" / "stars.csv",
-                    args.results / "study_b" / "stability.csv", args.out)
+    # Isotrópica (principal) em --out; P_perp, para comparação, em --out/perp.
+    for topology, out in [("iso", args.out), ("perp", args.out / "perp")]:
+        sb = load_study_b(args.results / "study_b" / "stars.csv", topology)
+        sb_amm = load_study_b(args.results / "study_b_amm" / "stars.csv", topology)
+        fig_b_scan(sb, out)
+        fig_center_field(sb, out, topology)
+        fig_mass_radius(args.output, out, topo=STUDY_LOG_TOPO[topology])
+        fig_b_amm(sb, sb_amm, out)
+        table_endpoints(args.results / "study_b" / "stars.csv",
+                        args.results / "study_b" / "stability.csv", out, topology)
 
 
 if __name__ == "__main__":

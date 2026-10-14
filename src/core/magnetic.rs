@@ -157,7 +157,8 @@ pub fn magnetic_stress(nlem: NlemModel, b_gauss: f64) -> MagneticStress {
         NlemModel::Maxwell => 1.0,
         NlemModel::Modmax(gamma) => (-gamma).exp(),
         NlemModel::Log(xi_gauss) => {
-            // eps = xi^2 ln(1 + x), com x = B^2 / (2 xi^2).
+            // eps = xi^2 ln(1 + x), com x = B^2 / (2 xi^2): Gaete e Helayël-Neto,
+            // EPJC 74, 3182 (2014), com E = 0 (beta = xi), igual à forma de Soleng.
             let x = b_gauss * b_gauss / (2.0 * xi_gauss * xi_gauss);
             if x < 1e-12 { 1.0 - 0.5 * x } else { x.ln_1p() / x }
         }

@@ -35,20 +35,20 @@ Varreduras (saída em output/):
 
 Estudos (tabela para análise e publicação):
   study log     <exp_min> <exp_max> <pontos_por_década> <B0_1> [B0_2 ...]
-                [--models GM1] [--topology aniso|iso|ambas] [--points 1500]
+                [--models GM1] [--topology aniso|iso|ambas] [--step-tol 1e-3 | --uniform --points 1500]
                 [--no-hyperons] [--save-eos] [--amm] [--out results/study_log/summary.csv]
                 Impacto de Log(xi) na estrela, com Maxwell e sem tensão
                 do campo como referências.                         -> results/study_log/
 
   study b       [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
-                [--profiles constante,bdd] [--points 1500] [--mu-max 3.0] [--no-hyperons]
+                [--profiles constante,bdd] [--step-tol 1e-3 | --uniform --points 1500] [--mu-max 3.0] [--no-hyperons]
                 [--no-stability] [--delta 1e-4] [--landau-max 20000] [--amm]
                 [--nlem maxwell,log:1e17] [--out results/study_b]
                 Varredura completa em B (de 0 até quebrar): estrelas, cobertura da EoS
                 e estabilidade mecânica e magnética local.            -> results/study_b/
 
   study profile [--models GM1,GM3,FSU2] [--b0 1e17,1e18] [--profiles constante,bdd]
-                [--nlem maxwell,log:1e16,log:1e17,log:1e18] [--points 1500] [--delta 1e-4] [--amm]
+                [--nlem maxwell,log:1e16,log:1e17,log:1e18] [--step-tol 1e-3 | --uniform --points 1500] [--delta 1e-4] [--amm]
                 [--out results/study_profile]
                 Permeabilidade, magnetização, razões campo/total e estabilidade magnética
                 local por densidade e ao longo do raio (M_max e 1.4 M_sun). -> results/study_profile/

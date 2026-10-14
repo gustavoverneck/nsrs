@@ -62,6 +62,61 @@ pub struct PointDiagnostics {
     pub field_stress: MagneticStress,
 }
 
+/// Passos do modo adaptativo, em mu_n/M_N: mínimo (~0.09 MeV), máximo na
+/// matéria (~9.4 MeV) e no vácuo (~19 MeV).
+const ADAPTIVE_H_MIN: f64 = 1e-4;
+const ADAPTIVE_H_MAX: f64 = 1e-2;
+const ADAPTIVE_H_VACUUM: f64 = 2e-2;
+/// Sondagens adiante após falha do Newton no passo mínimo: até 2^7 H_MIN.
+const ADAPTIVE_PROBES: usize = 7;
+
+/// Controle do passo adaptativo em mu_n. `a` é o último ponto aceito, `older`
+/// o penúltimo com o passo entre os dois, `h` o passo até `new`. Devolve se
+/// `new` é aceito e o próximo passo.
+///
+/// No vácuo o passo é `ADAPTIVE_H_VACUUM`. O primeiro ponto com matéria só é
+/// aceito com passo mínimo: o limiar é cercado pelo lado do vácuo. Na matéria
+/// valem, para n_B e eps, a variação relativa por passo (até 20 tol) e o
+/// desvio da extrapolação linear dos dois pontos anteriores (até tol), que
+/// mede o erro da interpolação linear usada pela TOV e afina o passo nas
+/// quinas (híperons, níveis de Landau).
+fn adaptive_step(
+    tol: f64,
+    h: f64,
+    a: &[f64; RESULTS_SIZE],
+    older: Option<(&[f64; RESULTS_SIZE], f64)>,
+    new: &[f64; RESULTS_SIZE],
+) -> (bool, f64) {
+    let shrinkable = h > ADAPTIVE_H_MIN * (1.0 + 1e-9);
+    if a[0] <= 0.0 && new[0] <= 0.0 {
+        return (true, ADAPTIVE_H_VACUUM);
+    }
+    if a[0] <= 0.0 {
+        return if shrinkable { (false, (0.25 * h).max(ADAPTIVE_H_MIN)) } else { (true, ADAPTIVE_H_MIN) };
+    }
+    // Escalas mínimas: n_B/n0 e eps (MeV/fm^3) perto do limiar.
+    let mut worst: f64 = 0.0;
+    let mut factor: f64 = 2.0;
+    for (k, floor) in [(0, 1e-2), (1, 1.0)] {
+        let scale = new[k].abs().max(floor);
+        let change = (new[k] - a[k]).abs() / scale / (20.0 * tol);
+        worst = worst.max(change);
+        factor = factor.min(0.9 / change.max(1e-12));
+        if let Some((b, h_ab)) = older.filter(|(b, h_ab)| b[0] > 0.0 && *h_ab > 0.0) {
+            let predicted = a[k] + (a[k] - b[k]) * h / h_ab;
+            let curvature = (new[k] - predicted).abs() / scale / tol;
+            worst = worst.max(curvature);
+            factor = factor.min(0.9 / curvature.max(1e-12).sqrt());
+        }
+    }
+    let h_next = (h * factor.clamp(0.2, 2.0)).clamp(ADAPTIVE_H_MIN, ADAPTIVE_H_MAX);
+    if worst > 1.0 && shrinkable {
+        (false, h_next.min(0.9 * h))
+    } else {
+        (true, h_next)
+    }
+}
+
 pub struct Solver {
     engine: EngineMode,
     termination: Option<EosTermination>,
@@ -114,7 +169,20 @@ impl Solver {
         };
 
         let initial_dmub = (mun_sup - mun_inf) / (n - 1) as f64;
+        let adaptive = match &self.engine {
+            EngineMode::Hadrons(h) => h.step_tolerance,
+            _ => None,
+        };
         let mut dmub = initial_dmub;
+        // mu_n do penúltimo ponto aceito (passo adaptativo).
+        let mut prev_mun = f64::NAN;
+        // Sondagens adiante desde a última falha (passo adaptativo).
+        let mut probe = 0usize;
+        // O próximo ponto que convergir é aceito sem o controle de passo (vem
+        // de uma sondagem ou de um salto de ramo).
+        let mut force_accept = false;
+        // Maior passo no vácuo depois de um ponto com matéria rejeitado.
+        let mut onset_cap = f64::INFINITY;
         let min_dmub = 1e-6; // passo mínimo aceitável
 
         let mut results: Vec<[f64; RESULTS_SIZE]> = Vec::with_capacity(n);
@@ -139,6 +207,7 @@ impl Solver {
         };
 
         while mun <= mun_sup + 1e-9 {
+            let x_before = last_visible_x;
             // Tenta resolver o ponto com o mun atual
             let point_data =
                 match &mut self.engine {
@@ -164,6 +233,42 @@ impl Solver {
                 };
 
             if let Some(point_result) = point_data {
+                // Passo adaptativo: um ponto que muda a EoS demais é refeito
+                // com passo menor, a partir do último ponto aceito.
+                let mut next_step = None;
+                if let Some(tol) = adaptive {
+                    let previous = results.last().map(|a| {
+                        let older = (results.len() >= 2).then(|| (&results[results.len() - 2], last_mun - prev_mun));
+                        (a, older)
+                    });
+                    let (accept, h_next) = match previous {
+                        _ if force_accept => (true, ADAPTIVE_H_MIN),
+                        Some((a, older)) => adaptive_step(tol, mun - last_mun, a, older, &point_result),
+                        None => (true, if point_result[0] > 0.0 { ADAPTIVE_H_MIN } else { ADAPTIVE_H_VACUUM }),
+                    };
+                    // No vácuo, depois de cercar o limiar, o passo não volta a crescer.
+                    let h_next = if results.last().is_some_and(|a| a[0] <= 0.0) {
+                        if !accept {
+                            onset_cap = h_next;
+                        }
+                        h_next.min(onset_cap)
+                    } else {
+                        h_next
+                    };
+                    if !accept {
+                        last_visible_x = x_before;
+                        if let EngineMode::Hadrons(h) = &mut self.engine {
+                            h.last_nb_over_n0 = results.last().map_or(0.0, |r| r[0]);
+                        }
+                        dmub = h_next;
+                        mun = last_mun + dmub;
+                        continue;
+                    }
+                    next_step = Some(h_next);
+                    probe = 0;
+                    force_accept = false;
+                }
+                prev_mun = last_mun;
                 last_mun = mun;
                 let point_diagnostics = match &self.engine {
                     EngineMode::Hadrons(h) | EngineMode::DarkPhotons(h) => PointDiagnostics {
@@ -242,16 +347,36 @@ impl Solver {
                 results.push(point_result);
                 diagnostics.push(point_diagnostics);
 
-                // Avança para o próximo mun
-                mun += dmub;
+                if let Some(h_next) = next_step {
+                    dmub = h_next;
+                    mun += dmub;
+                } else {
+                    // Avança para o próximo mun
+                    mun += dmub;
 
-                // Se o passo estava reduzido, tenta aumentá-lo gradualmente
-                if dmub < initial_dmub {
-                    dmub = (dmub * 1.5).min(initial_dmub);
+                    // Se o passo estava reduzido, tenta aumentá-lo gradualmente
+                    if dmub < initial_dmub {
+                        dmub = (dmub * 1.5).min(initial_dmub);
+                    }
                 }
             } else {
                 // Falha na convergência: reduz o passo e tenta novamente a partir do último sucesso
                 dmub *= 0.5;
+                // Modo adaptativo: abaixo do passo mínimo, sonda adiante com
+                // passos dobrados a partir do último ponto aceito (como a
+                // malha uniforme, que salta a faixa em que o Newton falha).
+                if adaptive.is_some() && (dmub < ADAPTIVE_H_MIN || probe > 0) && !results.is_empty() {
+                    probe += 1;
+                    if probe <= ADAPTIVE_PROBES {
+                        dmub = ADAPTIVE_H_MIN * 2f64.powi(probe as i32);
+                        mun = last_mun + dmub;
+                        force_accept = true;
+                        continue;
+                    }
+                    probe = 0;
+                    force_accept = false;
+                    dmub = 0.0;
+                }
                 if dmub < min_dmub {
                     // Antes de desistir, tenta saltar para o ramo denso: sob
                     // campo forte o ramo de baixa densidade pode dobrar logo
@@ -266,7 +391,8 @@ impl Solver {
                         jumped_from = Some(last_mun);
                         last_visible_x = x;
                         mun = mu_jump;
-                        dmub = initial_dmub;
+                        dmub = if adaptive.is_some() { ADAPTIVE_H_MIN } else { initial_dmub };
+                        force_accept = adaptive.is_some();
                         continue;
                     }
                     let (mu_n_mev, nb_over_n0) = last_point(&results);

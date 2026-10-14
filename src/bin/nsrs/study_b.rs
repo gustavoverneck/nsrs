@@ -65,6 +65,30 @@ pub(crate) struct Config {
     pub(crate) landau_max: usize,
     /// Momentos magnéticos anômalos dos bárions (`--amm`).
     pub(crate) amm: bool,
+    /// Tolerância do passo adaptativo em mu_n (`--step-tol`, padrão
+    /// `DEFAULT_STEP_TOL`); `None` (`--uniform`): malha uniforme de `points`.
+    pub(crate) step_tol: Option<f64>,
+}
+
+/// Tolerância padrão do passo adaptativo. Teste de convergência (GM1, GM3,
+/// FSU2; B = 0, 1e17 e 1e18 G, campo constante e BDD, com e sem AMM) contra
+/// tol = 3e-4: M_max a 0.002%, R_1.4 e Lambda_1.4 a 0.08%, com ~1/3 das linhas
+/// da malha uniforme de 1500 pontos, que erra R_1.4 em até 0.85%.
+pub(crate) const DEFAULT_STEP_TOL: f64 = 1e-3;
+
+/// `--step-tol <tol>` (padrão `DEFAULT_STEP_TOL`) ou `--uniform` (malha
+/// uniforme de `--points`, `None`).
+pub(crate) fn step_tolerance(args: &Args) -> Result<Option<f64>, String> {
+    if args.switch("uniform") {
+        return Ok(None);
+    }
+    match args.value("step-tol") {
+        None => Ok(Some(DEFAULT_STEP_TOL)),
+        Some(v) => match v.parse::<f64>() {
+            Ok(tol) if tol > 0.0 && tol < 0.1 => Ok(Some(tol)),
+            _ => Err(format!("--step-tol '{v}': use 0 < tol < 0.1")),
+        },
+    }
 }
 
 /// Rótulo da eletrodinâmica nos CSVs: maxwell, log:<xi>, modmax:<gamma>.
@@ -114,6 +138,9 @@ pub(crate) fn solve(model: ModelParams, b: f64, profile: Profile, nlem: NlemMode
         .with_limits(0.02, config.mu_max)
         .with_points(config.points)
         .with_max_landau_limit(config.landau_max);
+    if let Some(tol) = config.step_tol {
+        engine = engine.with_step_tolerance(tol);
+    }
     if profile == Profile::Bdd && b > 0.0 {
         engine = engine.with_field_profile(FieldProfile::bdd(b));
     }
@@ -180,7 +207,7 @@ pub(crate) fn stars(rows: &[Row], pressure: &[f64]) -> Stars {
         center,
         r14: interpolate_at_mass(branch, 1.4, |s| s.radius).unwrap_or(f64::NAN),
         lambda14: interpolate_at_mass(branch, 1.4, |s| s.tidal_deformability).unwrap_or(f64::NAN),
-        true_maximum: branch.len() + 10 <= sequence.len(),
+        true_maximum: branch.len() + 2 <= sequence.len(),
     }
 }
 
@@ -329,11 +356,11 @@ pub(crate) fn progress(total: usize) -> indicatif::ProgressBar {
 }
 
 /// `study b [--models GM1] [--bmin 1e14] [--bmax 1e20] [--per-decade 8]
-///  [--profiles constante,bdd] [--points 1500] [--mu-max 3.0] [--no-hyperons]
+///  [--profiles constante,bdd] [--step-tol 1e-3 | --uniform --points 1500] [--mu-max 3.0] [--no-hyperons]
 ///  [--no-stability] [--delta 1e-4] [--landau-max 20000] [--amm] [--nlem maxwell,log:1e17]
 ///  [--out results/study_b] [--threads N]`
 pub fn run(raw: &[String]) -> Result<(), String> {
-    let args = Args::parse(raw, &["no-hyperons", "no-stability", "amm"])?;
+    let args = Args::parse(raw, &["no-hyperons", "no-stability", "amm", "uniform"])?;
     let (b_min, b_max) = (args.f64_or("bmin", 1e14)?, args.f64_or("bmax", 1e20)?);
     let per_decade = args.usize_or("per-decade", 8)?;
     let delta = args.f64_or("delta", 1e-4)?;
@@ -348,6 +375,7 @@ pub fn run(raw: &[String]) -> Result<(), String> {
         hyperons: !args.switch("no-hyperons"),
         landau_max: args.usize_or("landau-max", MAX_LANDAU_LIMIT)?,
         amm: args.switch("amm"),
+        step_tol: step_tolerance(&args)?,
     };
     if config.landau_max == 0 {
         return Err("--landau-max deve ser >= 1".into());

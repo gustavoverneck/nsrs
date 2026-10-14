@@ -222,6 +222,27 @@ efetivo $B_{\rm ef}=B/(1+B^2/2\xi^2)$ nos níveis de Landau, premissa que não
 vale mais (os níveis de Landau usam $B$ e a NLEM entra só na tensão do campo;
 ver PHYSICS.md). `scan log` cobre a varredura em $\xi$.
 
+Malha em $\mu_n$ dos estudos (`study log`, `study b`, `study profile`): por
+padrão o passo é adaptativo (`--step-tol 1e-3`, `HadronsMatter::with_step_tolerance`).
+O vácuo é atravessado com passo grosso, o limiar da matéria é cercado pelo lado
+do vácuo e, na matéria, o passo segue a variação relativa de $n_B$ e $\epsilon$
+e o desvio da extrapolação linear (o erro da interpolação usada pela TOV), entre
+0.09 e 9.4 MeV. `--uniform --points N` volta à malha uniforme antiga. Teste de
+convergência (`cargo run --release --example grid_convergence`; GM1, GM3, FSU2;
+$B=0$, $10^{17}$, $10^{18}$ G; perfis constante e BDD; com e sem AMM), contra
+tol $=3\times10^{-4}$: com tol $=10^{-3}$, $M_{max}$ fica a 0.002% e $R_{1.4}$
+e $\Lambda_{1.4}$ a 0.08%, com cerca de 1/3 das linhas. A malha uniforme de 1500
+pontos é grossa logo acima do limiar e superestima $R_{1.4}$ em até 0.85%.
+
+Sequências de estrelas (`generate_star_sequence`): as pressões centrais têm
+malha própria, uniforme em $\ln P_c$ com passo 0.06 (~150 estrelas), em vez de
+uma estrela por linha da EoS. A estrela de massa máxima (seção áurea) e a de
+$1.4\,M_\odot$ no ramo estável (secante) entram na sequência: $M_{max}$,
+$R_{1.4}$ e $\Lambda_{1.4}$ não têm erro de amostragem. `generate_mr_curve`
+(colunas 34-36 do eos.dat) continua com uma estrela por linha. $\Lambda_{1.4}$
+tem um ruído de ~0.1% entre estrelas vizinhas, vindo da integração de $y(r)$
+pelas quinas da EoS, não da malha.
+
 Organização do código: `main.rs` (despacho e ajuda), `cli.rs` (argumentos),
 `scan.rs`, `dark.rs`, `quarks.rs`, `report.rs`, `tools.rs` (`tov`, `plot`) e
 `validate.rs`.

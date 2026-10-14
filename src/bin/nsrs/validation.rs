@@ -244,7 +244,7 @@ impl Sequence {
 
     /// Máximo de fato: há estrelas instáveis depois dele.
     fn has_true_maximum(&self) -> bool {
-        self.branch().len() + 10 <= self.stars.len()
+        self.branch().len() + 2 <= self.stars.len()
     }
 
     fn at_mass(&self, mass: f64, value: impl Fn(&StarProperties) -> f64) -> Option<f64> {

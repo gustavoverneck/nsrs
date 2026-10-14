@@ -226,6 +226,33 @@ fn eos_crosses_the_vacuum_threshold_with_strong_field_and_amm() {
     }
 }
 
+/// Passo adaptativo: cruza o mesmo limiar (com AMM a 1e18 G, também no perfil
+/// BDD) e chega à matéria densa com bem menos pontos que a malha uniforme.
+#[test]
+fn adaptive_step_crosses_the_vacuum_threshold_with_fewer_points() {
+    for model in [GM1, GM3, FSU2] {
+        for bdd in [false, true] {
+            let mut engine = HadronsMatter::new(model, 1e18)
+                .with_anomalous_moments(true)
+                .with_limits(0.02, 3.0)
+                .with_points(1500)
+                .with_step_tolerance(1e-3);
+            if bdd {
+                engine = engine.with_field_profile(nsrs::FieldProfile::bdd(1e18));
+            }
+            let mut solver = Solver::new(EngineMode::Hadrons(engine));
+            let rows = solver.solve();
+            let nb_max = rows.iter().map(|r| r[COL_NB]).fold(0.0, f64::max);
+            assert!(nb_max > 5.0, "n_B max = {nb_max}, termination = {:?}", solver.termination());
+            assert!(!solver.termination().unwrap().is_anomalous());
+            assert!(rows.len() < 600, "{} rows", rows.len());
+            // Vácuo com passo grosso: poucas linhas antes da matéria.
+            let vacuum = rows.iter().take_while(|r| r[COL_NB] <= 0.0).count();
+            assert!(vacuum < 80, "{vacuum} vacuum rows");
+        }
+    }
+}
+
 /// FSU2 tem lambda < 0 e, em alta densidade, M*/M do nêutron cruza zero. A
 /// EoS deve parar ali (depois de M_max, em ~6.2 n0) sem gravar linhas com
 /// massa efetiva não positiva.

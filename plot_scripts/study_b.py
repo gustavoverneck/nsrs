@@ -15,7 +15,7 @@ Lê <pasta>/stars.csv e <pasta>/stability.csv (padrão: results/study_b) e gera,
   (s = f_vac - c_m < 0 com os passos delta e delta/2: formação de domínios) e mecanicamente
   instáveis (dP_perp/dn_B < 0), e as trajetórias B(n_B) do perfil BDD para alguns B0. No
   caso Log, a linha vertical marca B = sqrt(2) xi (dH/dB do vácuo = 0).
-- study_b_unstable_fraction_<M>.png: fração dos pontos de densidade instáveis por B, uma
+- study_b_unstable_fraction_<M>.png: fração do intervalo de densidade instável por B, uma
   curva por eletrodinâmica.
 
 CSVs antigos, sem a coluna `nlem`, são lidos como Maxwell.
@@ -246,12 +246,21 @@ def plot_fraction(rows: list[dict], model: str, out: Path) -> Path:
     fig, ax = plt.subplots(figsize=(8.5, 4.8))
     for k, nlem in enumerate(nlems):
         color = NLEM_COLORS[k % len(NLEM_COLORS)]
-        b, _, magnetic, mechanical = unstable_flags([r for r in rows if r["nlem"] == nlem])
-        per_b = defaultdict(lambda: [0, 0, 0])
-        for x, m, d in zip(b, magnetic, mechanical):
-            per_b[x][0] += 1
-            per_b[x][1] += m
-            per_b[x][2] += d
+        b, n, magnetic, mechanical = unstable_flags([r for r in rows if r["nlem"] == nlem])
+        # Cada ponto pesa pelo seu intervalo de densidade: a malha em mu_n
+        # pode ser adaptativa (--step-tol) e não espaça n_B uniformemente.
+        groups = defaultdict(list)
+        for x, y, m, d in zip(b, n, magnetic, mechanical):
+            groups[x].append((y, m, d))
+        per_b = defaultdict(lambda: [0.0, 0.0, 0.0])
+        for x, points in groups.items():
+            points.sort()
+            ns = [p[0] for p in points]
+            for i, (_, m, d) in enumerate(points):
+                w = 0.5 * (ns[min(i + 1, len(ns) - 1)] - ns[max(i - 1, 0)]) if len(ns) > 1 else 1.0
+                per_b[x][0] += w
+                per_b[x][1] += w * m
+                per_b[x][2] += w * d
         fields = sorted(per_b)
         ax.plot(fields, [100 * per_b[x][1] / per_b[x][0] for x in fields], "-", marker="o", ms=3,
                 color=color, lw=2.0, label=f"{nlem_name(nlem)}: magnética")
@@ -260,7 +269,7 @@ def plot_fraction(rows: list[dict], model: str, out: Path) -> Path:
                     label=f"{nlem_name(nlem)}: mecânica")
     ax.set_xscale("log")
     ax.set_xlabel("B [G]")
-    ax.set_ylabel("pontos de densidade instáveis [%]")
+    ax.set_ylabel(r"fração instável do intervalo de $n_B$ [%]")
     ax.set_title(f"{model}: fração instável da EoS ($n_B \\geq 0.05\\,n_0$, campo constante)")
     ax.grid(alpha=0.25, lw=0.6)
     ax.legend(frameon=False, fontsize=8)

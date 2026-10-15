@@ -13,6 +13,7 @@ mod report;
 mod scan;
 mod study;
 mod study_b;
+mod study_hb;
 mod study_profile;
 mod tools;
 mod validate;
@@ -93,6 +94,7 @@ fn main() {
         ("study", "log") => study::log(tail),
         ("study", "b") => study_b::run(tail),
         ("study", "profile") => study_profile::run(tail),
+        ("study", "hb") => study_hb::run(tail),
         ("dark", "scan") => dark::scan(tail),
         ("dark", "benchmarks") => dark::benchmarks(tail),
         ("dark", "single") => dark::single(tail),

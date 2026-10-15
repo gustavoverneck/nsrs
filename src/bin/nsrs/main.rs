@@ -54,6 +54,11 @@ Estudos (tabela para análise e publicação):
                 Permeabilidade, magnetização, razões campo/total e estabilidade magnética
                 local por densidade e ao longo do raio (M_max e 1.4 M_sun). -> results/study_profile/
 
+  study hb      [--models GM1,GM3,FSU2] [--densities 2,4] [--bmin 1e15] [--bmax 1e19]
+                [--per-decade 1000] [--b-ref 1e17] [--no-hyperons] [--amm] [--out results/study_hb]
+                H(B) da matéria a mu_n fixo (P_m, 𝓜B, 4 pi 𝓜): laços de dHvA e
+                domínios de Condon; figura com plot_scripts/hb_domains.py. -> results/study_hb/
+
 Setor escuro:
   dark scan        [--models GM1,GM3] [--b 1e17]  Grade 10^4 (epsilon, m_X, g_D, Y_chi). -> output/darkphotons_scan/
   dark benchmarks  [--models GM1,GM3]             Cenários H0, S1-S3 (Kumar et al.).     -> output/darkphotons_benchmarks/

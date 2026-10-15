@@ -125,7 +125,7 @@ def main():
     a.axhline(0, color="0.5", lw=0.5)
     a.set(xscale="log", xlabel=r"$B$ [G]", ylabel=r"$4\pi\mathcal{M}/B$")
     a.axvspan(bz.min(), bz.max(), color="#e6550d", alpha=0.3, lw=0)
-    a.set_title(rf"(a) {args.model}, $n_B\approx{args.density}\,n_0$, fixed $\mu_n$", fontsize=9)
+    a.set_title("(a) Matter magnetization (dHvA)", fontsize=9)
 
     # (b) zoom: H = B - 4 pi M (Maxwell vacuum), equal-area construction
     h = bz - fmz
@@ -146,7 +146,7 @@ def main():
                 rf"$(B_2-B_1)/B={100 * (b2 - b1) / hs:.1f}\%$", transform=bx.transAxes, va="top", fontsize=7)
         print(f"equal-area: B1={b1:.6e} B2={b2:.6e} H*={hs:.6e} dB/B={(b2 - b1) / hs:.3e}")
     bx.set(xlabel=r"$B$ [$10^{17}$ G]", ylabel=r"$H$ [$10^{17}$ G]")
-    bx.set_title(r"(b) Maxwell: $H=B-4\pi\mathcal{M}$, equal areas", fontsize=9)
+    bx.set_title("(b) Condon domains from the matter (Maxwell)", fontsize=9)
 
     # (c) s = f_vac - c_m
     c_m = np.gradient(fm, b)
@@ -161,7 +161,7 @@ def main():
     for line in leg.get_lines():
         line.set_alpha(1.0)
         line.set_linewidth(1.2)
-    cx.set_title("(c) local stability", fontsize=9)
+    cx.set_title("(c) Local stability of a uniform field", fontsize=9)
 
     # (d) Log: total H with matter, vacuum dominates
     for lab, x, col, ls in [("Maxwell", math.inf, "k", ":"), ("Log", xi, "#d95f02", "-")]:
@@ -169,7 +169,7 @@ def main():
     dx.axvline(math.sqrt(2), color="#d95f02", ls="-.", lw=0.7)
     dx.set(xscale="log", yscale="log", xlabel=r"$B/\xi$", ylabel=r"$H/\xi$", ylim=(1e-2, 1e2))
     dx.legend(fontsize=7, loc="upper left", frameon=False)
-    dx.set_title(r"(d) Log: $H$ falls above $\sqrt{2}\,\xi$, no $B_2$", fontsize=9)
+    dx.set_title(r"(d) Log vacuum: no closing $B_2$", fontsize=9)
 
     fig.tight_layout()
     for ext in ("pdf", "png"):

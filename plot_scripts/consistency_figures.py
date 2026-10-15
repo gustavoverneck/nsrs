@@ -201,7 +201,7 @@ def fig_radial(radial_path: Path, out: Path, model: str):
                 r0 = neg.max()
                 for ax in (top, bottom):
                     ax.axvline(r0, color=color, lw=0.6, ls=":")
-                top.axvspan(0, r0, color=color, alpha=0.07, lw=0)
+                top.fill_between(r, fv, 0.0, where=fv < 0, color=color, alpha=0.3, lw=0)
         top.set_ylim(-0.15, 1.05)
         top.set_ylabel(r"$f_{\rm vac}=dH/dB$" if col == 0 else "")
         panel_label(top, col, rf"{model}, BDD, $B_0=10^{{{round(math.log10(b0))}}}$ G")

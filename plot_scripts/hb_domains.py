@@ -150,13 +150,17 @@ def main():
 
     # (c) s = f_vac - c_m
     c_m = np.gradient(fm, b)
-    for lab, x, col in [("Maxwell", math.inf, "k"), (rf"Log, $\xi=10^{{{int(round(math.log10(xi)))}}}$ G", xi, "#d95f02")]:
+    for lab, x, col, alpha in [("Maxwell", math.inf, "k", 1.0),
+                               (rf"Log, $\xi=10^{{{int(round(math.log10(xi)))}}}$ G", xi, "#d95f02", 0.35)]:
         s = f_vac(b, x) - c_m
-        cx.plot(b, s, color=col, lw=0.4, label=f"{lab}: $s<0$ in {100 * (s < 0).mean():.0f}% of $B$")
+        cx.plot(b, s, color=col, lw=0.4, alpha=alpha, label=f"{lab}: $s<0$ in {100 * (s < 0).mean():.0f}% of $B$")
     cx.axhline(0, color="0.5", lw=0.5)
     cx.axvline(math.sqrt(2) * xi, color="#d95f02", ls="-.", lw=0.7)
     cx.set(xscale="log", yscale="symlog", xlabel=r"$B$ [G]", ylabel=r"$s=dH/dB=f_{\rm vac}-c_m$")
-    cx.legend(fontsize=7, loc="lower left", frameon=False)
+    leg = cx.legend(fontsize=7, loc="upper right", frameon=True, framealpha=0.9)
+    for line in leg.get_lines():
+        line.set_alpha(1.0)
+        line.set_linewidth(1.2)
     cx.set_title("(c) local stability", fontsize=9)
 
     # (d) Log: total H with matter, vacuum dominates

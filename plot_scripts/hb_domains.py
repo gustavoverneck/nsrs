@@ -148,22 +148,20 @@ def main():
     bx.set(xlabel=r"$B$ [$10^{17}$ G]", ylabel=r"$H$ [$10^{17}$ G]")
     bx.set_title(r"(b) Maxwell: $H=B-4\pi\mathcal{M}$, equal areas", fontsize=9)
 
-    # (c) fraction of B with s = f_vac - c_m < 0, in bins of 0.1 decade
+    # (c) s = f_vac - c_m
     c_m = np.gradient(fm, b)
-    edges = 10 ** np.arange(math.floor(math.log10(b.min()) * 10) / 10, math.log10(b.max()) + 0.1, 0.1)
-    centers = np.sqrt(edges[1:] * edges[:-1])
-    idx = np.digitize(b, edges) - 1
-    for lab, x, col, ls in [("Maxwell", math.inf, "k", "-"),
-                            (rf"Log, $\xi=10^{{{int(round(math.log10(xi)))}}}$ G", xi, "#d95f02", "--")]:
-        unstable = (f_vac(b, x) - c_m) < 0
-        frac = np.array([unstable[idx == k].mean() if (idx == k).any() else np.nan for k in range(len(centers))])
-        cx.plot(centers, 100 * frac, color=col, ls=ls, lw=1.4, marker="o", ms=2.5, label=lab)
+    for lab, x, col, alpha in [("Maxwell", math.inf, "k", 1.0),
+                               (rf"Log, $\xi=10^{{{int(round(math.log10(xi)))}}}$ G", xi, "#d95f02", 0.35)]:
+        s = f_vac(b, x) - c_m
+        cx.plot(b, s, color=col, lw=0.4, alpha=alpha, label=f"{lab}: $s<0$ in {100 * (s < 0).mean():.0f}% of $B$")
+    cx.axhline(0, color="0.5", lw=0.5)
     cx.axvline(math.sqrt(2) * xi, color="#d95f02", ls="-.", lw=0.7)
-    cx.text(math.sqrt(2) * xi * 1.15, 92, r"$\sqrt{2}\,\xi$", color="#d95f02", fontsize=8)
-    cx.set(xscale="log", ylim=(-3, 103), xlabel=r"$B$ [G]",
-           ylabel=r"unstable fraction of $B$ [%]" "\n" r"($s=dH/dB<0$)")
-    cx.legend(fontsize=7, loc="upper left", frameon=False)
-    cx.set_title("(c) where the uniform field is unstable", fontsize=9)
+    cx.set(xscale="log", yscale="symlog", xlabel=r"$B$ [G]", ylabel=r"$s=dH/dB=f_{\rm vac}-c_m$")
+    leg = cx.legend(fontsize=7, loc="upper right", frameon=True, framealpha=0.9)
+    for line in leg.get_lines():
+        line.set_alpha(1.0)
+        line.set_linewidth(1.2)
+    cx.set_title("(c) local stability", fontsize=9)
 
     # (d) Log: total H with matter, vacuum dominates
     for lab, x, col, ls in [("Maxwell", math.inf, "k", ":"), ("Log", xi, "#d95f02", "-")]:

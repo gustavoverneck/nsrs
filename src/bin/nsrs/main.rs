@@ -13,6 +13,7 @@ mod report;
 mod scan;
 mod study;
 mod study_b;
+mod study_hb;
 mod study_profile;
 mod tools;
 mod validate;
@@ -52,6 +53,11 @@ Estudos (tabela para análise e publicação):
                 [--out results/study_profile]
                 Permeabilidade, magnetização, razões campo/total e estabilidade magnética
                 local por densidade e ao longo do raio (M_max e 1.4 M_sun). -> results/study_profile/
+
+  study hb      [--models GM1,GM3,FSU2] [--densities 2,4] [--bmin 1e15] [--bmax 1e19]
+                [--per-decade 1000] [--b-ref 1e17] [--no-hyperons] [--amm] [--out results/study_hb]
+                H(B) da matéria a mu_n fixo (P_m, 𝓜B, 4 pi 𝓜): laços de dHvA e
+                domínios de Condon; figura com plot_scripts/hb_domains.py. -> results/study_hb/
 
 Setor escuro:
   dark scan        [--models GM1,GM3] [--b 1e17]  Grade 10^4 (epsilon, m_X, g_D, Y_chi). -> output/darkphotons_scan/
@@ -93,6 +99,7 @@ fn main() {
         ("study", "log") => study::log(tail),
         ("study", "b") => study_b::run(tail),
         ("study", "profile") => study_profile::run(tail),
+        ("study", "hb") => study_hb::run(tail),
         ("dark", "scan") => dark::scan(tail),
         ("dark", "benchmarks") => dark::benchmarks(tail),
         ("dark", "single") => dark::single(tail),

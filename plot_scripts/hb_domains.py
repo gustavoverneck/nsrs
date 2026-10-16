@@ -22,7 +22,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.optimize import brentq
+
+from hb_phase import ERG_PER_MEV_FM3, coexistence
 
 STYLE = Path(__file__).with_name("paper.mplstyle")
 if STYLE.exists():
@@ -36,8 +37,9 @@ def load(path: Path, model: str, density: str):
             if r["model"] == model and float(r["n_ref_over_n0"]) == float(density)]
     b = np.array([float(r["B_G"]) for r in rows])
     four_pi_m = np.array([float(r["four_pi_M_G"]) for r in rows])
+    p_m = np.array([float(r["P_m_MeV_fm3"]) for r in rows]) * ERG_PER_MEV_FM3
     order = np.argsort(b)
-    return b[order], four_pi_m[order], float(rows[0]["mu_n"]) if rows else math.nan
+    return b[order], four_pi_m[order], float(rows[0]["mu_n"]) if rows else math.nan, p_m[order]
 
 
 def h_vac(b, xi):
@@ -51,57 +53,6 @@ def f_vac(b, xi):
     return (1.0 - x) / (1.0 + x) ** 2
 
 
-def equal_area(b, h):
-    """Maxwell construction on the largest loop of h(b) (h falls with b somewhere).
-    Returns (B1, B2, H*) or None."""
-    falling = np.diff(h) < 0
-    if not falling.any():
-        return None
-    # largest contiguous falling stretch
-    best, i = None, 0
-    while i < len(falling):
-        if falling[i]:
-            j = i
-            while j < len(falling) and falling[j]:
-                j += 1
-            drop = h[i] - h[j]
-            if best is None or drop > best[2]:
-                best = (i, j, drop)
-            i = j
-        else:
-            i += 1
-    top, bottom, _ = best
-
-    def ends(hs):
-        k1 = top
-        while k1 > 0 and h[k1] > hs:
-            k1 -= 1
-        k2 = bottom
-        while k2 < len(h) - 1 and h[k2] < hs:
-            k2 += 1
-        if h[k1] > hs or h[k2] < hs:
-            return None
-        b1 = np.interp(hs, [h[k1], h[k1 + 1]], [b[k1], b[k1 + 1]])
-        b2 = np.interp(hs, [h[k2 - 1], h[k2]], [b[k2 - 1], b[k2]])
-        return b1, b2
-
-    def area(hs):
-        b1, b2 = ends(hs)
-        m = (b > b1) & (b < b2)
-        bb = np.concatenate([[b1], b[m], [b2]])
-        hh = np.concatenate([[hs], h[m], [hs]])
-        return np.trapezoid(hh - hs, bb)
-
-    lo, hi = h[bottom], h[top]
-    eps = 1e-9 * (hi - lo)
-    try:
-        hs = brentq(area, lo + eps, hi - eps)
-    except ValueError:
-        return None
-    b1, b2 = ends(hs)
-    return b1, b2, hs
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hb", type=Path, default=Path("results/study_hb/hb.csv"))
@@ -113,8 +64,8 @@ def main():
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
-    b, fm, mu = load(args.hb, args.model, args.density)
-    bz, fmz, _ = load(args.zoom, args.model, args.density)
+    b, fm, mu, _ = load(args.hb, args.model, args.density)
+    bz, fmz, _, pz = load(args.zoom, args.model, args.density)
     xi = args.xi
 
     fig, axes = plt.subplots(2, 2, figsize=(PAGE_W, 5.2))
@@ -131,9 +82,11 @@ def main():
     h = bz - fmz
     unit = 1e17
     bx.plot(bz / unit, h / unit, color="k", lw=1.0)
-    eq = equal_area(bz, h)
+    # common tangent of g = B^2/2 - 4 pi P_m (2x2 system, see hb_phase.py); widest closed pair
+    pairs = [d for d in coexistence(bz, pz, fmz, math.inf) if d["converged"] and not d["open"]]
+    eq = max(pairs, key=lambda d: d["B2"] - d["B1"]) if pairs else None
     if eq:
-        b1, b2, hs = eq
+        b1, b2, hs = eq["B1"], eq["B2"], eq["H"]
         m = (bz >= b1) & (bz <= b2)
         bx.fill_between(bz[m] / unit, h[m] / unit, hs / unit, where=h[m] > hs, color="#9ecae1", lw=0)
         bx.fill_between(bz[m] / unit, h[m] / unit, hs / unit, where=h[m] < hs, color="#fdae6b", lw=0)
@@ -143,7 +96,7 @@ def main():
         bx.annotate(r"$B_2$", (b2 / unit, hs / unit), (2, 4), textcoords="offset points", color="#08519c", fontsize=8)
         bx.text(0.03, 0.95, rf"$B_1={b1 / unit:.4f}\times10^{{17}}$ G" "\n"
                 rf"$B_2={b2 / unit:.4f}\times10^{{17}}$ G" "\n"
-                rf"$(B_2-B_1)/B={100 * (b2 - b1) / hs:.1f}\%$", transform=bx.transAxes, va="top", fontsize=7)
+                rf"$(B_2-B_1)/B={100 * eq['dB_over_B']:.2f}\%$", transform=bx.transAxes, va="top", fontsize=7)
         print(f"equal-area: B1={b1:.6e} B2={b2:.6e} H*={hs:.6e} dB/B={(b2 - b1) / hs:.3e}")
     bx.set(xlabel=r"$B$ [$10^{17}$ G]", ylabel=r"$H$ [$10^{17}$ G]")
     bx.set_title("(b) Condon domains from the matter (Maxwell)", fontsize=9)
